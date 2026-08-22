@@ -14,9 +14,9 @@ const TOKEN_URL = 'https://www.strava.com/oauth/token'
 const API_BASE = 'https://www.strava.com/api/v3'
 
 /** `activity:read_all` is required to see private activities. */
-export const SCOPES = 'read,activity:read_all'
+const SCOPES = 'read,activity:read_all'
 
-export interface StravaTokens {
+interface StravaTokens {
   access_token: string
   refresh_token: string
   expires_at: number // epoch seconds

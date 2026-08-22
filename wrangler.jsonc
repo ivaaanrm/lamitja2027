@@ -17,27 +17,18 @@
     }
   ],
 
-  "kv_namespaces": [
-    { "binding": "SESSION", "id": "f5cdab75361c4d67b3e9bcbe3aa64076" },
-    { "binding": "CACHE", "id": "ddbcc843b1204d3cb0df5d8581af8d53" }
-  ],
+  // CACHE holds one thing: the single-use OAuth state token.
+  "kv_namespaces": [{ "binding": "CACHE", "id": "ddbcc843b1204d3cb0df5d8581af8d53" }],
 
   "triggers": {
     // Nightly safety net; the webhook handles the common case.
     "crons": ["0 3 * * *"]
   },
 
+  // The race, the goal and the block dates are constants in `src/lib/block.ts`, not
+  // config — they are compiled into the training maths and never differ per environment.
   "vars": {
-    "CF_ACCOUNT_ID": "41d0eba60e2936cbee93a0b90fa35e92",
-    // Cron has no inbound request, so the public origin must be configured.
-    "PUBLIC_ORIGIN": "https://lamitja2027.iromero-py.workers.dev",
-    "AI_GATEWAY_ID": "lamitja",
-    "RACE_NAME": "La Mitja",
-    "RACE_DATE": "2027-01-24",
-    "RACE_GOAL_SECONDS": "4799",
-    // Not secret: the client ID is public in every OAuth redirect, and the allowlist
-    // is a gate on IDs that are already public on Strava profiles.
-    "STRAVA_CLIENT_ID": "183487",
-    "ALLOWED_ATHLETE_IDS": "56881786"
+    // Not secret: the client ID is public in every OAuth redirect.
+    "STRAVA_CLIENT_ID": "183487"
   }
 }
