@@ -8,8 +8,15 @@ import { claimDueJobs, deferAll, enqueue, markDone, markFailed, pruneCompleted }
 import { mapActivity } from '../strava/mapper'
 
 /** Keep a drain well inside the cron's wall-clock and the read-rate budget. */
-const JOBS_PER_RUN = 10
+const JOBS_PER_ROUND = 10
 const DONE_JOB_TTL_MS = 7 * 24 * 60 * 60 * 1000
+
+/**
+ * A backfill page enqueues the *next* page, so a single-round drain advances history by
+ * only one page per invocation. Rounds let one drain walk the whole history; the rate-limit
+ * budget is the real stop condition, this is just a runaway guard.
+ */
+const MAX_ROUNDS = 25
 
 export interface DrainReport {
   claimed: number
@@ -28,26 +35,33 @@ export async function drainJobs(
   origin: string,
   now: number = Date.now(),
 ): Promise<DrainReport> {
-  const jobs = await claimDueJobs(db, now, JOBS_PER_RUN)
-  const report: DrainReport = { claimed: jobs.length, succeeded: 0, failed: 0, rateLimited: false }
+  const report: DrainReport = { claimed: 0, succeeded: 0, failed: 0, rateLimited: false }
 
-  for (const job of jobs) {
-    try {
-      await runJob(db, job, origin)
-      await markDone(db, job.id)
-      report.succeeded += 1
-    } catch (error) {
-      report.failed += 1
+  rounds: for (let round = 0; round < MAX_ROUNDS; round++) {
+    const jobs = await claimDueJobs(db, Date.now(), JOBS_PER_ROUND)
+    if (jobs.length === 0) break
 
-      if (error instanceof StravaRateLimitError) {
-        // No point trying the rest of the queue against a closed window.
-        await markFailed(db, job, error, error.retryAt)
-        await deferAll(db, error.retryAt)
-        report.rateLimited = true
-        break
+    report.claimed += jobs.length
+
+    for (const job of jobs) {
+      try {
+        await runJob(db, job, origin)
+        await markDone(db, job.id)
+        report.succeeded += 1
+      } catch (error) {
+        report.failed += 1
+
+        if (error instanceof StravaRateLimitError) {
+          // No point working the rest of the queue against a closed window. Park
+          // everything until it reopens and let the cron pick it up then.
+          await markFailed(db, job, error, error.retryAt)
+          await deferAll(db, error.retryAt)
+          report.rateLimited = true
+          break rounds
+        }
+
+        await markFailed(db, job, error)
       }
-
-      await markFailed(db, job, error)
     }
   }
 

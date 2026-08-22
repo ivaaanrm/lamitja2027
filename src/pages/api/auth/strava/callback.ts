@@ -7,6 +7,7 @@ import { setSession } from '@/lib/auth/session'
 import { exchangeCode } from '@/lib/strava/oauth'
 import { saveTokens } from '@/lib/strava/tokens'
 import { enqueue } from '@/lib/sync/jobs'
+import { drainJobs } from '@/lib/sync/runner'
 import { getSyncState } from '@/lib/sync/activities'
 
 export const prerender = false
@@ -81,10 +82,17 @@ export const GET: APIRoute = async (context) => {
   await saveTokens(db, athlete.id, token, tokenEncryptionKey(), granted)
   await setSession(context, { athleteId: athlete.id })
 
-  // First connection kicks off the history walk; the cron pages through it from here.
-  const state_ = await getSyncState(db, athlete.id)
-  if (!state_.backfillComplete) {
+  // First connection kicks off the history walk. Drain it right away rather than leaving
+  // the athlete watching a spinner until the next quarter-hourly cron; the cron remains
+  // the safety net if this request's `waitUntil` budget runs out mid-backfill.
+  const syncState_ = await getSyncState(db, athlete.id)
+  if (!syncState_.backfillComplete) {
     await enqueue(db, { athleteId: athlete.id, kind: 'backfill.page' })
+    context.locals.cfContext?.waitUntil(
+      drainJobs(db, url.origin).catch((error) => {
+        console.error('[callback] initial drain failed', error)
+      }),
+    )
   }
 
   return new Response(null, { status: 302, headers: { location: '/?connect=ok' } })

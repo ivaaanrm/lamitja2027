@@ -6,11 +6,21 @@ import { mapActivity, mapLap } from '../strava/mapper'
 import type { StravaActivity } from '../strava/types'
 
 /**
- * SQLite binds at most 999 variables per statement. Activities carry ~26 columns, so
- * chunk well under that rather than discovering the ceiling on a big backfill page.
+ * D1 binds at most **100 parameters per query** — far tighter than SQLite's own 999, and
+ * the limit that actually bites here: activities carry 26 columns, so a naive 20-row
+ * insert would send 520 parameters and fail outright.
+ *
+ * Derive the row count from the column count so adding a column can never silently push a
+ * statement back over the edge.
  */
-const ACTIVITY_CHUNK = 20
-const LAP_CHUNK = 40
+const D1_MAX_BOUND_PARAMS = 100
+
+/** Statements per `db.batch()` call — one round trip instead of one per chunk. */
+const STATEMENTS_PER_BATCH = 50
+
+function rowsPerStatement(columnCount: number): number {
+  return Math.max(1, Math.floor(D1_MAX_BOUND_PARAMS / columnCount))
+}
 
 function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = []
@@ -31,11 +41,18 @@ const ACTIVITY_UPDATE_SET = Object.fromEntries(
 export async function upsertActivities(db: Database, rows: NewActivity[]): Promise<number> {
   if (rows.length === 0) return 0
 
-  for (const batch of chunk(rows, ACTIVITY_CHUNK)) {
-    await db
-      .insert(activities)
-      .values(batch)
-      .onConflictDoUpdate({ target: activities.id, set: ACTIVITY_UPDATE_SET })
+  const perStatement = rowsPerStatement(Object.keys(getTableColumns(activities)).length)
+  const statements = chunk(rows, perStatement).map((values) =>
+    db.insert(activities).values(values).onConflictDoUpdate({
+      target: activities.id,
+      set: ACTIVITY_UPDATE_SET,
+    }),
+  )
+
+  for (const group of chunk(statements, STATEMENTS_PER_BATCH)) {
+    // A D1 batch is one transaction and one network round trip; a 200-activity page
+    // becomes a couple of calls rather than seventy.
+    await db.batch(group as [(typeof group)[number], ...typeof group])
   }
 
   return rows.length
@@ -51,8 +68,11 @@ export async function upsertLaps(
   await db.delete(laps).where(eq(laps.activityId, activityId))
   if (rows.length === 0) return 0
 
-  for (const batch of chunk(rows, LAP_CHUNK)) {
-    await db.insert(laps).values(batch)
+  const perStatement = rowsPerStatement(Object.keys(getTableColumns(laps)).length)
+  const statements = chunk(rows, perStatement).map((values) => db.insert(laps).values(values))
+
+  for (const group of chunk(statements, STATEMENTS_PER_BATCH)) {
+    await db.batch(group as [(typeof group)[number], ...typeof group])
   }
 
   await db.update(activities).set({ hasLaps: true }).where(eq(activities.id, activityId))

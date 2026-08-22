@@ -93,6 +93,16 @@ These cost real time to establish. They are current as of Aug 2026.
 
 ## Strava integration
 
+- **D1 allows at most 100 bound parameters per query.** Batch inserts must derive their
+  rows-per-statement from the column count (`src/lib/sync/activities.ts`), not a fixed
+  number — activities have 26 columns, so a 20-row insert sends 520 parameters and fails
+  outright. `test/unit/d1-limits.test.ts` guards this when columns are added.
+- **`drainJobs` works in rounds.** A backfill page enqueues the *next* page, so a
+  single-round drain would advance history by only one page per cron tick.
+- **Laps are only fetched for activities arriving via webhook**, not for backfilled ones —
+  one API call per activity would blow the read budget. Backfilling laps for historical
+  workouts is a deliberate later job.
+
 - **Webhook subscription 367706** → `/api/strava/webhook`. One subscription per Strava app;
   list or replace it via `https://www.strava.com/api/v3/push_subscriptions`.
 - The webhook returns 200 for anything well-formed and does the work in `waitUntil`. A

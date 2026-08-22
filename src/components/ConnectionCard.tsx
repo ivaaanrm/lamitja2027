@@ -26,10 +26,26 @@ const dateFmt = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short
  */
 export function ConnectionCard() {
   const [state, setState] = useState<State>({ kind: 'loading' })
+  const [busy, setBusy] = useState(false)
+
+  async function runSync() {
+    setBusy(true)
+    try {
+      await fetch('/api/sync/run', { method: 'POST' })
+      const response = await fetch('/api/sync/status')
+      if (response.ok) setState({ kind: 'connected', status: await response.json() })
+    } finally {
+      setBusy(false)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
     let timer: ReturnType<typeof setTimeout>
+    // Back off rather than hammering /api/sync/status every 5s for the whole life of an
+    // open tab — a long backfill would otherwise generate thousands of requests.
+    let delay = 3000
+    const MAX_DELAY = 30_000
 
     async function poll() {
       try {
@@ -49,10 +65,11 @@ export function ConnectionCard() {
         if (cancelled) return
         setState({ kind: 'connected', status })
 
-        // Keep polling only while there is work in flight.
+        // Keep polling only while there is work in flight, easing off as it drags on.
         const pending = (status.jobs.pending ?? 0) > 0
         if (pending || !status.backfill.complete) {
-          timer = setTimeout(poll, 5000)
+          timer = setTimeout(poll, delay)
+          delay = Math.min(MAX_DELAY, Math.round(delay * 1.5))
         }
       } catch (error) {
         if (!cancelled) {
@@ -136,13 +153,20 @@ export function ConnectionCard() {
         </p>
       ) : null}
 
-      {syncing ? (
-        <p className="mt-2 text-xs text-neutral-500">
-          {pending > 0 ? `${pending} sync job${pending === 1 ? '' : 's'} queued. ` : ''}
-          Strava allows {status.rateLimit.shortUsage} requests per 15 min, so history
-          arrives a page at a time.
-        </p>
-      ) : null}
+      <button
+        type="button"
+        onClick={() => void runSync()}
+        disabled={busy}
+        className="mt-5 inline-flex h-11 w-full items-center justify-center rounded-xl border border-neutral-700 text-sm font-medium active:opacity-80 disabled:opacity-50"
+      >
+        {busy ? 'Syncing…' : syncing ? 'Resume sync' : 'Sync now'}
+      </button>
+
+      <p className="mt-3 text-xs text-neutral-500">
+        {pending > 0 ? `${pending} job${pending === 1 ? '' : 's'} queued. ` : ''}
+        Strava allows {status.rateLimit.shortUsage} requests per 15 min. A background sync
+        also runs every 15 minutes.
+      </p>
     </Shell>
   )
 }
