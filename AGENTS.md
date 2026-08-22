@@ -3,7 +3,7 @@
 Training tracker for a sub-1:20 half marathon at La Mitja on **24 January 2027**.
 Astro PWA on a single Cloudflare Worker, D1 for storage.
 
-**Scope is deliberately narrow: one athlete, one 22-week block starting Mon 24 Aug 2026.**
+**Scope is deliberately narrow: one athlete, one 23-week block starting Mon 17 Aug 2026.**
 That is ~150 activities in total. Nothing before the block is synced — the 2020–2026
 history lives in `docs/data/*.csv`, where the analysis that needed it already happened.
 Read that constraint before adding anything: it is why there is no outbox, no pagination,
@@ -33,14 +33,33 @@ curl "http://localhost:8787/cdn-cgi/handler/scheduled?cron=0+3+*+*+*&format=json
 
 ## Shape
 
-**Three tables** (`src/lib/db/schema.ts`, the source of truth — never hand-edit
+**Four tables** (`src/lib/db/schema.ts`, the source of truth — never hand-edit
 `migrations/`):
 
 | Table | Holds |
 |---|---|
 | `activities` | Runs and rides inside the block. Strava units, one row per activity. |
-| `plan_sessions` | The prescribed plan, one row per session, re-seedable by id. |
+| `plan_weeks` | One row per week of the block: phase, volume target, down-week flag. |
+| `plan_sessions` | The prescribed plan, one row per session, all of it hand-editable. |
 | `app_state` | Two values: the encrypted Strava refresh token and the last sync time. |
+
+**The plan is written, not generated.** `plan_weeks` and `plan_sessions` start empty and
+are filled in from `/plan`; every column that isn't structural is nullable, because the
+phase boundaries and volume targets in `docs/03` are expected to move as the knee and the
+Phase 0 gate report back. A week row does not exist until its first edit — `PATCH
+/api/plan/weeks/:i` upserts.
+
+**Plan-to-actual matching happens on read, not on sync** (`src/lib/plan.ts`). A session is
+done when it was ticked off by hand *or* when an activity on the same day matches it: same
+sport family, and nearest to its target distance. Nothing is written back, so a corrected
+distance or a session dragged to another day re-resolves on the next render, and completing
+a run costs no database write. `plan_sessions.activity_id` pins a session to one activity
+and always beats the heuristic — the escape hatch for the days it guesses wrong. Sessions
+Strava will never report (strength, cross) are the ones that use `done_at`.
+
+**A session's week is derived from `scheduled_on`, never stored.** Moving a session to
+another day must not be able to leave a stale week index behind it. Likewise a week's
+Monday is `BLOCK_START + i * WEEK_MS`, not a column.
 
 **Auth is one password, not Strava OAuth.** Strava OAuth is how the *server* obtains an
 API token; making it the login would mean re-authorising on every device. `APP_PASSWORD`
@@ -86,6 +105,10 @@ event body entirely — any event just means "refresh"), and a nightly cron is t
     `workerd` never installs its binary. `pnpm approve-builds --all` writes the right shape.
 13. **`wrangler d1 execute --file` against remote is flaky** (upload step fails on transient
     network errors). Retry, or use `--command`.
+14. **`pnpm preview` needs `--persist-to`.** Wrangler resolves local storage relative to the
+    config file, and `preview` points at `dist/server/wrangler.json` — so without it the
+    preview gets a *second, empty* D1 under `dist/server/.wrangler/`, and every query fails
+    with a missing table while `pnpm db:migrate:local` looks like it worked.
 
 ## Conventions
 
@@ -94,9 +117,16 @@ event body entirely — any event just means "refresh"), and a nightly cron is t
   cadence is the primary marker in the knee protocol — halving it misreads the metric.
 - **Dates are INTEGER epoch milliseconds**, stored as the athlete's local wall clock, so
   "which day was this run" does not depend on the viewing device.
-- **Pure logic stays out of I/O modules.** `src/lib/activity.ts` and `src/lib/block.ts`
-  import nothing from `cloudflare:workers` and are unit-tested in plain Node;
-  `src/lib/sync.ts` and `src/lib/strava.ts` own the side effects.
+- **Pure logic stays out of I/O modules.** `src/lib/activity.ts`, `src/lib/block.ts`,
+  `src/lib/plan.ts` and `src/lib/metrics.ts` import nothing from `cloudflare:workers`, take
+  `now` explicitly, and are unit-tested in plain Node; `src/lib/sync.ts` and
+  `src/lib/strava.ts` own the side effects.
+- **`plan.ts` ships to the browser, so it pulls in neither drizzle nor zod.** It owns
+  `SESSION_TYPES` and `db/schema.ts` imports it, not the other way round; the zod schemas
+  live in `plan-input.ts`, which only the Worker ever loads.
+- **The UI reads everything from `/api/data` in one request** and derives the rest on the
+  client. The block is a few tens of KB, so every mutation just re-reads it — there is no
+  optimistic copy of the plan that can disagree with the database.
 - Pages are prerendered. Only `src/pages/api/**` sets `export const prerender = false`.
 - **Secrets vs vars**: `STRAVA_CLIENT_SECRET`, `STRAVA_WEBHOOK_VERIFY`, `TOKEN_ENC_KEY` and
   `APP_PASSWORD` are secrets. The Strava client ID is public and lives in `wrangler.jsonc`.
