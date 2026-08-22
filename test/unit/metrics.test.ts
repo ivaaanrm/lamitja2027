@@ -91,8 +91,8 @@ describe('weekMetrics', () => {
       0,
       [week({ targetVolumeM: 40_000, phase: 'Base' })],
       [
-        { id: 'a', scheduledOn: BLOCK_START, dayOrder: 0, type: 'easy', title: 'Easy', notes: null, targetDistanceM: null, targetDurationS: null, targetPaceLoSKm: null, targetPaceHiSKm: null, doneAt: null, activityId: null, updatedAt: 0 },
-        { id: 'r', scheduledOn: BLOCK_START + DAY_MS, dayOrder: 0, type: 'rest', title: 'Rest', notes: null, targetDistanceM: null, targetDurationS: null, targetPaceLoSKm: null, targetPaceHiSKm: null, doneAt: null, activityId: null, updatedAt: 0 },
+        { id: 'a', scheduledOn: BLOCK_START, dayOrder: 0, type: 'easy', title: 'Easy', notes: null, steps: null, targetDistanceM: null, targetDurationS: null, targetPaceLoSKm: null, targetPaceHiSKm: null, doneAt: null, activityId: null, updatedAt: 0 },
+        { id: 'r', scheduledOn: BLOCK_START + DAY_MS, dayOrder: 0, type: 'rest', title: 'Rest', notes: null, steps: null, targetDistanceM: null, targetDurationS: null, targetPaceLoSKm: null, targetPaceHiSKm: null, doneAt: null, activityId: null, updatedAt: 0 },
       ],
       [activity({ startedOn: BLOCK_START })],
     )

@@ -1,3 +1,4 @@
+import { decimal } from './format'
 import type { NewActivity } from './db/schema'
 
 /**
@@ -63,14 +64,23 @@ export function formatPace(secondsPerKm: number): string {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
 }
 
-/** `12.4` km from metres — one decimal, which is the precision a GPS watch actually has. */
-export const formatKm = (metres: number) => (metres / 1000).toFixed(1)
+/** `12,4` km from metres — one decimal, which is the precision a GPS watch actually has. */
+export const formatKm = (metres: number) => decimal(metres / 1000)
 
 /** `1h 12m` / `48m` — durations here are training sessions, so seconds are noise. */
 export function formatDuration(seconds: number): string {
   const total = Math.round(seconds / 60)
   const hours = Math.floor(total / 60)
   return hours > 0 ? `${hours}h ${String(total % 60).padStart(2, '0')}m` : `${total}m`
+}
+
+/** `1:19:59` — a race time, where every second is the point and `1h 20m` is not. */
+export function formatClock(seconds: number): string {
+  const total = Math.round(seconds)
+  const mm = String(Math.floor(total / 60) % 60).padStart(2, '0')
+  const ss = String(total % 60).padStart(2, '0')
+  const hours = Math.floor(total / 3600)
+  return hours > 0 ? `${hours}:${mm}:${ss}` : `${Number(mm)}:${ss}`
 }
 
 /** `3:47–4:05` from a pace band, or a single pace when only one bound is set. */

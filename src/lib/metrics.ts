@@ -15,7 +15,7 @@ import type { Activity } from './db/schema'
 /** Goal race pace, s/km — 3:47/km for 1:19:59 over the half. */
 export const GOAL_PACE_S_KM = GOAL_TIME_S / (HALF_MARATHON_M / 1000)
 
-interface Totals {
+export interface Totals {
   runs: number
   distanceM: number
   movingS: number
