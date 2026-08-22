@@ -14,7 +14,7 @@ export const prerender = false
  */
 export const PATCH: APIRoute = async ({ params, request }) => {
   const id = params.id
-  if (!id) return json({ error: 'Missing session id' }, 400)
+  if (!id) return json({ error: 'Falta el id de la sesión' }, 400)
 
   const parsed = updateSessionInput.safeParse(await readJson(request))
   if (!parsed.success) return invalid(parsed.error)
@@ -25,17 +25,17 @@ export const PATCH: APIRoute = async ({ params, request }) => {
     .where(eq(planSessions.id, id))
     .returning()
 
-  return row ? json(row) : json({ error: 'No such session' }, 404)
+  return row ? json(row) : json({ error: 'No existe esa sesión' }, 404)
 }
 
 export const DELETE: APIRoute = async ({ params }) => {
   const id = params.id
-  if (!id) return json({ error: 'Missing session id' }, 400)
+  if (!id) return json({ error: 'Falta el id de la sesión' }, 400)
 
   const [row] = await createDb(env.DB)
     .delete(planSessions)
     .where(eq(planSessions.id, id))
     .returning({ id: planSessions.id })
 
-  return row ? new Response(null, { status: 204 }) : json({ error: 'No such session' }, 404)
+  return row ? new Response(null, { status: 204 }) : json({ error: 'No existe esa sesión' }, 404)
 }

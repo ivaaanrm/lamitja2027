@@ -26,14 +26,14 @@ async function send<T>(url: string, method: string, body?: unknown): Promise<T> 
 
   if (response.status === 401) {
     location.href = '/login'
-    throw new ApiError('Signed out')
+    throw new ApiError('Sesión cerrada')
   }
   if (!response.ok) {
     const detail = (await response.json().catch(() => null)) as {
       error?: string
       issues?: { path: string; message: string }[]
     } | null
-    throw new ApiError(detail?.error ?? `Request failed (${response.status})`, detail?.issues ?? [])
+    throw new ApiError(detail?.error ?? `Falló la petición (${response.status})`, detail?.issues ?? [])
   }
 
   return response.status === 204 ? (undefined as T) : ((await response.json()) as T)

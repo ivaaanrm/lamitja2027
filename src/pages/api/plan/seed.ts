@@ -4,7 +4,7 @@ import { getTableColumns, sql } from 'drizzle-orm'
 import { json } from '@/lib/api'
 import { createDb, type Database } from '@/lib/db/client'
 import { planSessions, planWeeks } from '@/lib/db/schema'
-import { planSessionRows, planWeekRows } from '@/lib/seed'
+import { buildPlan } from '@/lib/seed'
 
 export const prerender = false
 
@@ -33,8 +33,7 @@ export const POST: APIRoute = async () => {
   const db: Database = createDb(env.DB)
   const now = Date.now()
 
-  const weeks = planWeekRows(now)
-  const sessions = planSessionRows(now)
+  const { weeks, sessions } = buildPlan(now)
 
   const weekStmts = []
   for (let i = 0; i < weeks.length; i += chunkSize(planWeeks)) {

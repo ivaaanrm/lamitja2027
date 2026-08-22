@@ -17,6 +17,7 @@ export const SESSION_TYPES = [
   'long',
   'tempo',
   'interval',
+  'fartlek',
   'race',
   'rest',
   'cross',
@@ -25,25 +26,37 @@ export const SESSION_TYPES = [
 export type SessionType = (typeof SESSION_TYPES)[number]
 
 /** What a session type is measured in, and which activities can satisfy it. */
-type SportFamily = 'run' | 'strength' | 'other'
+export type SportFamily = 'run' | 'strength' | 'other'
 
-export const SESSION_META: Record<
-  SessionType,
-  { label: string; family: SportFamily; countsAsVolume: boolean }
-> = {
-  easy: { label: 'Easy', family: 'run', countsAsVolume: true },
-  long: { label: 'Long', family: 'run', countsAsVolume: true },
-  tempo: { label: 'Tempo', family: 'run', countsAsVolume: true },
-  interval: { label: 'Intervals', family: 'run', countsAsVolume: true },
-  race: { label: 'Race', family: 'run', countsAsVolume: true },
-  rest: { label: 'Rest', family: 'other', countsAsVolume: false },
-  cross: { label: 'Cross', family: 'other', countsAsVolume: false },
-  strength: { label: 'Strength', family: 'strength', countsAsVolume: false },
+export interface SessionMeta {
+  label: string
+  family: SportFamily
+  /** Whether its prescribed distance is part of the week's running volume. */
+  countsAsVolume: boolean
+  /** A hard day — the thing that must not land two days running. */
+  isQuality: boolean
+  /** Colour token; the class map lives in the UI, where Tailwind can see it. */
+  accent: 'slate' | 'violet' | 'amber' | 'rose' | 'fuchsia' | 'emerald' | 'teal' | 'cyan' | 'zinc'
 }
+
+export const SESSION_META: Record<SessionType, SessionMeta> = {
+  easy: { label: 'Rodaje', family: 'run', countsAsVolume: true, isQuality: false, accent: 'slate' },
+  long: { label: 'Larga', family: 'run', countsAsVolume: true, isQuality: false, accent: 'violet' },
+  tempo: { label: 'Tempo', family: 'run', countsAsVolume: true, isQuality: true, accent: 'amber' },
+  interval: { label: 'Series', family: 'run', countsAsVolume: true, isQuality: true, accent: 'rose' },
+  fartlek: { label: 'Fartlek', family: 'run', countsAsVolume: true, isQuality: true, accent: 'fuchsia' },
+  race: { label: 'Carrera', family: 'run', countsAsVolume: true, isQuality: true, accent: 'emerald' },
+  rest: { label: 'Descanso', family: 'other', countsAsVolume: false, isQuality: false, accent: 'zinc' },
+  cross: { label: 'Cruzado', family: 'other', countsAsVolume: false, isQuality: false, accent: 'cyan' },
+  strength: { label: 'Fuerza', family: 'strength', countsAsVolume: false, isQuality: false, accent: 'teal' },
+}
+
+/** The hard days. One list, so the calendar, the seed and its guardrails cannot disagree. */
+export const isQuality = (type: SessionType) => SESSION_META[type].isQuality
 
 const STRENGTH_SPORTS = new Set(['WeightTraining', 'Workout', 'Crossfit', 'Yoga', 'Pilates'])
 
-function sportFamily(sportType: string): SportFamily {
+export function sportFamily(sportType: string): SportFamily {
   if (isRun(sportType)) return 'run'
   if (STRENGTH_SPORTS.has(sportType)) return 'strength'
   return 'other'

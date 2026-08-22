@@ -16,7 +16,7 @@ export const prerender = false
 export const PATCH: APIRoute = async ({ params, request }) => {
   const weekIndex = Number(params.index)
   if (!Number.isInteger(weekIndex) || weekIndex < 0 || weekIndex >= TOTAL_WEEKS) {
-    return json({ error: `Week must be between 0 and ${TOTAL_WEEKS - 1}` }, 400)
+    return json({ error: `La semana debe estar entre 0 y ${TOTAL_WEEKS - 1}` }, 400)
   }
 
   const parsed = updateWeekInput.safeParse(await readJson(request))

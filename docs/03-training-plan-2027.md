@@ -1,11 +1,16 @@
-# La Mitja Granollers 2027 — Training Plan (High-Level Draft)
+# La Mitja Granollers 2027 — Training Plan
 
 **Target race:** La Mitja de Granollers, **Sunday 24 January 2027**
 **A-goal:** **sub-1:20:00** (3:47/km)
 **B-goal:** 1:21–1:22
 **Block:** Monday 24 Aug 2026 → Sunday 24 Jan 2027 — **22 weeks**
+**As built:** Monday 17 Aug 2026 → Sunday 24 Jan 2027 — **23 weeks** (see §9). Week numbers
+below are this document's; the app counts W1–W23 from 17 Aug.
 
-> **Status: draft.** Phase structure and volume targets only. Week-by-week sessions not yet written.
+> **Status: written.** Phase structure, volume targets and every week's sessions.
+> The week-by-week plan lives in `src/lib/seed.ts` — this document is the design it
+> encodes, and where the two disagree, this one is the intent and the code is the
+> arithmetic. Re-seed from `/plan` after editing it.
 
 ---
 
@@ -152,11 +157,26 @@ This is also a performance lever, not just injury insurance: 3:08 was gained on 
 
 If the gate is not met by W6, Phase 0 extends to 8 weeks and Phase 1 compresses. There is room in the 22 — sub-1:20 survives a two-week delay far better than it survives a March relapse.
 
-## 9. Open items
+## 9. Where the written plan departs from this document
+
+The block gained a week at the front — it starts Mon **17 Aug 2026**, not 24 Aug, so it is
+**23 weeks**, and the extra week went to Phase 0. Four other deliberate departures:
+
+| | This document | As written | Why |
+|---|---|---|---|
+| Rebuild volume | 22 → 36 km over 6 wk | 22 → 36 over 7 wk | 10.3%/wk breaches the 10% ramp cap |
+| Down weeks | W4/8/12/16/20 | index 3/8/12/16/20 | keeps the doc's positions after the one-week shift; a cutback must never open a phase |
+| Long run peak | not stated | 22 km (W18) | 32% of the peak week |
+| Race week | 28 km | ~38 km | 28 including a 21.1 km race is seven kilometres over six days — a shutdown, not a taper |
+
+**Checkpoints, as scheduled:** 10K time trial Sun 4 Oct (W7 gate) · El Tast 10K Sun 25 Oct
+(W10) · 10K race Sun 6 Dec (W16) · 10K go/no-go Sun 10 Jan (W21) · La Mitja Sun 24 Jan (W23).
+
+## 10. Open items
 
 - [ ] Physio assessment to confirm ITBS and rule out lateral meniscus involvement
-- [ ] Confirm 2027 El Tast 10K date (2025 edition: 25 Oct)
-- [ ] Identify a 10K race for the W14–15 checkpoint
-- [ ] Identify a 10K/15K race for the W19–20 go/no-go
-- [ ] Test slow-vs-fast pain response (first two weeks)
-- [ ] Write week-by-week sessions once Phase 0 gate outcome is known
+- [ ] Confirm 2027 El Tast 10K date (2025 edition: 25 Oct) — W10 assumes Sun 25 Oct
+- [ ] Find the flat, fast December 10K for the W16 checkpoint
+- [ ] Find the 10K/15K for the W21 go/no-go
+- [ ] Test slow-vs-fast pain response (first two weeks) — W1 and W2 Wednesdays are the test
+- [ ] Re-cut Phases 1–2 if the W7 gate is missed: Phase 0 extends, Phase 1 compresses

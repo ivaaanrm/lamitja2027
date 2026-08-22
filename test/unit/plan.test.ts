@@ -32,6 +32,7 @@ function session(overrides: Partial<PlanSession> = {}): PlanSession {
     type: 'easy',
     title: 'Easy',
     notes: null,
+    steps: null,
     targetDistanceM: null,
     targetDurationS: null,
     targetPaceLoSKm: null,

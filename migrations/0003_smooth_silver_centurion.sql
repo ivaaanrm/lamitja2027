@@ -1,0 +1,1 @@
+ALTER TABLE `plan_sessions` ADD `steps` text;

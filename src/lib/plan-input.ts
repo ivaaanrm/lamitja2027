@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import { BLOCK_START, TOTAL_WEEKS, WEEK_MS, startOfDay } from './block'
+import { PACE_ZONES } from './paces'
 import { SESSION_TYPES } from './plan'
+import { RECOVERY_KINDS, STEP_KINDS, type Step } from './workout'
 
 /**
  * Validation for every plan write. Kept apart from `plan.ts` because that module ships to
@@ -14,10 +16,41 @@ const scheduledOn = z
   .number()
   .int()
   .transform(startOfDay)
-  .refine(inBlock, 'Date falls outside the 22-week block')
+  .refine(inBlock, 'La fecha cae fuera del bloque')
 
 /** Metres and seconds, matching how everything else is stored. */
 const positive = z.number().positive().nullable()
+
+/**
+ * The structured workout, mirroring `Step` in `workout.ts`. Two declarations of one
+ * shape, which is the price of keeping zod out of the browser bundle — `workout.ts`
+ * ships to the client and this file never leaves the Worker. The assignment below is
+ * what keeps them honest: a field added to `Step` and forgotten here stops the build.
+ */
+const recoveryInput = z
+  .object({
+    kind: z.enum(RECOVERY_KINDS),
+    distanceM: positive,
+    durationS: z.number().int().positive().nullable(),
+  })
+  .nullable()
+
+const stepInput = z.object({
+  kind: z.enum(STEP_KINDS),
+  reps: z.number().int().min(1).max(60),
+  distanceM: positive,
+  durationS: z.number().int().positive().nullable(),
+  zone: z.enum(PACE_ZONES).nullable(),
+  recovery: recoveryInput,
+  note: z.string().trim().max(300).nullable(),
+})
+
+const steps = z.array(stepInput).max(24).nullable()
+
+// Compile-time proof that the validator and the model describe the same thing.
+type _StepsMatch = z.infer<typeof stepInput> extends Step ? true : never
+const _stepsMatch: _StepsMatch = true as const
+void _stepsMatch
 
 const sessionFields = {
   scheduledOn,
@@ -25,6 +58,7 @@ const sessionFields = {
   type: z.enum(SESSION_TYPES),
   title: z.string().trim().min(1).max(120),
   notes: z.string().trim().max(2000).nullable(),
+  steps,
   targetDistanceM: positive,
   targetDurationS: z.number().int().positive().nullable(),
   targetPaceLoSKm: positive,
@@ -38,6 +72,7 @@ export const createSessionInput = z.object({
   ...sessionFields,
   dayOrder: sessionFields.dayOrder.default(0),
   notes: sessionFields.notes.default(null),
+  steps: sessionFields.steps.default(null),
   targetDistanceM: sessionFields.targetDistanceM.default(null),
   targetDurationS: sessionFields.targetDurationS.default(null),
   targetPaceLoSKm: sessionFields.targetPaceLoSKm.default(null),
@@ -50,7 +85,7 @@ export const createSessionInput = z.object({
 export const updateSessionInput = z
   .object(sessionFields)
   .partial()
-  .refine((patch) => Object.keys(patch).length > 0, 'Nothing to update')
+  .refine((patch) => Object.keys(patch).length > 0, 'No hay nada que actualizar')
 
 export const updateWeekInput = z
   .object({
@@ -61,7 +96,7 @@ export const updateWeekInput = z
     notes: z.string().trim().max(2000).nullable(),
   })
   .partial()
-  .refine((patch) => Object.keys(patch).length > 0, 'Nothing to update')
+  .refine((patch) => Object.keys(patch).length > 0, 'No hay nada que actualizar')
 
 /** `z.input`, not `z.infer` — these describe what the editor sends, before defaults land. */
 export type CreateSessionInput = z.input<typeof createSessionInput>

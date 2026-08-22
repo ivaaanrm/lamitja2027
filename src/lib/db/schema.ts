@@ -1,8 +1,8 @@
 /**
  * Drizzle schema — the source of truth for D1. Regenerate migrations with `pnpm db:generate`.
  *
- * Scope is deliberately small: one athlete, one 22-week block starting 24 Aug 2026.
- * That is ~130 activities by race day, which is why there is no outbox, no tombstone
+ * Scope is deliberately small: one athlete, one 23-week block starting 17 Aug 2026.
+ * That is ~150 activities by race day, which is why there is no outbox, no tombstone
  * table, no materialised training-load table and no multi-user plumbing — everything
  * derived is cheap enough to compute on read.
  */
@@ -11,6 +11,7 @@ import { index, integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core
 // Declared in `plan.ts` so the browser can read the session vocabulary without
 // pulling drizzle into the client bundle.
 import { SESSION_TYPES } from '../plan'
+import type { Step } from '../workout'
 
 const now = sql`(unixepoch() * 1000)`
 
@@ -82,8 +83,15 @@ export const planSessions = sqliteTable(
     dayOrder: integer('day_order').notNull().default(0),
     type: text('type', { enum: SESSION_TYPES }).notNull(),
     title: text('title').notNull(),
-    /** The workout as prose — "6×1000 @ 3:50, 90s jog". Deliberately not a step structure. */
+    /** Coaching prose — terrain, cadence, what to abort on. Never the numbers themselves. */
     notes: text('notes'),
+    /**
+     * The workout as data: warm-up, reps, rep pace, recovery, cool-down. Stored as JSON
+     * rather than a `plan_steps` table because a step has no identity of its own — it is
+     * never queried, sorted or joined, only read back whole with the session that owns it.
+     * `null` for a session that is just a distance at a pace.
+     */
+    steps: text('steps', { mode: 'json' }).$type<Step[]>(),
     targetDistanceM: real('target_distance_m'),
     /** For sessions measured in time, not distance — strength, cycling, cross-training. */
     targetDurationS: integer('target_duration_s'),
