@@ -1,5 +1,6 @@
 import type { APIRoute } from 'astro'
-import { checkPassword, clearSessionCookie, createSessionCookie, json } from '@/lib/auth'
+import { json } from '@/lib/api'
+import { checkPassword, clearSessionCookie, createSessionCookie } from '@/lib/auth'
 
 export const prerender = false
 

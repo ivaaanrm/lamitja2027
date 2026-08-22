@@ -54,9 +54,3 @@ export async function isSignedIn(request: Request): Promise<boolean> {
   // way to sign all devices out.
   return timingSafeEqual(signature, await sign(issuedAt))
 }
-
-export const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
-  })

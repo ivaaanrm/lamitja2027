@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro'
 import { env } from 'cloudflare:workers'
-import { json } from '@/lib/auth'
+import { json } from '@/lib/api'
 import { createDb } from '@/lib/db/client'
 import { syncBlock } from '@/lib/sync'
 
