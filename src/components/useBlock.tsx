@@ -15,6 +15,8 @@ interface BlockData {
 
 export interface Block {
   data: BlockData | null
+  /** The clock, pinned on mount — every derived window is measured from this one value. */
+  now: number
   error: string | null
   /** Re-reads `/api/data`. Every mutation ends with this rather than patching local state. */
   reload: () => Promise<void>
@@ -44,13 +46,13 @@ export function useBlock(nowInput?: number): Block {
         return
       }
       if (!response.ok) {
-        setError(`Could not load data (${response.status})`)
+        setError(`No se pudieron cargar los datos (${response.status})`)
         return
       }
       setData((await response.json()) as BlockData)
       setError(null)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not reach the server')
+      setError(cause instanceof Error ? cause.message : 'No se pudo contactar con el servidor')
     }
   }, [])
 
@@ -67,6 +69,7 @@ export function useBlock(nowInput?: number): Block {
 
   return {
     data,
+    now,
     error,
     reload,
     weeks,

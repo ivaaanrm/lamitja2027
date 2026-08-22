@@ -1,15 +1,14 @@
 ---
-import Base from '../layouts/Base.astro'
+import App from '../layouts/App.astro'
 import { Dashboard } from '../components/Dashboard'
 export const prerender = true
 ---
 
-<Base title="La Mitja 2027">
-  <main class="mx-auto flex min-h-full max-w-md flex-col gap-4 px-6 py-10">
-    <header class="space-y-1">
-      <h1 class="text-2xl font-semibold tracking-tight">Sub-1:20 half</h1>
-      <p class="text-sm text-neutral-400">La Mitja &middot; 24 January 2027</p>
-    </header>
-    <Dashboard client:load />
-  </main>
-</Base>
+<App
+  title="La Mitja 2027"
+  heading="Media sub-1:20"
+  sub="La Mitja · 24 de enero de 2027"
+  tab="today"
+>
+  <Dashboard client:load />
+</App>

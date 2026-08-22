@@ -2,15 +2,17 @@ import { useState } from 'react'
 import { formatDuration, formatKm, formatPace, isRun, paceSKm } from '@/lib/activity'
 import { BLOCK_START, TOTAL_WEEKS, daysToRace, startOfDay } from '@/lib/block'
 import { cn } from '@/lib/cn'
+import { decimal } from '@/lib/format'
 import { GOAL_PACE_S_KM, type WeekMetrics } from '@/lib/metrics'
+import { hrZone, zoneTag } from '@/lib/paces'
 import { setDone } from '@/lib/plan-client'
 import type { MatchedSession, WeekPlan } from '@/lib/plan'
-import { ExtraRow, SessionRow } from './SessionRow'
+import { ThisWeek } from './ThisWeek'
 import { WeekCalendar } from './WeekCalendar'
 import { useBlock } from './useBlock'
 import { Card, CardTitle, Chip, ProgressBar, Stat } from './ui'
 
-const dayFmt = new Intl.DateTimeFormat('en-GB', {
+const dayFmt = new Intl.DateTimeFormat('es-ES', {
   weekday: 'short',
   day: 'numeric',
   month: 'short',
@@ -18,7 +20,7 @@ const dayFmt = new Intl.DateTimeFormat('en-GB', {
   // would slide them a day for anyone west of UTC.
   timeZone: 'UTC',
 })
-const timeFmt = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' })
+const timeFmt = new Intl.DateTimeFormat('es-ES', { hour: '2-digit', minute: '2-digit' })
 
 export function Dashboard() {
   const { data, error, reload, weeks, progress, currentWeek } = useBlock()
@@ -31,7 +33,7 @@ export function Dashboard() {
     try {
       const response = await fetch('/api/sync', { method: 'POST' })
       if (!response.ok) {
-        setActionError(((await response.json()) as { error?: string }).error ?? 'Sync failed')
+        setActionError(((await response.json()) as { error?: string }).error ?? 'Fallo al sincronizar')
       }
       await reload()
     } finally {
@@ -45,7 +47,7 @@ export function Dashboard() {
       await setDone(match.session.id, !match.done)
       await reload()
     } catch (cause) {
-      setActionError(cause instanceof Error ? cause.message : 'Could not save')
+      setActionError(cause instanceof Error ? cause.message : 'No se pudo guardar')
     }
   }
 
@@ -59,7 +61,7 @@ export function Dashboard() {
   if (!data || !progress) {
     return (
       <Card>
-        <p className="text-sm text-neutral-500">Loading…</p>
+        <p className="text-sm text-neutral-500">Cargando…</p>
       </Card>
     )
   }
@@ -67,12 +69,12 @@ export function Dashboard() {
   if (!data.stravaConnected) {
     return (
       <Card>
-        <p className="text-sm text-neutral-400">Connect Strava to pull in this block's runs.</p>
+        <p className="text-sm text-neutral-400">Conecta Strava para traer las salidas de este bloque.</p>
         <a
           href="/api/strava/connect"
           className="mt-4 inline-flex h-11 items-center justify-center rounded-xl bg-[#fc4c02] px-5 text-sm font-semibold text-white active:opacity-80"
         >
-          Connect with Strava
+          Conectar con Strava
         </a>
       </Card>
     )
@@ -81,6 +83,7 @@ export function Dashboard() {
   const week = weeks[currentWeek]
   const metrics = progress.weekly[currentWeek]
   const notStarted = Date.now() < BLOCK_START
+  const today = startOfDay(Date.now())
 
   const recent = data.activities
     .filter((a) => isRun(a.sportType))
@@ -89,8 +92,8 @@ export function Dashboard() {
 
   return (
     <>
-      <ThisWeekHeader metrics={metrics} notStarted={notStarted} week={week} />
-      <ThisWeek week={week} onToggle={toggle} />
+      <ThisWeekHeader metrics={metrics} notStarted={notStarted} week={week} today={today} />
+      <ThisWeek week={week} today={today} onToggle={toggle} />
 
       <Card>
         <CardTitle
@@ -101,16 +104,16 @@ export function Dashboard() {
               disabled={busy}
               className="text-xs text-neutral-400 underline underline-offset-4 disabled:opacity-50"
             >
-              {busy ? 'Syncing…' : 'Sync'}
+              {busy ? 'Sincronizando…' : 'Sincronizar'}
             </button>
           }
         >
-          Last runs
+          Últimas salidas
         </CardTitle>
 
         {recent.length === 0 ? (
           <p className="text-sm text-neutral-500">
-            Nothing yet. The block opens {dayFmt.format(new Date(BLOCK_START))}.
+            Nada todavía. El bloque abre el {dayFmt.format(new Date(BLOCK_START))}.
           </p>
         ) : (
           <ul className="divide-y divide-neutral-800">
@@ -120,8 +123,9 @@ export function Dashboard() {
                   <p className="truncate text-sm">{run.name}</p>
                   <p className="text-xs text-neutral-500">
                     {dayFmt.format(new Date(run.startedOn))}
-                    {run.cadenceSpm ? ` · ${run.cadenceSpm} spm` : ''}
-                    {run.averageHeartrate ? ` · ${Math.round(run.averageHeartrate)} bpm` : ''}
+                    {run.cadenceSpm ? ` · ${run.cadenceSpm} pasos/min` : ''}
+                    {/* The zone, not the number — see the same call in SessionCard. */}
+                    {run.averageHeartrate ? ` · ${zoneTag(hrZone(run.averageHeartrate))}` : ''}
                   </p>
                 </div>
                 <div className="shrink-0 text-right">
@@ -140,8 +144,8 @@ export function Dashboard() {
 
       <p className="text-center text-xs text-neutral-600">
         {data.lastSyncAt
-          ? `Synced ${dayFmt.format(new Date(data.lastSyncAt))} at ${timeFmt.format(new Date(data.lastSyncAt))}`
-          : 'Never synced'}
+          ? `Sincronizado el ${dayFmt.format(new Date(data.lastSyncAt))} a las ${timeFmt.format(new Date(data.lastSyncAt))}`
+          : 'Sin sincronizar todavía'}
       </p>
 
       {actionError ? <p className="text-center text-xs text-red-400">{actionError}</p> : null}
@@ -153,10 +157,12 @@ function ThisWeekHeader({
   metrics,
   notStarted,
   week,
+  today,
 }: {
   metrics: WeekMetrics
   notStarted: boolean
   week: WeekPlan | undefined
+  today: number
 }) {
   const km = metrics.totals.distanceM / 1000
   const targetKm = metrics.targetVolumeM == null ? null : metrics.targetVolumeM / 1000
@@ -165,15 +171,15 @@ function ThisWeekHeader({
     <Card>
       <div className="flex items-baseline justify-between gap-3">
         <p className="text-xs font-medium uppercase tracking-widest text-neutral-500">
-          {notStarted ? 'Week 1 starts soon' : `Week ${metrics.weekIndex + 1} of ${TOTAL_WEEKS}`}
+          {notStarted ? 'La semana 1 empieza pronto' : `Semana ${metrics.weekIndex + 1} de ${TOTAL_WEEKS}`}
         </p>
-        <p className="text-xs text-neutral-500">{daysToRace(Date.now())} days to go</p>
+        <p className="text-xs text-neutral-500">Faltan {daysToRace(Date.now())} días</p>
       </div>
 
       <p className="mt-2 text-4xl font-semibold tabular-nums">
-        {km.toFixed(1)}
+        {decimal(km)}
         <span className="ml-1.5 text-base font-normal text-neutral-500">
-          {targetKm == null ? 'km this week' : `of ${targetKm.toFixed(0)} km`}
+          {targetKm == null ? 'km esta semana' : `de ${targetKm.toFixed(0)} km`}
         </span>
       </p>
 
@@ -183,67 +189,17 @@ function ThisWeekHeader({
         </div>
       ) : null}
 
-      {week ? <WeekCalendar week={week} today={startOfDay(Date.now())} className="mt-5" /> : null}
+      {week ? <WeekCalendar week={week} today={today} className="mt-5" /> : null}
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         {metrics.phase ? <Chip>{metrics.phase}</Chip> : null}
-        {metrics.isDownWeek ? <Chip tone="down">Down week</Chip> : null}
+        {metrics.isDownWeek ? <Chip tone="down">Descarga</Chip> : null}
         {metrics.sessionsPlanned > 0 ? (
           <Chip tone={metrics.sessionsDone === metrics.sessionsPlanned ? 'done' : 'neutral'}>
-            {metrics.sessionsDone}/{metrics.sessionsPlanned} sessions
+            {metrics.sessionsDone}/{metrics.sessionsPlanned} sesiones
           </Chip>
         ) : null}
       </div>
-    </Card>
-  )
-}
-
-function ThisWeek({ week, onToggle }: { week: WeekPlan; onToggle: (m: MatchedSession) => void }) {
-  const days = week.days.filter((day) => day.sessions.length > 0 || day.extras.length > 0)
-
-  return (
-    <Card>
-      <CardTitle
-        action={
-          <a href="/plan" className="text-xs text-neutral-400 underline underline-offset-4">
-            Edit plan
-          </a>
-        }
-      >
-        This week
-      </CardTitle>
-
-      {days.length === 0 ? (
-        <p className="text-sm text-neutral-500">
-          Nothing planned for this week yet.{' '}
-          <a href="/plan" className="underline underline-offset-4">
-            Write it
-          </a>
-          .
-        </p>
-      ) : (
-        <div className="divide-y divide-neutral-800">
-          {days.map((day) => (
-            <div key={day.date} className="py-1 first:pt-0 last:pb-0">
-              <p className="pt-3 text-[0.6875rem] uppercase tracking-widest text-neutral-600">
-                {dayFmt.format(new Date(day.date))}
-              </p>
-              {day.sessions.map((match) => (
-                <SessionRow
-                  key={match.session.id}
-                  match={match}
-                  // A matched activity already settles the question; only sessions Strava
-                  // will never report — strength, cross — get a tick box.
-                  onToggle={match.activity ? undefined : () => onToggle(match)}
-                />
-              ))}
-              {day.extras.map((activity) => (
-                <ExtraRow key={activity.id} activity={activity} />
-              ))}
-            </div>
-          ))}
-        </div>
-      )}
     </Card>
   )
 }
@@ -262,42 +218,44 @@ function BlockProgressCard({
 
   return (
     <Card>
-      <CardTitle>Toward 24 January</CardTitle>
+      <CardTitle>Rumbo al 24 de enero</CardTitle>
 
       <dl className="grid grid-cols-3 gap-y-5">
         <Stat
-          label="Block km"
+          label="Km del bloque"
           value={doneKm.toFixed(0)}
-          hint={plannedTotalKm ? `of ${plannedTotalKm.toFixed(0)} planned` : `${block.runs} runs`}
+          hint={plannedTotalKm ? `de ${plannedTotalKm.toFixed(0)} previstos` : `${block.runs} salidas`}
         />
         <Stat
-          label="Mean pace"
+          label="Ritmo medio"
           value={block.meanPaceSKm ? `${formatPace(block.meanPaceSKm)}` : '—'}
-          hint={`goal ${formatPace(GOAL_PACE_S_KM)}/km`}
+          hint={`objetivo ${formatPace(GOAL_PACE_S_KM)}/km`}
         />
         <Stat
-          label="Longest"
+          label="Más larga"
           value={block.longestM ? formatKm(block.longestM) : '—'}
-          hint="of 21.1 km"
+          hint="de 21,1 km"
         />
-        <Stat label="Runs" value={block.runs} hint={formatDuration(block.movingS)} />
+        <Stat label="Salidas" value={block.runs} hint={formatDuration(block.movingS)} />
         <Stat
-          label="Cadence"
+          label="Cadencia"
           value={block.meanCadenceSpm ? Math.round(block.meanCadenceSpm) : '—'}
-          hint="spm, target 170+"
+          hint="pasos/min, objetivo 170+"
         />
         <Stat
-          label="Weeks left"
+          label="Quedan"
           value={progress.weeksRemaining}
-          hint={`${progress.weeksElapsed} done`}
+          hint={`${progress.weeksElapsed} semanas hechas`}
         />
       </dl>
 
       {plannedToDateKm != null ? (
         <p className="mt-5 text-xs text-neutral-500">
-          {doneKm.toFixed(0)} km run against {plannedToDateKm.toFixed(0)} km planned to date —{' '}
+          {doneKm.toFixed(0)} km corridos frente a {plannedToDateKm.toFixed(0)} km previstos hasta hoy —{' '}
           <span className={cn(doneKm >= plannedToDateKm ? 'text-emerald-400' : 'text-amber-400')}>
-            {doneKm >= plannedToDateKm ? 'on track' : `${(plannedToDateKm - doneKm).toFixed(0)} km behind`}
+            {doneKm >= plannedToDateKm
+              ? 'según lo previsto'
+              : `${(plannedToDateKm - doneKm).toFixed(0)} km por debajo`}
           </span>
           .
         </p>
@@ -324,7 +282,7 @@ function VolumeChart({ weekly, currentWeek }: { weekly: WeekMetrics[]; currentWe
             <div
               key={w.weekIndex}
               className="relative flex h-full flex-1 items-end"
-              title={`Week ${w.weekIndex + 1}: ${(w.totals.distanceM / 1000).toFixed(1)} km`}
+              title={`Semana ${w.weekIndex + 1}: ${decimal(w.totals.distanceM / 1000)} km`}
             >
               {target != null ? (
                 <span
@@ -345,9 +303,9 @@ function VolumeChart({ weekly, currentWeek }: { weekly: WeekMetrics[]; currentWe
         })}
       </div>
       <figcaption className="mt-2 flex justify-between text-[0.625rem] tabular-nums text-neutral-600">
-        <span>W1</span>
-        <span>{(max / 1000).toFixed(0)} km peak · dashed = target</span>
-        <span>W{TOTAL_WEEKS}</span>
+        <span>S1</span>
+        <span>pico de {(max / 1000).toFixed(0)} km · discontinua = objetivo</span>
+        <span>S{TOTAL_WEEKS}</span>
       </figcaption>
     </figure>
   )

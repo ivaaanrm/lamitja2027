@@ -1,16 +1,17 @@
 import { useState } from 'react'
 import { cn } from '@/lib/cn'
+import { decimal } from '@/lib/format'
 import type { WeekMetrics } from '@/lib/metrics'
 import { setDone, updateWeek } from '@/lib/plan-client'
 import { weekDays, type MatchedSession, type WeekPlan } from '@/lib/plan'
 import type { PlanSession } from '@/lib/db/schema'
 import { SessionForm } from './SessionForm'
-import { ExtraRow, SessionRow } from './SessionRow'
+import { ExtraCard, SessionCard } from './SessionCard'
 import { useBlock } from './useBlock'
 import { Button, Card, Chip, Field, ProgressBar, TextInput } from './ui'
 
-const rangeFmt = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })
-const dayFmt = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', timeZone: 'UTC' })
+const rangeFmt = new Intl.DateTimeFormat('es-ES', { day: 'numeric', month: 'short', timeZone: 'UTC' })
+const dayFmt = new Intl.DateTimeFormat('es-ES', { weekday: 'short', day: 'numeric', timeZone: 'UTC' })
 
 /**
  * The whole 22-week block, one accordion row per week, opening on the current one.
@@ -39,7 +40,7 @@ export function Planner() {
   if (!data || !progress) {
     return (
       <Card>
-        <p className="text-sm text-neutral-500">Loading…</p>
+        <p className="text-sm text-neutral-500">Cargando…</p>
       </Card>
     )
   }
@@ -50,7 +51,7 @@ export function Planner() {
       await setDone(match.session.id, !match.done)
       await reload()
     } catch (cause) {
-      setActionError(cause instanceof Error ? cause.message : 'Could not save')
+      setActionError(cause instanceof Error ? cause.message : 'No se pudo guardar')
     }
   }
 
@@ -126,11 +127,11 @@ function WeekRow({
       >
         <span className="min-w-0">
           <span className="flex items-center gap-2">
-            <span className="text-sm font-medium">W{week.weekIndex + 1}</span>
+            <span className="text-sm font-medium">S{week.weekIndex + 1}</span>
             <span className="text-xs text-neutral-500">
               {rangeFmt.format(new Date(days[0]))} – {rangeFmt.format(new Date(days[6]))}
             </span>
-            {metrics.isDownWeek ? <Chip tone="down">Down</Chip> : null}
+            {metrics.isDownWeek ? <Chip tone="down">Descarga</Chip> : null}
           </span>
           {metrics.phase ? (
             <span className="mt-1 block truncate text-xs text-neutral-500">{metrics.phase}</span>
@@ -139,7 +140,7 @@ function WeekRow({
 
         <span className="shrink-0 text-right">
           <span className="block text-sm tabular-nums">
-            {km.toFixed(1)}
+            {decimal(km)}
             {targetKm != null ? (
               <span className="text-neutral-500"> / {targetKm.toFixed(0)}</span>
             ) : null}
@@ -147,7 +148,7 @@ function WeekRow({
           </span>
           {metrics.sessionsPlanned > 0 ? (
             <span className="block text-xs tabular-nums text-neutral-500">
-              {metrics.sessionsDone}/{metrics.sessionsPlanned} done
+              {metrics.sessionsDone}/{metrics.sessionsPlanned} hechas
             </span>
           ) : null}
         </span>
@@ -163,13 +164,13 @@ function WeekRow({
         <div className="border-t border-neutral-800 p-4">
           <WeekFields week={week} onReload={onReload} onError={onError} />
 
-          <div className="mt-5 divide-y divide-neutral-800">
+          <div className="mt-5 space-y-4">
             {days.map((day) => {
               const plan = week.days.find((d) => d.date === day)
               return (
-                <div key={day} className="py-2 first:pt-0">
-                  <div className="flex items-center justify-between pt-2">
-                    <p className="text-[0.6875rem] uppercase tracking-widest text-neutral-600">
+                <div key={day} className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[0.6875rem] font-medium uppercase tracking-widest text-neutral-600">
                       {dayFmt.format(new Date(day))}
                     </p>
                     <button
@@ -177,12 +178,12 @@ function WeekRow({
                       onClick={() => onAdd(day)}
                       className="text-xs text-neutral-400 underline underline-offset-4"
                     >
-                      Add
+                      Añadir
                     </button>
                   </div>
 
                   {plan?.sessions.map((match) => (
-                    <SessionRow
+                    <SessionCard
                       key={match.session.id}
                       match={match}
                       onToggle={match.activity ? undefined : () => onToggle(match)}
@@ -190,7 +191,7 @@ function WeekRow({
                     />
                   ))}
                   {plan?.extras.map((activity) => (
-                    <ExtraRow key={activity.id} activity={activity} />
+                    <ExtraCard key={activity.id} activity={activity} />
                   ))}
                 </div>
               )
@@ -226,7 +227,7 @@ function WeekFields({
       await updateWeek(week.weekIndex, patch)
       await onReload()
     } catch (cause) {
-      onError(cause instanceof Error ? cause.message : 'Could not save the week')
+      onError(cause instanceof Error ? cause.message : 'No se pudo guardar la semana')
     }
   }
 
@@ -235,15 +236,15 @@ function WeekFields({
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Phase">
+        <Field label="Fase">
           <TextInput
             value={phase}
-            placeholder="Base & volume"
+            placeholder="Base y volumen"
             onChange={(e) => setPhase(e.target.value)}
             onBlur={() => void save({ phase: phase.trim() || null })}
           />
         </Field>
-        <Field label="Target (km)">
+        <Field label="Objetivo (km)">
           <TextInput
             inputMode="decimal"
             value={targetKm}
@@ -258,10 +259,10 @@ function WeekFields({
         </Field>
       </div>
 
-      <Field label="Focus">
+      <Field label="Enfoque">
         <TextInput
           value={focus}
-          placeholder="1 quality session, long run to 16 km"
+          placeholder="1 sesión de calidad, tirada larga hasta 16 km"
           onChange={(e) => setFocus(e.target.value)}
           onBlur={() => void save({ focus: focus.trim() || null })}
         />
@@ -271,7 +272,7 @@ function WeekFields({
         onClick={() => void save({ isDownWeek: !isDownWeek })}
         className={cn('w-full', isDownWeek && 'border-amber-700/70 text-amber-400')}
       >
-        {isDownWeek ? 'Down week ✓' : 'Mark as down week'}
+        {isDownWeek ? 'Semana de descarga ✓' : 'Marcar como semana de descarga'}
       </Button>
     </div>
   )

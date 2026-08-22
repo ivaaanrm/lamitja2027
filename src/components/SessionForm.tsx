@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { formatPace, parsePace } from '@/lib/activity'
+import { cn } from '@/lib/cn'
 import { ApiError, createSession, deleteSession, updateSession } from '@/lib/plan-client'
 import { SESSION_META, SESSION_TYPES, weekDays } from '@/lib/plan'
+import { formatStep } from '@/lib/workout'
 import type { PlanSession } from '@/lib/db/schema'
 import { Button, Field, Select, TextArea, TextInput } from './ui'
 
-const dayFmt = new Intl.DateTimeFormat('en-GB', {
+const dayFmt = new Intl.DateTimeFormat('es-ES', {
   weekday: 'long',
   day: 'numeric',
   month: 'short',
@@ -39,7 +41,9 @@ const fromSession = (session: PlanSession): Draft => ({
   type: session.type,
   title: session.title,
   notes: session.notes ?? '',
-  distanceKm: session.targetDistanceM == null ? '' : String(session.targetDistanceM / 1000),
+  // Prescribed distances are exact metres (a rep session lands on 12 364 m); a form is
+  // not the place to make someone read that.
+  distanceKm: session.targetDistanceM == null ? '' : String(Math.round(session.targetDistanceM / 10) / 100),
   durationMin: session.targetDurationS == null ? '' : String(Math.round(session.targetDurationS / 60)),
   paceLo: session.targetPaceLoSKm == null ? '' : formatPace(session.targetPaceLoSKm),
   paceHi: session.targetPaceHiSKm == null ? '' : formatPace(session.targetPaceHiSKm),
@@ -72,6 +76,17 @@ export function SessionForm({
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) =>
     setDraft((current) => ({ ...current, [key]: value }))
 
+  // The designed workout and the summary fields describe the same session, so they can
+  // disagree. Editing a number by hand drops the breakdown rather than leaving a stale
+  // one behind it; re-seeding the plan puts it back.
+  const original = session ? fromSession(session) : null
+  const prescriptionEdited =
+    original != null &&
+    (draft.distanceKm !== original.distanceKm ||
+      draft.durationMin !== original.durationMin ||
+      draft.paceLo !== original.paceLo ||
+      draft.paceHi !== original.paceHi)
+
   const number = (value: string, scale = 1) => {
     const trimmed = value.trim()
     if (trimmed === '') return null
@@ -86,11 +101,11 @@ export function SessionForm({
       // Paces are the one field where a typo is silent, so a malformed value is rejected
       // here rather than quietly saved as "no target".
       for (const [label, value] of [
-        ['Faster pace', draft.paceLo],
-        ['Slower pace', draft.paceHi],
+        ['El ritmo más rápido', draft.paceLo],
+        ['El ritmo más lento', draft.paceHi],
       ] as const) {
         if (value.trim() !== '' && parsePace(value) === null) {
-          throw new ApiError(`${label} must look like 3:47`)
+          throw new ApiError(`${label} tiene que ir en formato 3:47`)
         }
       }
 
@@ -103,6 +118,7 @@ export function SessionForm({
         targetDurationS: number(draft.durationMin, 60),
         targetPaceLoSKm: draft.paceLo.trim() === '' ? null : parsePace(draft.paceLo),
         targetPaceHiSKm: draft.paceHi.trim() === '' ? null : parsePace(draft.paceHi),
+        ...(prescriptionEdited ? { steps: null } : {}),
       }
 
       if (session) await updateSession(session.id, payload)
@@ -111,7 +127,7 @@ export function SessionForm({
       await onSaved()
       onClose()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not save')
+      setError(cause instanceof Error ? cause.message : 'No se pudo guardar')
     } finally {
       setBusy(false)
     }
@@ -126,20 +142,20 @@ export function SessionForm({
       await onSaved()
       onClose()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not delete')
+      setError(cause instanceof Error ? cause.message : 'No se pudo borrar')
       setBusy(false)
     }
   }
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end bg-neutral-950/80 backdrop-blur-sm">
-      <button type="button" aria-label="Close" className="flex-1" onClick={onClose} />
+      <button type="button" aria-label="Cerrar" className="flex-1" onClick={onClose} />
 
       <div className="max-h-[85vh] overflow-y-auto rounded-t-3xl border-t border-neutral-800 bg-neutral-900 p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]">
         <div className="mx-auto max-w-md space-y-4">
-          <h2 className="text-sm font-medium">{session ? 'Edit session' : 'New session'}</h2>
+          <h2 className="text-sm font-medium">{session ? 'Editar sesión' : 'Nueva sesión'}</h2>
 
-          <Field label="Day">
+          <Field label="Día">
             <Select value={draft.scheduledOn} onChange={(e) => set('scheduledOn', e.target.value)}>
               {weekDays(weekIndex).map((day) => (
                 <option key={day} value={day}>
@@ -149,7 +165,7 @@ export function SessionForm({
             </Select>
           </Field>
 
-          <Field label="Type">
+          <Field label="Tipo">
             <Select value={draft.type} onChange={(e) => set('type', e.target.value)}>
               {SESSION_TYPES.map((type) => (
                 <option key={type} value={type}>
@@ -159,7 +175,7 @@ export function SessionForm({
             </Select>
           </Field>
 
-          <Field label="Title">
+          <Field label="Título">
             <TextInput
               value={draft.title}
               placeholder={SESSION_META[draft.type as (typeof SESSION_TYPES)[number]].label}
@@ -168,7 +184,7 @@ export function SessionForm({
           </Field>
 
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Distance (km)">
+            <Field label="Distancia (km)">
               <TextInput
                 inputMode="decimal"
                 value={draft.distanceKm}
@@ -176,7 +192,7 @@ export function SessionForm({
                 onChange={(e) => set('distanceKm', e.target.value)}
               />
             </Field>
-            <Field label="Duration (min)">
+            <Field label="Duración (min)">
               <TextInput
                 inputMode="numeric"
                 value={draft.durationMin}
@@ -184,7 +200,7 @@ export function SessionForm({
                 onChange={(e) => set('durationMin', e.target.value)}
               />
             </Field>
-            <Field label="Pace from">
+            <Field label="Ritmo desde">
               <TextInput
                 inputMode="numeric"
                 value={draft.paceLo}
@@ -192,7 +208,7 @@ export function SessionForm({
                 onChange={(e) => set('paceLo', e.target.value)}
               />
             </Field>
-            <Field label="Pace to">
+            <Field label="Ritmo hasta">
               <TextInput
                 inputMode="numeric"
                 value={draft.paceHi}
@@ -202,11 +218,29 @@ export function SessionForm({
             </Field>
           </div>
 
-          <Field label="Notes">
+          {session?.steps?.length ? (
+            <div className="rounded-xl border border-neutral-800 bg-neutral-950/60 p-3">
+              <p className="text-[0.6875rem] uppercase tracking-widest text-neutral-500">Entrenamiento</p>
+              <ol className="mt-2 space-y-1">
+                {session.steps.map((step, i) => (
+                  <li key={i} className="text-xs tabular-nums text-neutral-300">
+                    {formatStep(step)}
+                  </li>
+                ))}
+              </ol>
+              <p className={cn('mt-2 text-[0.6875rem]', prescriptionEdited ? 'text-amber-400' : 'text-neutral-500')}>
+                {prescriptionEdited
+                  ? 'Al guardar, este desglose se sustituye por los valores de arriba.'
+                  : 'Viene del plan. Cambiar aquí una distancia o un ritmo lo sustituye.'}
+              </p>
+            </div>
+          ) : null}
+
+          <Field label="Notas">
             <TextArea
               rows={3}
               value={draft.notes}
-              placeholder="6×1000 @ 3:50, 90s jog"
+              placeholder="6×1000 a 3:50, 90 s de trote"
               onChange={(e) => set('notes', e.target.value)}
             />
           </Field>
@@ -215,14 +249,14 @@ export function SessionForm({
 
           <div className="flex gap-2 pt-1">
             <Button variant="primary" className="flex-1" disabled={busy} onClick={() => void save()}>
-              {busy ? 'Saving…' : 'Save'}
+              {busy ? 'Guardando…' : 'Guardar'}
             </Button>
             <Button onClick={onClose} disabled={busy}>
-              Cancel
+              Cancelar
             </Button>
             {session ? (
               <Button variant="danger" onClick={() => void remove()} disabled={busy}>
-                Delete
+                Borrar
               </Button>
             ) : null}
           </div>

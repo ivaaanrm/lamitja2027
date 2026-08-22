@@ -1,0 +1,14 @@
+---
+import App from '../layouts/App.astro'
+import { TrainingLog } from '../components/TrainingLog'
+export const prerender = true
+---
+
+<App
+  title="Registro · La Mitja 2027"
+  heading="Registro"
+  sub="Todo lo corrido dentro del bloque"
+  tab="log"
+>
+  <TrainingLog client:load />
+</App>

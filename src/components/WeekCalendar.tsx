@@ -1,31 +1,31 @@
-import { useState } from 'react'
-import { formatKm, formatPace, isRun, paceSKm } from '@/lib/activity'
+import { formatKm, isRun } from '@/lib/activity'
 import { cn } from '@/lib/cn'
-import { SESSION_META, type DayPlan, type WeekPlan } from '@/lib/plan'
+import { SESSION_META, isQuality, type DayPlan, type WeekPlan } from '@/lib/plan'
 
 /**
  * The week at a glance: seven days, each a bar of kilometres run against a ghost bar of
  * what was prescribed.
  *
  * Hand-rolled rather than a charting library. Seven bars is not enough data to justify
- * ~100 KB of Recharts, and this is a calendar first — weekday headers, a today marker and
- * tappable day cells are things a chart component would fight rather than help with.
- * The real charts (volume trend, pace trend over the block) are where a library earns its
- * weight.
+ * ~100 KB of Recharts, and this is a calendar first — weekday headers and a today marker
+ * are things a chart component would fight rather than help with. The block-length trends
+ * on `/progreso` went the same way in the end; `src/components/charts.tsx` has the reasons.
+ *
+ * A figure, not a control: what each day actually held is one line down the page in
+ * `ThisWeek`, so a bar that opened its own panel would be a second answer to a question
+ * already on screen.
  */
 
-const WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
+const WEEKDAYS = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
 
 /** Bar track height in px. Fixed so the row keeps its shape on an empty week. */
 const TRACK = 88
 
 interface DayStats {
-  day: DayPlan
   date: number
   actualM: number
   plannedM: number
   isToday: boolean
-  isFuture: boolean
   hasQuality: boolean
 }
 
@@ -40,15 +40,11 @@ function statsFor(day: DayPlan, today: number): DayStats {
     .reduce((sum, m) => sum + (m.session.targetDistanceM ?? 0), 0)
 
   return {
-    day,
     date: day.date,
     actualM: runs.reduce((sum, a) => sum + a.distanceM, 0),
     plannedM,
     isToday: day.date === today,
-    isFuture: day.date > today,
-    hasQuality: day.sessions.some((m) =>
-      ['tempo', 'interval', 'race'].includes(m.session.type),
-    ),
+    hasQuality: day.sessions.some((m) => isQuality(m.session.type)),
   }
 }
 
@@ -62,62 +58,27 @@ export function WeekCalendar({
   today: number
   className?: string
 }) {
-  const [selected, setSelected] = useState<number | null>(null)
-
   const days = week.days.map((day) => statsFor(day, today))
   // Scale to the tallest thing in the week — planned or actual — so a big long run does
   // not flatten every other bar, and an overshoot still reads as an overshoot.
   const peak = Math.max(1000, ...days.map((d) => Math.max(d.actualM, d.plannedM)))
 
-  const open = selected === null ? null : days.find((d) => d.date === selected) ?? null
-
   return (
-    <div className={className}>
-      <div className="flex items-end gap-1.5">
-        {days.map((d, i) => (
-          <DayColumn
-            key={d.date}
-            stats={d}
-            weekday={WEEKDAYS[i]!}
-            peak={peak}
-            selected={selected === d.date}
-            onSelect={() => setSelected(selected === d.date ? null : d.date)}
-          />
-        ))}
-      </div>
-
-      {open ? <DayDetail stats={open} /> : null}
+    <div className={cn('flex items-end gap-1.5', className)}>
+      {days.map((d, i) => (
+        <DayColumn key={d.date} stats={d} weekday={WEEKDAYS[i]!} peak={peak} />
+      ))}
     </div>
   )
 }
 
-function DayColumn({
-  stats,
-  weekday,
-  peak,
-  selected,
-  onSelect,
-}: {
-  stats: DayStats
-  weekday: string
-  peak: number
-  selected: boolean
-  onSelect: () => void
-}) {
+function DayColumn({ stats, weekday, peak }: { stats: DayStats; weekday: string; peak: number }) {
   const actualPct = Math.round((stats.actualM / peak) * 100)
   const plannedPct = Math.round((stats.plannedM / peak) * 100)
   const dayOfMonth = new Date(stats.date).getUTCDate()
 
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      aria-pressed={selected}
-      className={cn(
-        'flex flex-1 flex-col items-center gap-1.5 rounded-xl px-0.5 py-2 transition-colors',
-        selected ? 'bg-neutral-800/70' : 'active:bg-neutral-800/40',
-      )}
-    >
+    <div className="flex flex-1 flex-col items-center gap-1.5 px-0.5 py-2">
       <span
         className={cn(
           'text-[10px] font-medium uppercase',
@@ -146,6 +107,18 @@ function DayColumn({
           />
         ) : null}
 
+        {/* Target line, drawn over the bar — otherwise an overshoot hides the ghost
+            outline entirely and the day reads as merely "done" rather than "over". */}
+        {plannedPct > 0 ? (
+          <span
+            className={cn(
+              'absolute w-full border-t',
+              stats.actualM > stats.plannedM ? 'border-neutral-950/70' : 'border-neutral-500',
+            )}
+            style={{ bottom: `${Math.max(plannedPct, 2)}%` }}
+          />
+        ) : null}
+
         {/* A rest day reads as deliberate, not as missing data. */}
         {stats.actualM === 0 && plannedPct === 0 ? (
           <span className="absolute bottom-0 h-px w-3 bg-neutral-700" />
@@ -169,56 +142,6 @@ function DayColumn({
       >
         {dayOfMonth}
       </span>
-    </button>
-  )
-}
-
-const dayFmt = new Intl.DateTimeFormat('en-GB', {
-  weekday: 'long',
-  day: 'numeric',
-  month: 'short',
-  // Dates are UTC midnight of the local day; formatting in the viewer's zone slides them.
-  timeZone: 'UTC',
-})
-
-function DayDetail({ stats }: { stats: DayStats }) {
-  const { day } = stats
-  const runs = [
-    ...day.sessions.map((m) => m.activity).filter((a) => a !== null),
-    ...day.extras,
-  ]
-
-  return (
-    <div className="mt-3 space-y-2 rounded-xl bg-neutral-900 p-3">
-      <p className="text-xs font-medium text-neutral-400">{dayFmt.format(new Date(day.date))}</p>
-
-      {day.sessions.length === 0 && runs.length === 0 ? (
-        <p className="text-xs text-neutral-500">Rest day.</p>
-      ) : null}
-
-      {day.sessions.map((match) => (
-        <div key={match.session.id} className="flex items-baseline justify-between gap-3">
-          <p className={cn('truncate text-sm', match.done ? 'text-neutral-500 line-through' : '')}>
-            {match.session.title}
-          </p>
-          <p className="shrink-0 text-xs tabular-nums text-neutral-500">
-            {match.session.targetDistanceM ? `${formatKm(match.session.targetDistanceM)} km` : '—'}
-          </p>
-        </div>
-      ))}
-
-      {runs.map((run) => (
-        <div key={run.id} className="flex items-baseline justify-between gap-3">
-          <p className="truncate text-xs text-neutral-400">{run.name}</p>
-          <p className="shrink-0 text-xs tabular-nums text-neutral-400">
-            {formatKm(run.distanceM)} km
-            {isRun(run.sportType)
-              ? ` · ${formatPace(paceSKm(run.distanceM, run.movingS))}/km`
-              : ''}
-          </p>
-        </div>
-      ))}
     </div>
   )
 }
-
