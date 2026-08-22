@@ -1,0 +1,4 @@
+# Copy to .dev.vars and fill in. Production values go in `wrangler secret put`.
+STRAVA_CLIENT_SECRET=""
+STRAVA_WEBHOOK_VERIFY=""       # any random string; echoed back during subscription setup
+TOKEN_ENC_KEY=""               # openssl rand -base64 32

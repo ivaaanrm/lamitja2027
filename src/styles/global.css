@@ -1,0 +1,23 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'SF Pro Text', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, monospace;
+}
+
+@layer base {
+  html {
+    /* Kill the iOS tap delay and text-size fiddling in landscape. */
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  body {
+    /* No rubber-band scroll — it reads as a webpage, not an app. */
+    overscroll-behavior-y: contain;
+    /* Respect the notch and the home indicator. */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}

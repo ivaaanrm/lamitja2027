@@ -1,0 +1,29 @@
+---
+import Base from '../layouts/Base.astro'
+import { ConnectionCard } from '../components/ConnectionCard'
+import { raceCountdown } from '../lib/training/countdown'
+
+// Prerendered: part of the offline app shell. Athlete data is fetched client-side,
+// which is why nothing here reads the session.
+export const prerender = true
+
+const { daysToGo, weeksToGo } = raceCountdown(new Date())
+---
+
+<Base title="La Mitja 2027">
+  <main class="mx-auto flex min-h-full max-w-md flex-col gap-6 px-6 py-12">
+    <header class="space-y-1">
+      <p class="text-xs font-medium uppercase tracking-widest text-neutral-500">Goal</p>
+      <h1 class="text-3xl font-semibold tracking-tight">Sub-1:20 half</h1>
+      <p class="text-sm text-neutral-400">La Mitja &middot; 24 January 2027</p>
+    </header>
+
+    <div class="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-6">
+      <p class="text-xs font-medium uppercase tracking-widest text-neutral-500">To go</p>
+      <p class="mt-2 text-5xl font-semibold tabular-nums">{daysToGo}</p>
+      <p class="mt-1 text-sm text-neutral-400">days &middot; {weeksToGo} weeks of training</p>
+    </div>
+
+    <ConnectionCard client:load />
+  </main>
+</Base>

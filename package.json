@@ -1,0 +1,49 @@
+{
+  "name": "lamitja2027",
+  "type": "module",
+  "version": "0.0.1",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "wrangler dev -c dist/server/wrangler.json",
+    "deploy": "astro build && wrangler deploy -c dist/server/wrangler.json",
+    "cf-typegen": "wrangler types",
+    "db:migrate": "wrangler d1 migrations apply lamitja2027 --remote",
+    "db:migrate:local": "wrangler d1 migrations apply lamitja2027 --local",
+    "test": "vitest run",
+    "astro": "astro",
+    "typecheck": "astro check"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.120.0",
+    "@astrojs/cloudflare": "^14.2.3",
+    "@astrojs/react": "^6.0.4",
+    "@tailwindcss/vite": "^4.3.3",
+    "astro": "^7.2.4",
+    "clsx": "^2.1.1",
+    "dexie": "^4.4.5",
+    "drizzle-orm": "^0.45.2",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "tailwind-merge": "^3.6.0",
+    "tailwindcss": "^4.3.3",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.0.0",
+    "@cloudflare/workers-types": "^5.20260822.1",
+    "@types/node": "^26.2.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "^7.0.2",
+    "vite-plugin-pwa": "^1.3.0",
+    "vitest": "^4.1.11",
+    "workbox-build": "^7.4.1",
+    "workbox-window": "^7.4.1",
+    "wrangler": "^4.125.0"
+  }
+}

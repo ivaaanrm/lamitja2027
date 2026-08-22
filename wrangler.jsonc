@@ -1,0 +1,46 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "lamitja2027",
+  // Custom entrypoint: the Astro adapter honours `main` when we set it, which is
+  // how the app's fetch handler and the cron `scheduled` handler share one Worker.
+  "main": "./src/worker.ts",
+  "compatibility_date": "2026-08-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "lamitja2027",
+      "database_id": "56a4163c-7e29-49fa-9141-996efa9073a0",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "kv_namespaces": [
+    { "binding": "SESSION", "id": "f5cdab75361c4d67b3e9bcbe3aa64076" },
+    { "binding": "CACHE", "id": "ddbcc843b1204d3cb0df5d8581af8d53" }
+  ],
+
+  "triggers": {
+    "crons": [
+      "*/15 * * * *", // drain the sync_jobs outbox
+      "0 3 * * *", // nightly Strava reconciliation + fitness_daily rebuild
+      "0 4 * * 1" // Monday: adherence rollup + weekly coach brief
+    ]
+  },
+
+  "vars": {
+    "CF_ACCOUNT_ID": "41d0eba60e2936cbee93a0b90fa35e92",
+    // Cron has no inbound request, so the public origin must be configured.
+    "PUBLIC_ORIGIN": "https://lamitja2027.iromero-py.workers.dev",
+    "AI_GATEWAY_ID": "lamitja",
+    "RACE_NAME": "La Mitja",
+    "RACE_DATE": "2027-01-24",
+    "RACE_GOAL_SECONDS": "4799",
+    // Not secret: the client ID is public in every OAuth redirect, and the allowlist
+    // is a gate on IDs that are already public on Strava profiles.
+    "STRAVA_CLIENT_ID": "183487",
+    "ALLOWED_ATHLETE_IDS": "56881786"
+  }
+}
