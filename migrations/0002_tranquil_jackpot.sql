@@ -1,0 +1,1 @@
+ALTER TABLE `plan_sessions` DROP COLUMN `week_index`;
