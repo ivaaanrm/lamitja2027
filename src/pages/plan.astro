@@ -1,0 +1,22 @@
+---
+import Base from '../layouts/Base.astro'
+import { Planner } from '../components/Planner'
+import { TOTAL_WEEKS } from '../lib/block'
+
+// Prerendered app shell, same as the home page — the plan itself arrives from /api/data.
+export const prerender = true
+---
+
+<Base title="Plan · La Mitja 2027">
+  <main class="mx-auto flex min-h-full max-w-md flex-col gap-4 px-6 py-10">
+    <header class="flex items-baseline justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-tight">Plan</h1>
+        <p class="text-sm text-neutral-400">{TOTAL_WEEKS} weeks to La Mitja</p>
+      </div>
+      <a href="/" class="text-sm text-neutral-400 underline underline-offset-4">Home</a>
+    </header>
+
+    <Planner client:load />
+  </main>
+</Base>
