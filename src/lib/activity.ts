@@ -26,7 +26,7 @@ export interface StravaActivity {
  * Strava reports cadence in rpm (one leg). Runners think in steps per minute, and the
  * knee protocol's target is 85+ rpm ≈ 170 spm — halving it would misread the marker.
  */
-export function toSpm(rpm: number | null | undefined): number | null {
+function toSpm(rpm: number | null | undefined): number | null {
   return rpm == null ? null : Math.round(rpm * 2)
 }
 
@@ -61,4 +61,27 @@ export const paceSKm = (distanceM: number, movingS: number) =>
 export function formatPace(secondsPerKm: number): string {
   const total = Math.round(secondsPerKm)
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
+}
+
+/** `12.4` km from metres — one decimal, which is the precision a GPS watch actually has. */
+export const formatKm = (metres: number) => (metres / 1000).toFixed(1)
+
+/** `1h 12m` / `48m` — durations here are training sessions, so seconds are noise. */
+export function formatDuration(seconds: number): string {
+  const total = Math.round(seconds / 60)
+  const hours = Math.floor(total / 60)
+  return hours > 0 ? `${hours}h ${String(total % 60).padStart(2, '0')}m` : `${total}m`
+}
+
+/** `3:47–4:05` from a pace band, or a single pace when only one bound is set. */
+export function formatPaceRange(lo: number | null, hi: number | null): string | null {
+  if (lo == null && hi == null) return null
+  if (lo == null || hi == null) return `${formatPace((lo ?? hi) as number)}/km`
+  return lo === hi ? `${formatPace(lo)}/km` : `${formatPace(lo)}–${formatPace(hi)}/km`
+}
+
+/** `3:47` → 227 s/km. `null` for anything that is not `m:ss`, so a typo never saves as 0. */
+export function parsePace(value: string): number | null {
+  const match = value.trim().match(/^(\d{1,3}):([0-5]\d)$/)
+  return match ? Number(match[1]) * 60 + Number(match[2]) : null
 }
