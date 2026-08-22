@@ -3,23 +3,43 @@ import '../styles/global.css'
 
 interface Props {
   title: string
+  description?: string
 }
-const { title } = Astro.props
+const { title, description = 'Entrenamiento hacia una media maratón por debajo de 1:20 en La Mitja, el 24 de enero de 2027.' } =
+  Astro.props
+
+// Absolute, because Open Graph rejects relative URLs. `site` is set in astro.config.mjs.
+const ogImage = new URL('/og.png', Astro.site)
 ---
 
 <!doctype html>
-<html lang="en" class="h-full">
+<html lang="es" class="h-full">
   <head>
     <meta charset="utf-8" />
     <!-- viewport-fit=cover is what makes env(safe-area-inset-*) resolve on iPhone -->
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+
+    <!-- SVG for browsers that take it, .ico for Safari and the bare /favicon.ico request. -->
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="La Mitja" />
-    <meta name="theme-color" content="#0a0a0a" />
-    <title>{title}</title>
+    <meta name="theme-color" content="#000000" />
+    <meta name="color-scheme" content="dark" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={ogImage} />
+    <meta name="twitter:card" content="summary_large_image" />
   </head>
-  <body class="h-full bg-neutral-950 text-neutral-100 font-sans antialiased">
+  <body class="h-full bg-ink text-label font-sans antialiased">
     <slot />
   </body>
 </html>

@@ -17,7 +17,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
   if (!pathname.startsWith('/api/') || PUBLIC_PATHS.has(pathname)) return next()
 
   if (!(await isSignedIn(context.request))) {
-    return new Response(JSON.stringify({ error: 'Not signed in' }), {
+    return new Response(JSON.stringify({ error: 'Sin iniciar sesión' }), {
       status: 401,
       headers: { 'content-type': 'application/json' },
     })

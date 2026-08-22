@@ -24,6 +24,7 @@ pnpm-debug.log*
 .idea/
 
 .vscode/
+.claude/
 
 # local secrets
 .dev.vars

@@ -1,0 +1,33 @@
+---
+import Base from './Base.astro'
+import Dock from '../components/Dock.astro'
+import type { Tab } from '../lib/nav'
+
+/**
+ * The shell every signed-in page wears: one column sized for a phone, a large title that
+ * scrolls away with the content, and the dock.
+ *
+ * The bottom padding is the dock's own height plus the home indicator, so the last card on
+ * a page can be scrolled clear of the bar instead of ending underneath it.
+ */
+interface Props {
+  title: string
+  heading: string
+  sub?: string
+  tab: Tab
+}
+const { title, heading, sub, tab } = Astro.props
+---
+
+<Base title={title}>
+  <main
+    class="mx-auto flex min-h-full max-w-md flex-col gap-4 px-6 pt-10 pb-[calc(4.75rem+env(safe-area-inset-bottom))]"
+  >
+    <header class="space-y-1">
+      <h1 class="text-2xl font-semibold tracking-tight">{heading}</h1>
+      {sub ? <p class="text-sm text-neutral-400">{sub}</p> : null}
+    </header>
+    <slot />
+  </main>
+  <Dock tab={tab} />
+</Base>

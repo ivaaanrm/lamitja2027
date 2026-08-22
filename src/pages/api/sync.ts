@@ -11,6 +11,6 @@ export const POST: APIRoute = async () => {
   try {
     return json(await syncBlock(createDb(env.DB)))
   } catch (error) {
-    return json({ error: error instanceof Error ? error.message : 'Sync failed' }, 502)
+    return json({ error: error instanceof Error ? error.message : 'Fallo al sincronizar' }, 502)
   }
 }

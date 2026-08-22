@@ -10,7 +10,7 @@ export const POST: APIRoute = async ({ request }) => {
 
   if (!checkPassword(password)) {
     // Deliberately vague, and no timing signal — checkPassword is constant-time.
-    return json({ error: 'Wrong password' }, 401)
+    return json({ error: 'Contraseña incorrecta' }, 401)
   }
 
   return new Response(null, {

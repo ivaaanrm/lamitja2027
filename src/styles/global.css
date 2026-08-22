@@ -1,23 +1,110 @@
 @import 'tailwindcss';
 
+/**
+ * The design layer: one surface, ruled — not a stack of cards.
+ *
+ * Every panel used to be a box (a border, a fill and its own inner padding, repeated per
+ * section), which is what made the app read as a web page of widgets rather than an app.
+ * On a 390px screen that repeated inset also costs more room than the content it frames.
+ * What replaces it is what iOS itself uses: one black surface, sections divided by a
+ * hairline, and hierarchy carried by the type ramp and the label steps below.
+ *
+ * These tokens are the whole system, so a component never has to invent a value.
+ */
 @theme {
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'SF Pro Text', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, monospace;
+
+  /* The one margin the app aligns to. `-mx-gutter` is how a section breaks out of the
+     page's own padding to draw its rule edge to edge — so this has to stay equal to the
+     horizontal padding on `<main>` in App.astro. */
+  --spacing-gutter: 1.5rem;
+
+  /* The page is black — nothing sits on a lighter panel. `fill` is a pressed row or a
+     form control, `line` is every rule. Three fills is the whole depth budget. */
+  --color-ink: #000000;
+  --color-fill: rgba(255, 255, 255, 0.07);
+  --color-fill-strong: rgba(255, 255, 255, 0.14);
+  --color-line: rgba(255, 255, 255, 0.11);
+  --color-line-strong: rgba(255, 255, 255, 0.24);
+
+  /* Four steps of emphasis, and nothing between them. `label-3` is Apple's tertiary label
+     raised from 0.30 to 0.52: the platform value lands at 2.5:1 on black, and these are
+     paces and distances, not chrome — they have to clear AA (this is 4.9:1). */
+  --color-label: #f5f5f7;
+  --color-label-2: rgba(235, 235, 245, 0.62);
+  --color-label-3: rgba(235, 235, 245, 0.52);
+
+  /* iOS's own ramp. Ad-hoc sizes (`text-[0.6875rem]`, `text-[11px]`, `text-[0.8125rem]`)
+     were most of what made the old screens feel unplaced. */
+  --text-caption2: 0.6875rem; /* 11 */
+  --text-caption2--line-height: 0.875rem;
+  --text-caption: 0.75rem; /* 12 */
+  --text-caption--line-height: 1rem;
+  --text-footnote: 0.8125rem; /* 13 */
+  --text-footnote--line-height: 1.125rem;
+  --text-subhead: 0.9375rem; /* 15 */
+  --text-subhead--line-height: 1.25rem;
+  --text-body: 1.0625rem; /* 17 */
+  --text-body--line-height: 1.375rem;
+  --text-title3: 1.25rem; /* 20 */
+  --text-title3--line-height: 1.5rem;
 }
 
 @layer base {
+  :root {
+    /* So form controls, scrollbars and the keyboard render dark without being asked. */
+    color-scheme: dark;
+
+    /* One *device* pixel, not one CSS pixel: on a 3× iPhone a 1px rule is three physical
+       pixels and reads as a bar rather than a hairline. */
+    --hairline: 1px;
+  }
+
+  @media (min-resolution: 2dppx) {
+    :root {
+      --hairline: 0.5px;
+    }
+  }
+
   html {
     /* Kill the iOS tap delay and text-size fiddling in landscape. */
     -webkit-text-size-adjust: 100%;
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
+    /* Overscroll and the area behind the translucent dock both expose the html
+       background, so it cannot be left at the browser default. */
+    background-color: var(--color-ink);
   }
 
   body {
     /* No rubber-band scroll — it reads as a webpage, not an app. */
     overscroll-behavior-y: contain;
-    /* Respect the notch and the home indicator. */
+    /* Respect the notch. The home indicator is the dock's to clear — it is fixed to the
+       viewport, so padding here would not move it, and the page's own bottom padding
+       already reserves the room. */
     padding-top: env(safe-area-inset-top);
-    padding-bottom: env(safe-area-inset-bottom);
+    /* Landscape on a notched iPhone insets one side; without this the gutter disappears
+       into the bezel on that edge only. */
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
   }
+
+  /* Nothing here animates to convey meaning — every transition is decoration, so all of
+     it can go. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/** The rule that divides one section from the next, in place of a border around each. */
+@utility hairline-t {
+  border-top: var(--hairline) solid var(--color-line);
 }
