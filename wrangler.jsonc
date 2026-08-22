@@ -23,11 +23,8 @@
   ],
 
   "triggers": {
-    "crons": [
-      "*/15 * * * *", // drain the sync_jobs outbox
-      "0 3 * * *", // nightly Strava reconciliation + fitness_daily rebuild
-      "0 4 * * 1" // Monday: adherence rollup + weekly coach brief
-    ]
+    // Nightly safety net; the webhook handles the common case.
+    "crons": ["0 3 * * *"]
   },
 
   "vars": {

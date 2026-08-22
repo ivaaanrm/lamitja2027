@@ -15,7 +15,8 @@
     "db:migrate:local": "wrangler d1 migrations apply lamitja2027 --local",
     "test": "vitest run",
     "astro": "astro",
-    "typecheck": "astro check"
+    "typecheck": "astro check",
+    "db:reset": "wrangler d1 execute lamitja2027 --remote --file scripts/reset-db.sql && wrangler d1 migrations apply lamitja2027 --remote"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",

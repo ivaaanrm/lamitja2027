@@ -2,3 +2,4 @@
 STRAVA_CLIENT_SECRET=""
 STRAVA_WEBHOOK_VERIFY=""       # any random string; echoed back during subscription setup
 TOKEN_ENC_KEY=""               # openssl rand -base64 32
+APP_PASSWORD=""              # the single login password, shared across your devices
