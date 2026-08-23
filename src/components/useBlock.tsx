@@ -27,6 +27,14 @@ export interface Block {
 }
 
 /**
+ * The last payload `/api/data` returned, kept for the life of the page. Tabs navigate in
+ * place (see Base.astro), so each island mounts fresh while the document survives — with
+ * this, the next tab paints with data on its first render and revalidates behind it,
+ * instead of opening blank and popping in a moment later.
+ */
+let cached: BlockData | null = null
+
+/**
  * Loads the block once and derives everything else from it. Plan-to-actual matching and
  * all metrics are pure functions over this payload, so they are memoised against the
  * fetched data rather than recomputed per render.
@@ -35,7 +43,7 @@ export function useBlock(nowInput?: number): Block {
   // Pinned on mount: a fresh `Date.now()` per render would invalidate every memo below.
   const [mountedAt] = useState(() => Date.now())
   const now = nowInput ?? mountedAt
-  const [data, setData] = useState<BlockData | null>(null)
+  const [data, setData] = useState<BlockData | null>(cached)
   const [error, setError] = useState<string | null>(null)
 
   const reload = useCallback(async () => {
@@ -49,7 +57,8 @@ export function useBlock(nowInput?: number): Block {
         setError(`No se pudieron cargar los datos (${response.status})`)
         return
       }
-      setData((await response.json()) as BlockData)
+      cached = (await response.json()) as BlockData
+      setData(cached)
       setError(null)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'No se pudo contactar con el servidor')

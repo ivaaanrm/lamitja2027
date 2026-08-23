@@ -13,6 +13,11 @@ import { TABS, type Tab } from '../lib/nav'
  *
  * Each tab is a full-height 56px column: on a phone the target is the column, not the
  * glyph, and there is no hover state to lean on.
+ *
+ * Across a navigation the bar is swapped in place, not animated: a tab bar that fades or
+ * slides with the content is a bar that looks like part of the page. Only the highlight
+ * moves — the active state is still baked in per page, so `transition:persist` would be
+ * wrong here (it would keep the previous page's highlight lit).
  */
 interface Props {
   tab: Tab
@@ -31,7 +36,9 @@ const ICONS: Record<Tab, string> = {
 
 <nav
   aria-label="Secciones"
-  class="fixed inset-x-0 bottom-0 z-40 border-t border-neutral-800/80 bg-neutral-950/75 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl"
+  transition:name="dock"
+  transition:animate="none"
+  class="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface-deep/80 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl"
 >
   <ul class="mx-auto flex max-w-md">
     {
@@ -44,7 +51,7 @@ const ICONS: Record<Tab, string> = {
               aria-current={active ? 'page' : undefined}
               class:list={[
                 'flex h-14 flex-col items-center justify-center gap-[3px] transition-opacity active:opacity-60',
-                active ? 'text-neutral-100' : 'text-neutral-500',
+                active ? 'text-label' : 'text-label-3',
               ]}
             >
               <svg

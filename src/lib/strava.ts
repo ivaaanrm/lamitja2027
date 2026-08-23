@@ -3,6 +3,7 @@ import { decrypt, encrypt } from './crypto'
 import type { Database } from './db/client'
 import { getState, KEY, setState } from './state'
 import type { StravaActivity } from './activity'
+import type { StravaLap, StravaSplit, StravaStreams } from './streams'
 
 /**
  * Everything Strava, in one file. Scope is one athlete syncing one 22-week block, which
@@ -21,6 +22,12 @@ interface StravaTokens {
   refresh_token: string
   expires_at: number // epoch seconds
   athlete?: { id: number; firstname: string | null; lastname: string | null; profile: string | null }
+}
+
+export interface StravaDetailedActivity extends StravaActivity {
+  description?: string | null
+  splits_metric?: StravaSplit[]
+  laps?: StravaLap[]
 }
 
 export function authorizeUrl(origin: string, state: string): string {
@@ -99,3 +106,32 @@ export async function fetchActivities(
   return (await response.json()) as StravaActivity[]
 }
 
+
+async function get<T>(token: string, path: string): Promise<T | null> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers: { authorization: `Bearer ${token}` },
+  })
+  if (response.status === 404) return null
+  if (!response.ok) {
+    throw new Error(`Strava ${path} ${response.status}: ${await response.text()}`)
+  }
+  return (await response.json()) as T
+}
+
+/**
+ * The trace behind one activity, plus the detailed record that carries its splits and
+ * laps. Read when a run is opened and never stored — see `streams.ts` for why. `null`
+ * when Strava no longer has it (deleted there since the last sync).
+ */
+export async function fetchActivityDetail(
+  token: string,
+  id: number,
+): Promise<{ streams: StravaStreams; activity: StravaDetailedActivity } | null> {
+  const keys = 'time,distance,heartrate,cadence,velocity_smooth,altitude'
+  const [streams, activity] = await Promise.all([
+    get<StravaStreams>(token, `/activities/${id}/streams?keys=${keys}&key_by_type=true`),
+    get<StravaDetailedActivity>(token, `/activities/${id}`),
+  ])
+  // An activity with no streams at all (a manual entry) still has a detailed record.
+  return activity ? { streams: streams ?? {}, activity } : null
+}

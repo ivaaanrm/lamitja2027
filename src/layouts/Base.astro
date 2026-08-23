@@ -1,5 +1,6 @@
 ---
 import '../styles/global.css'
+import { ClientRouter } from 'astro:transitions'
 
 interface Props {
   title: string
@@ -30,7 +31,7 @@ const ogImage = new URL('/og.png', Astro.site)
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="La Mitja" />
-    <meta name="theme-color" content="#000000" />
+    <meta name="theme-color" content="#191b21" />
     <meta name="color-scheme" content="dark" />
 
     <meta property="og:type" content="website" />
@@ -38,8 +39,17 @@ const ogImage = new URL('/og.png', Astro.site)
     <meta property="og:description" content={description} />
     <meta property="og:image" content={ogImage} />
     <meta name="twitter:card" content="summary_large_image" />
+
+    <!--
+      Tabs navigate in place. Without this every tap is a full document load: the dock is
+      torn down and rebuilt, the page flashes blank, and the island refetches from zero —
+      which is what makes a prerendered app read as a website. The router swaps the body
+      and keeps the shell; the dock opts out of animating in Dock.astro, the page column
+      cross-fades in App.astro.
+    -->
+    <ClientRouter />
   </head>
-  <body class="h-full bg-ink text-label font-sans antialiased">
+  <body class="h-full bg-surface text-label font-sans antialiased">
     <slot />
   </body>
 </html>

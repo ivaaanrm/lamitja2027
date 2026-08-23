@@ -52,14 +52,14 @@ export function Progress() {
   if (error && !data) {
     return (
       <Card>
-        <p className="text-sm text-red-400">{error}</p>
+        <p className="text-sm text-red">{error}</p>
       </Card>
     )
   }
   if (!data || !view || !progress) {
     return (
       <Card>
-        <p className="text-sm text-neutral-500">Cargando…</p>
+        <p className="text-sm text-label-3">Cargando…</p>
       </Card>
     )
   }
@@ -164,18 +164,18 @@ function SeasonHero({ view, currentWeek }: { view: View; currentWeek: number }) 
   return (
     <Card>
       <div className="flex items-baseline justify-between gap-3">
-        <p className="text-xs font-medium uppercase tracking-widest text-neutral-500">
+        <p className="text-xs font-medium uppercase tracking-widest text-label-3">
           Semana {currentWeek + 1} de {TOTAL_WEEKS}
         </p>
-        <p className="text-xs text-neutral-500">faltan {daysToRace(view.today)} días</p>
+        <p className="text-xs text-label-3">faltan {daysToRace(view.today)} días</p>
       </div>
 
       <p className="mt-2 text-4xl font-semibold tabular-nums">
         {decimal(km, 0)}
-        <span className="ml-1.5 text-base font-normal text-neutral-500">km en el bloque</span>
+        <span className="ml-1.5 text-base font-normal text-label-3">km en el bloque</span>
       </p>
 
-      <p className="mt-1 text-sm text-neutral-400">
+      <p className="mt-1 text-sm text-label-2">
         {view.tooEarly ? (
           <>
             La temporada pasada aún no había empezado a correr — su bloque abre en la semana{' '}
@@ -197,20 +197,20 @@ function SeasonHero({ view, currentWeek }: { view: View; currentWeek: number }) 
           markers={[{ at: view.todayIndex }]}
           shadeFrom={view.todayIndex}
           series={[
-            { values: view.lastCumulative, className: 'stroke-neutral-600', dashed: true },
+            { values: view.lastCumulative, className: 'stroke-line-strong', dashed: true },
             {
               values: view.cumulative,
-              className: 'stroke-neutral-100',
-              areaClassName: 'fill-neutral-100/[0.07]',
+              className: 'stroke-ink',
+              areaClassName: 'fill-ink/[0.07]',
             },
           ]}
         />
-        <figcaption className="mt-2 flex items-center justify-between gap-2 text-[0.625rem] text-neutral-600">
+        <figcaption className="mt-2 flex items-center justify-between gap-2 text-[0.625rem] text-label-4">
           <span>17 ago</span>
           <Legend
             items={[
-              { label: 'Este bloque', className: 'bg-neutral-100' },
-              { label: '2025-26', className: 'bg-neutral-600' },
+              { label: 'Este bloque', className: 'bg-ink' },
+              { label: '2025-26', className: 'bg-fill-strong' },
             ]}
           />
           <span>24 ene</span>
@@ -256,21 +256,21 @@ function FormCard({ view }: { view: View }) {
           markers={[{ at: view.todayIndex }]}
           shadeFrom={view.todayIndex}
           series={[
-            { values: view.lastFitnessLine, className: 'stroke-neutral-600', dashed: true },
-            { values: view.fatigueLine, className: 'stroke-rose-400/70', strokeWidth: 1.5 },
+            { values: view.lastFitnessLine, className: 'stroke-line-strong', dashed: true },
+            { values: view.fatigueLine, className: 'stroke-coral', strokeWidth: 1.5 },
             {
               values: view.fitnessLine,
-              className: 'stroke-sky-400',
-              areaClassName: 'fill-sky-400/10',
+              className: 'stroke-mint',
+              areaClassName: 'fill-mint/10',
             },
           ]}
         />
-        <figcaption className="mt-2 text-[0.625rem] leading-relaxed text-neutral-600">
+        <figcaption className="mt-2 text-[0.625rem] leading-relaxed text-label-4">
           <Legend
             items={[
-              { label: 'Forma', className: 'bg-sky-400' },
-              { label: 'Fatiga', className: 'bg-rose-400/70' },
-              { label: '2025-26', className: 'bg-neutral-600' },
+              { label: 'Forma', className: 'bg-mint' },
+              { label: 'Fatiga', className: 'bg-coral' },
+              { label: '2025-26', className: 'bg-fill-strong' },
             ]}
           />
           <p className="mt-1.5">
@@ -301,7 +301,7 @@ function WeeklyCard({
     ghost: view.lastWeekly[i] == null ? null : view.lastWeekly[i]!.distanceM / 1000,
     target: (progress.weekly[i]?.targetVolumeM ?? 0) / 1000,
     className:
-      i === currentWeek ? 'bg-neutral-100' : i < currentWeek ? 'bg-neutral-400' : 'bg-neutral-700/60',
+      i === currentWeek ? 'bg-mint' : i < currentWeek ? 'bg-label-2' : 'bg-fill',
     title: `S${i + 1}: ${decimal((week?.distanceM ?? 0) / 1000)} km`,
   }))
 
@@ -312,13 +312,13 @@ function WeeklyCard({
     <Card>
       <CardTitle>Volumen semanal</CardTitle>
       <BarRow bars={bars} height={80} />
-      <div className="mt-2 flex items-center justify-between gap-2 text-[0.625rem] tabular-nums text-neutral-600">
+      <div className="mt-2 flex items-center justify-between gap-2 text-[0.625rem] tabular-nums text-label-4">
         <span>S1</span>
         <Legend
           items={[
-            { label: 'Corrido', className: 'bg-neutral-300' },
-            { label: '2025-26', className: 'bg-neutral-100/25' },
-            { label: 'Objetivo', className: 'bg-neutral-600' },
+            { label: 'Corrido', className: 'bg-label-2' },
+            { label: '2025-26', className: 'bg-ink/25' },
+            { label: 'Objetivo', className: 'bg-fill-strong' },
           ]}
         />
         <span>S{TOTAL_WEEKS}</span>
@@ -365,25 +365,25 @@ function ProjectionCard({ view }: { view: View }) {
         <>
           <p className="text-3xl font-semibold tabular-nums">
             {formatClock(projection.timeS)}
-            <span className="ml-2 text-sm font-normal text-neutral-500">media proyectada</span>
+            <span className="ml-2 text-sm font-normal text-label-3">media proyectada</span>
           </p>
           <p className="mt-1 text-sm">
-            <span className={cn(goalDelta <= 0 ? 'text-emerald-400' : 'text-amber-400')}>
+            <span className={cn(goalDelta <= 0 ? 'text-mint' : 'text-amber')}>
               {goalDelta <= 0
                 ? `${formatClock(Math.abs(goalDelta))} por dentro del objetivo`
                 : `a ${formatClock(goalDelta)} de ${formatClock(GOAL_TIME_S)}`}
             </span>
-            <span className="text-neutral-500"> · desde tu {projection.from.label}</span>
+            <span className="text-label-3"> · desde tu {projection.from.label}</span>
           </p>
         </>
       ) : (
-        <p className="text-sm text-neutral-500">
+        <p className="text-sm text-label-3">
           Todavía no hay nada lo bastante largo desde lo que proyectar — el listón más corto son
           5 km.
         </p>
       )}
 
-      <div className="mt-5 flex items-baseline justify-between gap-3 pb-1 text-[0.625rem] uppercase tracking-widest text-neutral-600">
+      <div className="mt-5 flex items-baseline justify-between gap-3 pb-1 text-[0.625rem] uppercase tracking-widest text-label-4">
         <span>Distancia</span>
         <span className="flex gap-3">
           <span>Este bloque</span>
@@ -391,21 +391,21 @@ function ProjectionCard({ view }: { view: View }) {
         </span>
       </div>
 
-      <ul className="divide-y divide-neutral-800 border-t border-neutral-800">
+      <ul className="divide-y divide-line border-t border-line">
         {view.efforts.map((effort, i) => {
           const last = view.lastEfforts[i]
           return (
             <li key={effort.label} className="flex items-baseline justify-between gap-3 py-2.5">
-              <span className="text-sm text-neutral-300">{effort.label}</span>
+              <span className="text-sm text-label-2">{effort.label}</span>
               <span className="flex items-baseline gap-3 text-right">
                 <span className="text-sm tabular-nums">
                   {effort.timeS == null ? (
-                    <span className="text-neutral-600">—</span>
+                    <span className="text-label-4">—</span>
                   ) : (
                     formatClock(effort.timeS)
                   )}
                 </span>
-                <span className="w-24 text-xs tabular-nums text-neutral-500">
+                <span className="w-24 text-xs tabular-nums text-label-3">
                   {last?.timeS == null ? '' : formatClock(last.timeS)}
                 </span>
               </span>
@@ -414,7 +414,7 @@ function ProjectionCard({ view }: { view: View }) {
         })}
       </ul>
 
-      <p className="mt-3 text-[0.6875rem] leading-relaxed text-neutral-600">
+      <p className="mt-3 text-[0.6875rem] leading-relaxed text-label-4">
         El mejor ritmo medio en una salida completa de al menos esa distancia, llevada al listón
         exacto — la app guarda resúmenes, no los parciales de los que Strava saca sus mejores
         marcas. Solo cuentan los esfuerzos: Z4 o más, o más rápido que ritmo medio. La media se
@@ -433,7 +433,7 @@ function IntensityCard({ view }: { view: View }) {
       <CardTitle>Reparto por zonas</CardTitle>
 
       {total === 0 ? (
-        <p className="text-sm text-neutral-500">
+        <p className="text-sm text-label-3">
           Aún no hay ninguna salida con pulso. Las zonas se leen del pulsómetro, no se deducen del
           ritmo.
         </p>
@@ -452,16 +452,16 @@ function IntensityCard({ view }: { view: View }) {
                 <li key={zone.zone} className="flex items-baseline justify-between gap-3">
                   <span className="flex items-center gap-2">
                     <span className={cn('size-2 rounded-full', ZONE_ACCENT[zone.zone].bar)} />
-                    <span className="text-sm text-neutral-300">{ZONE_NAME[zone.zone]}</span>
+                    <span className="text-sm text-label-2">{ZONE_NAME[zone.zone]}</span>
                   </span>
-                  <span className="shrink-0 text-xs tabular-nums text-neutral-500">
+                  <span className="shrink-0 text-xs tabular-nums text-label-3">
                     {formatDuration(zone.movingS)} · {Math.round((zone.movingS / total) * 100)}%
                   </span>
                 </li>
               ))}
           </ul>
           {view.zoneCoverage < 0.95 ? (
-            <p className="mt-3 text-[0.6875rem] text-neutral-600">
+            <p className="mt-3 text-[0.6875rem] text-label-4">
               El {Math.round((1 - view.zoneCoverage) * 100)}% del tiempo corriendo fue sin pulso y
               no cuenta aquí.
             </p>
@@ -498,7 +498,7 @@ function ConsistencyCard({ view }: { view: View }) {
         />
       </dl>
 
-      <p className="mt-4 text-[0.6875rem] leading-relaxed text-neutral-600">
+      <p className="mt-4 text-[0.6875rem] leading-relaxed text-label-4">
         Corriste {now.daysRun} de {now.days} días. El entrenamiento cruzado no cierra un parón de
         carrera: una semana de bici alrededor de una rodilla tocada es una buena semana y sigue
         siendo una semana sin correr.
@@ -568,7 +568,7 @@ function HeadToHead({ view }: { view: View }) {
     <Card>
       <CardTitle
         action={
-          <span className="text-[0.625rem] uppercase tracking-widest text-neutral-600">
+          <span className="text-[0.625rem] uppercase tracking-widest text-label-4">
             vs 2025-26
           </span>
         }
@@ -577,12 +577,12 @@ function HeadToHead({ view }: { view: View }) {
       </CardTitle>
 
       <table className="w-full text-sm">
-        <tbody className="divide-y divide-neutral-800">
+        <tbody className="divide-y divide-line">
           {rows.map((row) => (
             <tr key={row.label}>
-              <td className="py-2.5 pr-2 text-neutral-400">{row.label}</td>
+              <td className="py-2.5 pr-2 text-label-2">{row.label}</td>
               <td className="py-2.5 text-right tabular-nums">{row.format(row.now)}</td>
-              <td className="w-24 py-2.5 pl-3 text-right tabular-nums text-neutral-500">
+              <td className="w-24 py-2.5 pl-3 text-right tabular-nums text-label-3">
                 {row.then === 0 ? '—' : row.format(row.then)}
               </td>
               <td className="w-14 py-2.5 pl-2 text-right">
@@ -593,7 +593,7 @@ function HeadToHead({ view }: { view: View }) {
         </tbody>
       </table>
 
-      <p className="mt-3 text-[0.6875rem] leading-relaxed text-neutral-600">
+      <p className="mt-3 text-[0.6875rem] leading-relaxed text-label-4">
         Las dos temporadas medidas a la misma distancia del día de carrera: hoy faltan{' '}
         {daysToRace(view.today)} días, que la temporada pasada fue el{' '}
         {dateFmt.format(new Date(view.today - BASELINE_SHIFT_MS))}.

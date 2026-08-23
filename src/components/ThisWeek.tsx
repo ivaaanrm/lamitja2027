@@ -51,7 +51,7 @@ export function ThisWeek({
     <Card>
       <CardTitle
         action={
-          <a href="/plan" className="text-xs text-neutral-400 underline underline-offset-4">
+          <a href="/plan" className="text-xs text-label-2 underline underline-offset-4">
             Editar plan
           </a>
         }
@@ -60,7 +60,7 @@ export function ThisWeek({
       </CardTitle>
 
       {empty ? (
-        <p className="text-sm text-neutral-500">
+        <p className="text-sm text-label-3">
           Aún no hay nada planificado para esta semana.{' '}
           <a href="/plan" className="underline underline-offset-4">
             Escríbelo
@@ -69,7 +69,7 @@ export function ThisWeek({
         </p>
       ) : (
         <>
-          <ul className="-mx-2 divide-y divide-neutral-800/60">
+          <ul className="-mx-2 divide-y divide-line">
             {week.days.map((day) => (
               <DayLines
                 key={day.date}
@@ -82,15 +82,15 @@ export function ThisWeek({
             ))}
           </ul>
 
-          <div className="mt-4 border-t border-neutral-800 pt-4">
+          <div className="mt-4 border-t border-line pt-4">
             {selected ? (
               <>
                 <p className="mb-2 text-[0.6875rem] font-medium uppercase tracking-widest">
-                  <span className="text-neutral-300">
+                  <span className="text-label-2">
                     {whenLabel(startOfDay(selected.session.scheduledOn), today)}
                   </span>
                   {selected === upcoming ? (
-                    <span className="text-neutral-600"> · siguiente</span>
+                    <span className="text-label-4"> · siguiente</span>
                   ) : null}
                 </p>
                 <SessionCard
@@ -107,7 +107,7 @@ export function ThisWeek({
             ) : (
               // Not "all done": a week can run out of sessions ahead of you because they
               // were run, or because they were missed. The lines above say which.
-              <p className="text-sm text-neutral-500">
+              <p className="text-sm text-label-3">
                 Ya no queda nada esta semana. Toca un día para mirar atrás.
               </p>
             )}
@@ -189,7 +189,7 @@ function DayLabel({ children, isToday }: { children: string; isToday: boolean })
     <span
       className={cn(
         'w-14 shrink-0 text-[0.625rem] font-medium uppercase tracking-wide tabular-nums',
-        isToday ? 'text-neutral-100' : 'text-neutral-600',
+        isToday ? 'text-mint' : 'text-label-4',
       )}
     >
       {children}
@@ -224,7 +224,7 @@ function SessionLine({
         : null
 
   return (
-    <div className={cn('flex items-center rounded-lg', selected && 'bg-neutral-800/60')}>
+    <div className={cn('flex items-center rounded-lg', selected && 'bg-fill')}>
       <button
         type="button"
         onClick={onSelect}
@@ -243,7 +243,7 @@ function SessionLine({
         <span
           className={cn(
             'min-w-0 flex-1 truncate text-[0.8125rem]',
-            done ? 'text-neutral-500' : 'text-neutral-200',
+            done ? 'text-label-3' : 'text-label',
           )}
         >
           {session.title}
@@ -252,7 +252,7 @@ function SessionLine({
           <span
             className={cn(
               'shrink-0 text-[0.8125rem] tabular-nums',
-              activity ? 'text-emerald-400' : done ? 'text-neutral-600' : 'text-neutral-400',
+              activity ? 'text-mint' : done ? 'text-label-4' : 'text-label-2',
             )}
           >
             {value}
@@ -288,11 +288,11 @@ function ExtraLine({
     <div className="flex items-center">
       <span className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-2">
         <DayLabel isToday={isToday}>{label}</DayLabel>
-        <span aria-hidden className="size-1.5 shrink-0 rounded-full border border-neutral-600" />
-        <span className="min-w-0 flex-1 truncate text-[0.8125rem] text-neutral-400">
+        <span aria-hidden className="size-1.5 shrink-0 rounded-full border border-line-strong" />
+        <span className="min-w-0 flex-1 truncate text-[0.8125rem] text-label-2">
           {activity.name}
         </span>
-        <span className="shrink-0 text-[0.8125rem] tabular-nums text-neutral-400">
+        <span className="shrink-0 text-[0.8125rem] tabular-nums text-label-2">
           {formatKm(activity.distanceM)} km
         </span>
       </span>
@@ -307,8 +307,8 @@ function RestLine({ label, isToday }: { label: string; isToday: boolean }) {
     <div className="flex items-center">
       <span className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-2">
         <DayLabel isToday={isToday}>{label}</DayLabel>
-        <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-neutral-800" />
-        <span className="min-w-0 flex-1 truncate text-[0.8125rem] text-neutral-600">Descanso</span>
+        <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-fill" />
+        <span className="min-w-0 flex-1 truncate text-[0.8125rem] text-label-4">Descanso</span>
       </span>
       <span className="w-8" />
     </div>
@@ -330,8 +330,8 @@ function Tick({
       className={cn(
         'flex size-4 items-center justify-center rounded border text-[0.5rem] font-bold',
         done
-          ? 'border-emerald-500/60 bg-emerald-500/15 text-emerald-400'
-          : 'border-neutral-800 text-transparent',
+          ? 'border-mint/50 bg-mint/15 text-mint'
+          : 'border-line text-transparent',
       )}
     >
       ✓

@@ -45,7 +45,11 @@ export function LineChart({
   steps,
   height = 120,
   yMax: yMaxInput,
+  yMin: yMinInput = 0,
+  invert = false,
   markers = [],
+  rules = [],
+  backdrop,
   shadeFrom,
   className,
   label,
@@ -54,7 +58,19 @@ export function LineChart({
   steps: number
   height?: number
   yMax?: number
+  /** Floor of the axis. Zero for anything that is a quantity; a trace such as heart rate
+   *  or altitude wants the floor just under its lowest point, or it is a flat line. */
+  yMin?: number
+  /** Smaller is higher — pace, where fast is up. */
+  invert?: boolean
   markers?: Marker[]
+  /** Horizontal references in y units — a zone floor, a cadence target, a goal pace. */
+  rules?: { at: number; className?: string }[]
+  /**
+   * A profile drawn faintly behind the series on its own scale — the terrain under a
+   * pace trace. It shares the x axis and nothing else, so it never moves the y range.
+   */
+  backdrop?: (number | null)[]
   /** Index from which the axis is the future — drawn as a dimmed band. */
   shadeFrom?: number
   className?: string
@@ -62,9 +78,13 @@ export function LineChart({
   label: string
 }) {
   const values = series.flatMap((s) => s.values).filter((v): v is number => v != null)
-  const yMax = Math.max(yMaxInput ?? 0, ...values, 1)
+  const yMin = Math.min(yMinInput, ...values)
+  const yMax = Math.max(yMaxInput ?? 0, ...values, yMin + 1)
   const x = (i: number) => (steps <= 1 ? 0 : (i / (steps - 1)) * WIDTH)
-  const y = (v: number) => height - (v / yMax) * height
+  const y = (v: number) => {
+    const share = (v - yMin) / (yMax - yMin)
+    return invert ? share * height : height - share * height
+  }
 
   return (
     <svg
@@ -81,9 +101,11 @@ export function LineChart({
           y={0}
           width={WIDTH - x(shadeFrom)}
           height={height}
-          className="fill-neutral-100/[0.03]"
+          className="fill-ink/[0.03]"
         />
       ) : null}
+
+      {backdrop ? <Backdrop values={backdrop} x={x} height={height} /> : null}
 
       {markers.map((marker, i) => (
         <line
@@ -94,9 +116,24 @@ export function LineChart({
           y2={height}
           strokeDasharray="3 3"
           vectorEffect="non-scaling-stroke"
-          className={cn('stroke-neutral-700', marker.className)}
+          className={cn('stroke-line-strong', marker.className)}
         />
       ))}
+
+      {rules
+        .filter((rule) => rule.at >= yMin && rule.at <= yMax)
+        .map((rule, i) => (
+          <line
+            key={i}
+            x1={0}
+            x2={WIDTH}
+            y1={y(rule.at)}
+            y2={y(rule.at)}
+            strokeDasharray="3 3"
+            vectorEffect="non-scaling-stroke"
+            className={cn('stroke-line-strong', rule.className)}
+          />
+        ))}
 
       {series.map((s, i) => (
         <g key={i}>
@@ -125,6 +162,31 @@ export function LineChart({
         </g>
       ))}
     </svg>
+  )
+}
+
+/** The backdrop, scaled to its own range and pressed into the lower 60% of the plot so it
+ *  reads as ground beneath the line rather than as a second series. */
+function Backdrop({
+  values,
+  x,
+  height,
+}: {
+  values: (number | null)[]
+  x: (i: number) => number
+  height: number
+}) {
+  const present = values.filter((v): v is number => v != null)
+  if (present.length < 2) return null
+  const lo = Math.min(...present)
+  const span = Math.max(1, Math.max(...present) - lo)
+  const y = (v: number) => height - ((v - lo) / span) * height * 0.6
+  return (
+    <g>
+      {segments(values).map((segment, j) => (
+        <path key={j} d={areaPath(segment, x, y, height)} className="fill-ink/[0.06] stroke-none" />
+      ))}
+    </g>
   )
 }
 
@@ -203,18 +265,18 @@ export function BarRow({
           {bar.ghost != null && bar.ghost > 0 ? (
             <span
               aria-hidden
-              className="absolute bottom-0 w-full rounded-t-[2px] bg-neutral-100/10"
+              className="absolute bottom-0 w-full rounded-t-[2px] bg-ink/10"
               style={{ height: pct(bar.ghost) }}
             />
           ) : null}
           <span
-            className={cn('relative w-full rounded-t-[2px]', bar.className ?? 'bg-neutral-500')}
+            className={cn('relative w-full rounded-t-[2px]', bar.className ?? 'bg-label-3')}
             style={{ height: pct(bar.value) }}
           />
           {bar.target != null && bar.target > 0 ? (
             <span
               aria-hidden
-              className="absolute inset-x-0 border-t border-dashed border-neutral-600"
+              className="absolute inset-x-0 border-t border-dashed border-line-strong"
               style={{ bottom: pct(bar.target) }}
             />
           ) : null}
@@ -236,7 +298,7 @@ export function StackedBar({
   if (total <= 0) return null
 
   return (
-    <div className={cn('flex h-2.5 overflow-hidden rounded-full bg-neutral-800', className)}>
+    <div className={cn('flex h-2.5 overflow-hidden rounded-full bg-fill', className)}>
       {parts.map((part) => (
         <span
           key={part.key}

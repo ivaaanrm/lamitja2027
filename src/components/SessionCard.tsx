@@ -59,11 +59,11 @@ export function SessionCard({
   return (
     <article
       className={cn(
-        'relative overflow-hidden rounded-xl bg-neutral-900/60 ring-1 ring-inset transition-colors',
-        done ? 'ring-neutral-800/60' : 'ring-neutral-800',
+        'relative overflow-hidden rounded-xl bg-surface-raised transition-colors',
+        done && 'bg-surface-raised/60',
       )}
     >
-      <span aria-hidden className={cn('absolute inset-y-0 left-0 w-[3px]', accent.rail, done && 'opacity-40')} />
+      <span aria-hidden className={cn('absolute inset-y-0 left-0 w-1', accent.rail, done && 'opacity-40')} />
 
       <div className="py-3 pl-4 pr-3">
         <div className="flex items-start gap-2.5">
@@ -83,13 +83,13 @@ export function SessionCard({
             <span className="min-w-0">
               <span className="flex flex-wrap items-center gap-1.5">
                 <TypeChip type={session.type} />
-                <span className={cn('text-sm font-medium', done && 'text-neutral-400')}>
+                <span className={cn('text-sm font-medium', done && 'text-label-2')}>
                   {session.title}
                 </span>
               </span>
 
               {paces || estimate ? (
-                <span className="mt-0.5 block text-xs tabular-nums text-neutral-500">
+                <span className="mt-0.5 block text-xs tabular-nums text-label-3">
                   {[paces, estimate && `≈ ${estimate}`].filter(Boolean).join(' · ')}
                 </span>
               ) : null}
@@ -97,7 +97,7 @@ export function SessionCard({
 
             <span className="flex shrink-0 items-center gap-1.5">
               {target ? (
-                <span className="text-sm font-semibold tabular-nums text-neutral-200">{target}</span>
+                <span className="text-sm font-semibold tabular-nums text-label">{target}</span>
               ) : null}
               {expandable ? <Chevron open={open} /> : null}
             </span>
@@ -105,7 +105,7 @@ export function SessionCard({
         </div>
 
         {detailed && !open ? (
-          <p className="mt-2 pl-[2.125rem] text-xs leading-relaxed text-neutral-400">
+          <p className="mt-2 pl-[2.125rem] text-xs leading-relaxed text-label-2">
             {formatWorkout(steps)}
           </p>
         ) : null}
@@ -116,7 +116,7 @@ export function SessionCard({
           <div className="mt-3 pl-[2.125rem]">
             {detailed ? <StepList steps={steps} type={session.type} /> : null}
             {session.notes ? (
-              <p className="mt-3 border-l-2 border-neutral-800 pl-3 text-xs leading-relaxed text-neutral-400">
+              <p className="mt-3 border-l-2 border-line pl-3 text-xs leading-relaxed text-label-2">
                 {session.notes}
               </p>
             ) : null}
@@ -124,7 +124,7 @@ export function SessionCard({
               <button
                 type="button"
                 onClick={onEdit}
-                className="mt-3 text-xs text-neutral-400 underline underline-offset-4"
+                className="mt-3 text-xs text-label-2 underline underline-offset-4"
               >
                 Editar sesión
               </button>
@@ -148,7 +148,7 @@ function Chevron({ open }: { open: boolean }) {
       strokeWidth="2.5"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={cn('size-3 shrink-0 text-neutral-600 transition-transform', open && 'rotate-90')}
+      className={cn('size-3 shrink-0 text-label-4 transition-transform', open && 'rotate-90')}
     >
       <path d="m9 18 6-6-6-6" />
     </svg>
@@ -169,25 +169,25 @@ function StepList({ steps, type }: { steps: Step[]; type: MatchedSession['sessio
                 aria-hidden
                 className={cn(
                   'size-1.5 shrink-0 translate-y-[-1px] rounded-full',
-                  isEffort(step) && step.zone ? accent.dot : 'bg-neutral-700',
+                  isEffort(step) && step.zone ? accent.dot : 'bg-fill-strong',
                 )}
               />
-              <span className={cn('text-xs tabular-nums', isEffort(step) ? 'text-neutral-200' : 'text-neutral-500')}>
+              <span className={cn('text-xs tabular-nums', isEffort(step) ? 'text-label' : 'text-label-3')}>
                 {stepHeadline(step)}
               </span>
             </span>
-            <span className="shrink-0 text-xs tabular-nums text-neutral-500">
+            <span className="shrink-0 text-xs tabular-nums text-label-3">
               {paceBandLabel(step.zone) ?? ''}
             </span>
           </div>
 
           {step.recovery && step.reps > 1 ? (
-            <p className="ml-3.5 border-l border-neutral-800 pl-2.5 text-[0.6875rem] text-neutral-500">
+            <p className="ml-3.5 border-l border-line pl-2.5 text-[0.6875rem] text-label-3">
               {formatRecovery(step.recovery)} entre series
             </p>
           ) : null}
           {step.note ? (
-            <p className="ml-3.5 pl-2.5 text-[0.6875rem] text-neutral-500">{step.note}</p>
+            <p className="ml-3.5 pl-2.5 text-[0.6875rem] text-label-3">{step.note}</p>
           ) : null}
         </li>
       ))}
@@ -208,11 +208,11 @@ function Result({
   const delta = target ? (activity.distanceM - target) / 1000 : null
 
   return (
-    <div className="mt-2.5 ml-[2.125rem] flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-lg bg-emerald-500/5 px-2.5 py-1.5 text-xs tabular-nums ring-1 ring-inset ring-emerald-500/15">
-      <span className="font-medium text-emerald-400">{formatKm(activity.distanceM)} km</span>
-      {pace ? <span className="text-emerald-400/80">{formatPace(pace)}/km</span> : null}
+    <div className="mt-2.5 ml-[2.125rem] flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-lg bg-mint/10 px-2.5 py-1.5 text-xs tabular-nums ring-1 ring-inset ring-mint/20">
+      <span className="font-medium text-mint">{formatKm(activity.distanceM)} km</span>
+      {pace ? <span className="text-mint">{formatPace(pace)}/km</span> : null}
       {delta != null && Math.abs(delta) >= 0.2 ? (
-        <span className="text-neutral-500">
+        <span className="text-label-3">
           {delta > 0 ? '+' : ''}
           {delta.toFixed(1)} km
         </span>
@@ -220,14 +220,14 @@ function Result({
       {activity.cadenceSpm ? (
         // docs/03 §6: cadence is the injury fix and the race-form marker, so it is the
         // one secondary number worth carrying on every completed run.
-        <span className={cn(activity.cadenceSpm >= 170 ? 'text-emerald-400/80' : 'text-amber-400/90')}>
+        <span className={cn(activity.cadenceSpm >= 170 ? 'text-mint' : 'text-amber')}>
           {activity.cadenceSpm} pasos/min
         </span>
       ) : null}
       {activity.averageHeartrate ? (
         // The zone, never the number: 151 ppm means nothing without the day's heat, sleep
         // and strap behind it, and no decision in the plan is made on the exact figure.
-        <span className="text-neutral-500">{zoneTag(hrZone(activity.averageHeartrate))}</span>
+        <span className="text-label-3">{zoneTag(hrZone(activity.averageHeartrate))}</span>
       ) : null}
     </div>
   )
@@ -240,19 +240,19 @@ export function ExtraCard({
   activity: { name: string; distanceM: number; movingS: number; sportType: string }
 }) {
   return (
-    <article className="relative overflow-hidden rounded-xl bg-neutral-900/30 ring-1 ring-inset ring-neutral-800/60">
-      <span aria-hidden className="absolute inset-y-0 left-0 w-[3px] bg-neutral-800" />
+    <article className="relative overflow-hidden rounded-xl bg-surface-raised">
+      <span aria-hidden className="absolute inset-y-0 left-0 w-[3px] bg-fill" />
       <div className="flex items-start justify-between gap-3 py-3 pl-4 pr-3">
         <div className="min-w-0">
-          <p className="text-[0.625rem] font-semibold uppercase tracking-wider text-neutral-600">
+          <p className="text-[0.625rem] font-semibold uppercase tracking-wider text-label-4">
             Sin planificar
           </p>
-          <p className="truncate text-sm text-neutral-300">{activity.name}</p>
+          <p className="truncate text-sm text-label-2">{activity.name}</p>
         </div>
         <div className="shrink-0 text-right">
-          <p className="text-sm tabular-nums text-neutral-300">{formatKm(activity.distanceM)} km</p>
+          <p className="text-sm tabular-nums text-label-2">{formatKm(activity.distanceM)} km</p>
           {isRun(activity.sportType) ? (
-            <p className="text-xs tabular-nums text-neutral-500">
+            <p className="text-xs tabular-nums text-label-3">
               {formatPace(paceSKm(activity.distanceM, activity.movingS))}/km
             </p>
           ) : null}

@@ -96,9 +96,25 @@ event body entirely — any event just means "refresh"), and a nightly cron is t
 **Four tabs, one dock.** `/` `/plan` `/progreso` `/registro`, listed once in
 `src/lib/nav.ts` and rendered by `src/components/Dock.astro` — plain HTML fixed to the
 bottom of the viewport, with `env(safe-area-inset-bottom)` under it so it clears the home
-indicator. It ships no JavaScript: every page is prerendered, so which tab is lit is known
-at build time. `src/layouts/App.astro` is the shell that pairs it with the page column and
+indicator. It has no JavaScript of its own: every page is prerendered, so which tab is lit is
+known at build time. Tabs still switch without a document load — `Base.astro` mounts Astro's
+`<ClientRouter />`, the dock is `transition:animate="none"` (swapped in place, never faded or
+slid with the content — and never `transition:persist`, which would keep the old highlight
+lit), the page column fades, the four shells are prefetched on load, and `useBlock` keeps the
+last `/api/data` payload in module scope so the next tab paints with data and revalidates
+behind it. `src/layouts/App.astro` is the shell that pairs it with the page column and
 reserves the bottom padding; `/login` uses `Base.astro` directly and has no dock.
+
+**The trace behind a run is read, not stored** (`src/lib/streams.ts`, `/actividad?id=`).
+Tapping a row in `/registro` opens a detail view — pace, pulse, cadence and altitude over
+distance, time in zones, per-km splits, laps and the description. `GET /api/activities/:id`
+fetches the streams and the detailed record from Strava on every open (three calls, against
+a 100-per-15-min limit) and folds the samples into 120 distance bins on the Worker, so the
+phone receives ~12 KB, not ten thousand points. Nothing is written: a table of streams would
+be a second copy of Strava's record for the one screen that reads it. The id must already
+be in `activities`, so the endpoint cannot read arbitrary activities off the account. The
+page is one prerendered shell; the id is in the query string and read in an effect (gotcha
+15). Laps are shown only when they differ from the per-km auto-laps — a series session.
 
 **Last season is data, not memory** (`src/lib/baseline.ts`). `docs/data/*.csv` is imported
 `?raw` and parsed into `Activity` rows, so the 2025-26 build can be compared against
@@ -157,6 +173,12 @@ Tailwind classes so a chart is styled like everything else on the page.
     tsconfig paths natively (`resolve.tsconfigPaths: true`) — no plugin.
 12. **pnpm 11 gates build scripts** via `allowBuilds` in `pnpm-workspace.yaml`. Without it
     `workerd` never installs its binary. `pnpm approve-builds --all` writes the right shape.
+    `allowBuilds` is a pnpm 11 key and Workers Builds ships pnpm 10.11.1, which reads the
+    file, silently ignores it and skips `workerd`'s postinstall — so `astro build` fails in
+    CI on a machine where it passes locally. `packageManager` in `package.json` is what
+    fixes it: pnpm 10 self-installs the pinned version and re-execs. Workers Builds has no
+    version file for pnpm, only a `PNPM_VERSION` build variable, so the pin has to live in
+    the manifest.
 13. **`wrangler d1 execute --file` against remote is flaky** (upload step fails on transient
     network errors). Retry, or use `--command`.
 14. **`?raw` imports work, including from outside `src/`.** `docs/data/*.csv` is inlined at
@@ -203,9 +225,24 @@ Tailwind classes so a chart is styled like everything else on the page.
   zod.** They own `SESSION_TYPES` and `Step`, and `db/schema.ts` imports them, not the other
   way round; the zod mirror of `Step` lives in `plan-input.ts`, which only the Worker ever
   loads, and a type-level assignment there fails the build if the two drift apart.
+- **The palette is sampled from Runna, and every colour in the app is a token.** The whole
+  system is the `@theme` block in `src/styles/global.css`: three grounds (`surface-deep`
+  `surface` `surface-raised`), `ink`, two fills, two lines, four label steps and eight
+  named hues (`lime` `green` `mint` `blue` `violet` `coral` `red` `amber`). Nothing outside
+  that file names a colour — no `neutral-*`, no `emerald-400`, no hex, the one exception
+  being Strava's own `#fc4c02` on the connect button. Two properties of the sample are
+  load-bearing and easy to undo by accident: the ground is a **cool charcoal, not a navy**
+  (hue ≈223° but only 14% saturation — past ~20% the whole app turns blue), and the accents
+  are mid-lightness and mid-saturation rather than neon. Every hue clears 4.5:1 on *both*
+  `surface` and `surface-raised`, which is why four of the eight are lifted off their
+  sampled value; re-derive that before changing one. `label-4` is the sole step that does
+  not clear AA, so only chrome may use it.
+- **Mint is state, not decoration.** Done, now, ahead, the primary button — one colour for
+  "the app is telling you something", and `text-surface` is what rides on it. The other
+  seven hues belong to the session types and the five zones.
 - **Session colours are written out, never composed.** Tailwind resolves classes by scanning
   source, so the accent map in `src/components/ui/index.tsx` spells each class in full —
-  `bg-${accent}-400` is a class that never ships.
+  `bg-${hue}` is a class that never ships.
 - **The UI reads everything from `/api/data` in one request** and derives the rest on the
   client. The block is a few tens of KB, so every mutation just re-reads it — there is no
   optimistic copy of the plan that can disagree with the database.

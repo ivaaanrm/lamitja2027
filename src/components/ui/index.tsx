@@ -19,34 +19,41 @@ import { SESSION_META, type SessionType } from '@/lib/plan'
  * One colour per kind of session, so a week reads as a shape before it reads as words:
  * hard days are warm, endurance is violet, everything that is not running is cool.
  *
- * Written out rather than composed (`bg-${accent}-400`) because Tailwind resolves classes
- * by scanning the source — an interpolated name is a class that never ships.
+ * Each running type takes the hue Runna gives the same session — lime for the easy run,
+ * violet for the long one, amber for tempo, coral for intervals, red for a race — because
+ * those are the ones that have to be told apart at a glance in a week strip, and that
+ * mapping is already tuned. Rest is the only type with no hue at all: it is the absence
+ * of a session, so it gets the neutral fill and nothing else.
+ *
+ * Written out rather than composed (`bg-${accent}`) because Tailwind resolves classes by
+ * scanning the source — an interpolated name is a class that never ships.
  */
 export const ACCENT: Record<
   SessionType,
   { rail: string; chip: string; text: string; dot: string }
 > = {
-  easy: { rail: 'bg-sky-400/50', chip: 'bg-sky-400/10 text-sky-300 ring-sky-400/20', text: 'text-sky-300', dot: 'bg-sky-400/60' },
-  long: { rail: 'bg-violet-400', chip: 'bg-violet-400/10 text-violet-300 ring-violet-400/20', text: 'text-violet-300', dot: 'bg-violet-400' },
-  tempo: { rail: 'bg-amber-400', chip: 'bg-amber-400/10 text-amber-300 ring-amber-400/20', text: 'text-amber-300', dot: 'bg-amber-400' },
-  interval: { rail: 'bg-rose-400', chip: 'bg-rose-400/10 text-rose-300 ring-rose-400/20', text: 'text-rose-300', dot: 'bg-rose-400' },
-  fartlek: { rail: 'bg-fuchsia-400', chip: 'bg-fuchsia-400/10 text-fuchsia-300 ring-fuchsia-400/20', text: 'text-fuchsia-300', dot: 'bg-fuchsia-400' },
-  race: { rail: 'bg-emerald-400', chip: 'bg-emerald-400/10 text-emerald-300 ring-emerald-400/20', text: 'text-emerald-300', dot: 'bg-emerald-400' },
-  rest: { rail: 'bg-neutral-700', chip: 'bg-neutral-500/10 text-neutral-400 ring-neutral-500/20', text: 'text-neutral-400', dot: 'bg-neutral-700' },
-  cross: { rail: 'bg-cyan-400/70', chip: 'bg-cyan-400/10 text-cyan-300 ring-cyan-400/20', text: 'text-cyan-300', dot: 'bg-cyan-400/70' },
-  strength: { rail: 'bg-teal-400/70', chip: 'bg-teal-400/10 text-teal-300 ring-teal-400/20', text: 'text-teal-300', dot: 'bg-teal-400/70' },
+  easy: { rail: 'bg-lime', chip: 'bg-lime/12 text-lime ring-lime/25', text: 'text-lime', dot: 'bg-lime' },
+  long: { rail: 'bg-violet', chip: 'bg-violet/12 text-violet ring-violet/25', text: 'text-violet', dot: 'bg-violet' },
+  tempo: { rail: 'bg-amber', chip: 'bg-amber/12 text-amber ring-amber/25', text: 'text-amber', dot: 'bg-amber' },
+  interval: { rail: 'bg-coral', chip: 'bg-coral/12 text-coral ring-coral/25', text: 'text-coral', dot: 'bg-coral' },
+  fartlek: { rail: 'bg-green', chip: 'bg-green/12 text-green ring-green/25', text: 'text-green', dot: 'bg-green' },
+  rest: { rail: 'bg-fill-strong', chip: 'bg-fill text-label-3 ring-line', text: 'text-label-3', dot: 'bg-fill-strong' },
+  race: { rail: 'bg-red', chip: 'bg-red/12 text-red ring-red/25', text: 'text-red', dot: 'bg-red' },
+  cross: { rail: 'bg-mint', chip: 'bg-mint/12 text-mint ring-mint/25', text: 'text-mint', dot: 'bg-mint' },
+  strength: { rail: 'bg-blue', chip: 'bg-blue/12 text-blue ring-blue/25', text: 'text-blue', dot: 'bg-blue' },
 }
 
 /**
- * One colour per heart-rate zone, cool to warm. Spelled out for the same reason `ACCENT`
- * is: Tailwind scans source, so a composed class name never ships.
+ * One colour per heart-rate zone, cool to warm — the same eight hues the session types
+ * draw from, so a zone bar and a session rail are never two different greens. Spelled out
+ * for the same reason `ACCENT` is: Tailwind scans source, so a composed class never ships.
  */
 export const ZONE_ACCENT: Record<Zone, { bar: string; text: string }> = {
-  1: { bar: 'bg-neutral-600', text: 'text-neutral-400' },
-  2: { bar: 'bg-sky-400', text: 'text-sky-300' },
-  3: { bar: 'bg-emerald-400', text: 'text-emerald-300' },
-  4: { bar: 'bg-amber-400', text: 'text-amber-300' },
-  5: { bar: 'bg-rose-400', text: 'text-rose-300' },
+  1: { bar: 'bg-fill-strong', text: 'text-label-3' },
+  2: { bar: 'bg-blue', text: 'text-blue' },
+  3: { bar: 'bg-green', text: 'text-green' },
+  4: { bar: 'bg-amber', text: 'text-amber' },
+  5: { bar: 'bg-red', text: 'text-red' },
 }
 
 /** The session's kind, as a tinted label. */
@@ -100,7 +107,7 @@ export function DoneToggle({
   )
   const shape = cn(
     'flex size-6 shrink-0 items-center justify-center rounded-full border transition-colors',
-    done ? 'border-emerald-500 bg-emerald-500 text-ink' : 'border-line-strong text-transparent',
+    done ? 'border-mint bg-mint text-surface' : 'border-line-strong text-transparent',
   )
 
   if (!onToggle)
@@ -178,7 +185,7 @@ export function ProgressBar({ value, target }: { value: number; target: number }
   return (
     <div className="h-1 overflow-hidden rounded-full bg-fill">
       <div
-        className={cn('h-full rounded-full transition-[width]', pct >= 100 ? 'bg-emerald-400' : 'bg-label')}
+        className={cn('h-full rounded-full transition-[width]', pct >= 100 ? 'bg-mint' : 'bg-label')}
         style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
       />
     </div>
@@ -190,8 +197,8 @@ export function Chip({ children, tone = 'neutral' }: { children: ReactNode; tone
     <span
       className={cn(
         'rounded-full px-2 py-0.5 text-caption font-medium',
-        tone === 'done' && 'bg-emerald-500/15 text-emerald-400',
-        tone === 'down' && 'bg-amber-500/15 text-amber-400',
+        tone === 'done' && 'bg-mint/15 text-mint',
+        tone === 'down' && 'bg-amber/15 text-amber',
         tone === 'neutral' && 'bg-fill text-label-2',
       )}
     >
@@ -227,8 +234,8 @@ export function Delta({
       className={cn(
         'text-caption font-medium tabular-nums',
         good === null && 'text-label-3',
-        good === true && 'text-emerald-400',
-        good === false && 'text-amber-400',
+        good === true && 'text-mint',
+        good === false && 'text-amber',
         className,
       )}
     >
@@ -298,9 +305,9 @@ export function Button({
         // Filled, not outlined: an outlined button is a web convention, and against a
         // surface with no panels behind it a border is the only box left on the screen.
         'inline-flex h-11 items-center justify-center rounded-xl px-4 text-subhead font-semibold active:opacity-60 disabled:opacity-40',
-        variant === 'primary' && 'bg-label text-ink',
+        variant === 'primary' && 'bg-mint text-surface',
         variant === 'ghost' && 'bg-fill text-label',
-        variant === 'danger' && 'bg-red-500/15 text-red-400',
+        variant === 'danger' && 'bg-red/15 text-red',
         className,
       )}
     >

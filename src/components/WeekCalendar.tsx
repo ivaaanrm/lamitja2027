@@ -82,7 +82,7 @@ function DayColumn({ stats, weekday, peak }: { stats: DayStats; weekday: string;
       <span
         className={cn(
           'text-[10px] font-medium uppercase',
-          stats.isToday ? 'text-white' : 'text-neutral-500',
+          stats.isToday ? 'text-mint' : 'text-label-3',
         )}
       >
         {weekday}
@@ -92,7 +92,7 @@ function DayColumn({ stats, weekday, peak }: { stats: DayStats; weekday: string;
         {/* Prescribed volume: a ghost the actual bar grows into. */}
         {plannedPct > 0 ? (
           <span
-            className="absolute bottom-0 w-full rounded-md border border-dashed border-neutral-700"
+            className="absolute bottom-0 w-full rounded-md border border-dashed border-line-strong"
             style={{ height: `${Math.max(plannedPct, 2)}%` }}
           />
         ) : null}
@@ -101,7 +101,7 @@ function DayColumn({ stats, weekday, peak }: { stats: DayStats; weekday: string;
           <span
             className={cn(
               'absolute bottom-0 w-full rounded-md',
-              stats.hasQuality ? 'bg-amber-400' : 'bg-white',
+              stats.hasQuality ? 'bg-amber' : 'bg-label-2',
             )}
             style={{ height: `${Math.max(actualPct, 3)}%` }}
           />
@@ -113,7 +113,7 @@ function DayColumn({ stats, weekday, peak }: { stats: DayStats; weekday: string;
           <span
             className={cn(
               'absolute w-full border-t',
-              stats.actualM > stats.plannedM ? 'border-neutral-950/70' : 'border-neutral-500',
+              stats.actualM > stats.plannedM ? 'border-surface-deep/80' : 'border-label-3',
             )}
             style={{ bottom: `${Math.max(plannedPct, 2)}%` }}
           />
@@ -121,14 +121,14 @@ function DayColumn({ stats, weekday, peak }: { stats: DayStats; weekday: string;
 
         {/* A rest day reads as deliberate, not as missing data. */}
         {stats.actualM === 0 && plannedPct === 0 ? (
-          <span className="absolute bottom-0 h-px w-3 bg-neutral-700" />
+          <span className="absolute bottom-0 h-px w-3 bg-fill-strong" />
         ) : null}
       </span>
 
       <span
         className={cn(
           'text-[11px] tabular-nums',
-          stats.actualM > 0 ? 'text-neutral-200' : 'text-neutral-600',
+          stats.actualM > 0 ? 'text-label' : 'text-label-4',
         )}
       >
         {stats.actualM > 0 ? formatKm(stats.actualM) : '–'}
@@ -137,7 +137,7 @@ function DayColumn({ stats, weekday, peak }: { stats: DayStats; weekday: string;
       <span
         className={cn(
           'flex size-5 items-center justify-center rounded-full text-[10px] tabular-nums',
-          stats.isToday ? 'bg-white font-semibold text-neutral-950' : 'text-neutral-600',
+          stats.isToday ? 'bg-mint font-semibold text-surface' : 'text-label-4',
         )}
       >
         {dayOfMonth}

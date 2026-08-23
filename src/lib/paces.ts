@@ -109,5 +109,13 @@ export function hrZone(bpm: number): Zone {
   return 1
 }
 
+/** Where each zone opens, in bpm — the reference lines on a heart-rate trace. */
+export const ZONE_FLOOR_BPM: Record<Exclude<Zone, 1>, number> = {
+  2: Math.round(ZONE_FLOOR[2] * HR_MAX),
+  3: Math.round(ZONE_FLOOR[3] * HR_MAX),
+  4: Math.round(ZONE_FLOOR[4] * HR_MAX),
+  5: Math.round(ZONE_FLOOR[5] * HR_MAX),
+}
+
 /** Mid-band pace, s/km — what a prescribed distance is costed at when estimating time. */
 export const midPaceSKm = (zone: PaceZone) => (PACES[zone].lo + PACES[zone].hi) / 2

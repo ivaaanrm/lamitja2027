@@ -148,10 +148,10 @@ export function SessionForm({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end bg-neutral-950/80 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex flex-col justify-end bg-surface-deep/80 backdrop-blur-sm">
       <button type="button" aria-label="Cerrar" className="flex-1" onClick={onClose} />
 
-      <div className="max-h-[85vh] overflow-y-auto rounded-t-3xl border-t border-neutral-800 bg-neutral-900 p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]">
+      <div className="max-h-[85vh] overflow-y-auto rounded-t-3xl bg-surface-raised p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]">
         <div className="mx-auto max-w-md space-y-4">
           <h2 className="text-sm font-medium">{session ? 'Editar sesión' : 'Nueva sesión'}</h2>
 
@@ -219,16 +219,16 @@ export function SessionForm({
           </div>
 
           {session?.steps?.length ? (
-            <div className="rounded-xl border border-neutral-800 bg-neutral-950/60 p-3">
-              <p className="text-[0.6875rem] uppercase tracking-widest text-neutral-500">Entrenamiento</p>
+            <div className="rounded-xl border border-line bg-fill p-3">
+              <p className="text-[0.6875rem] uppercase tracking-widest text-label-3">Entrenamiento</p>
               <ol className="mt-2 space-y-1">
                 {session.steps.map((step, i) => (
-                  <li key={i} className="text-xs tabular-nums text-neutral-300">
+                  <li key={i} className="text-xs tabular-nums text-label-2">
                     {formatStep(step)}
                   </li>
                 ))}
               </ol>
-              <p className={cn('mt-2 text-[0.6875rem]', prescriptionEdited ? 'text-amber-400' : 'text-neutral-500')}>
+              <p className={cn('mt-2 text-[0.6875rem]', prescriptionEdited ? 'text-amber' : 'text-label-3')}>
                 {prescriptionEdited
                   ? 'Al guardar, este desglose se sustituye por los valores de arriba.'
                   : 'Viene del plan. Cambiar aquí una distancia o un ritmo lo sustituye.'}
@@ -245,7 +245,7 @@ export function SessionForm({
             />
           </Field>
 
-          {error ? <p className="text-xs text-red-400">{error}</p> : null}
+          {error ? <p className="text-xs text-red">{error}</p> : null}
 
           <div className="flex gap-2 pt-1">
             <Button variant="primary" className="flex-1" disabled={busy} onClick={() => void save()}>

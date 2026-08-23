@@ -1,16 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <defs>
-    <linearGradient id="g" x1="56" y1="0" x2="456" y2="0" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#34d399"/>
-      <stop offset="0.45" stop-color="#a3e635"/>
-      <stop offset="1" stop-color="#f59e0b"/>
-    </linearGradient>
-  </defs>
-  <rect width="512" height="512" rx="114" fill="#0a0a0a"/>
-  <!-- The course: 10 km of climb, then 11 km of descent that steepens to the finish. -->
-  <path d="M56 404 L56 330 C104 318 150 244 214 128 C288 206 300 258 456 386 L456 404 Z"
-        fill="url(#g)" opacity="0.34"/>
-  <path d="M56 330 C104 318 150 244 214 128 C288 206 300 258 456 386"
-        fill="none" stroke="url(#g)" stroke-width="38"
-        stroke-linecap="round" stroke-linejoin="round"/>
+  <rect width="512" height="512" rx="114" fill="#000000"/>
+  <!-- Stride M: a forward runner built from one colour and favicon-safe geometry. -->
+  <g fill="none" stroke="#a3e635" stroke-width="38" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M277 179 230 269"/>
+    <path d="m269 191-70 25-48-46"/>
+    <path d="m270 190 76 24 48-42"/>
+    <path d="m230 269-65 69-70 37"/>
+    <path d="m230 269 82 46 105 65"/>
+  </g>
+  <circle cx="314" cy="112" r="34" fill="#a3e635"/>
 </svg>

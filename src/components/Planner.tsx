@@ -33,14 +33,14 @@ export function Planner() {
   if (error && !data) {
     return (
       <Card>
-        <p className="text-sm text-red-400">{error}</p>
+        <p className="text-sm text-red">{error}</p>
       </Card>
     )
   }
   if (!data || !progress) {
     return (
       <Card>
-        <p className="text-sm text-neutral-500">Cargando…</p>
+        <p className="text-sm text-label-3">Cargando…</p>
       </Card>
     )
   }
@@ -75,7 +75,7 @@ export function Planner() {
         ))}
       </div>
 
-      {actionError ? <p className="mt-4 text-center text-xs text-red-400">{actionError}</p> : null}
+      {actionError ? <p className="mt-4 text-center text-xs text-red">{actionError}</p> : null}
 
       {editing ? (
         <SessionForm
@@ -118,7 +118,7 @@ function WeekRow({
   const targetKm = metrics.targetVolumeM == null ? null : metrics.targetVolumeM / 1000
 
   return (
-    <Card className={cn('p-0', isCurrent && 'border-neutral-600')}>
+    <Card className={cn('p-0', isCurrent && 'border-line-strong')}>
       <button
         type="button"
         onClick={onOpen}
@@ -128,13 +128,13 @@ function WeekRow({
         <span className="min-w-0">
           <span className="flex items-center gap-2">
             <span className="text-sm font-medium">S{week.weekIndex + 1}</span>
-            <span className="text-xs text-neutral-500">
+            <span className="text-xs text-label-3">
               {rangeFmt.format(new Date(days[0]))} – {rangeFmt.format(new Date(days[6]))}
             </span>
             {metrics.isDownWeek ? <Chip tone="down">Descarga</Chip> : null}
           </span>
           {metrics.phase ? (
-            <span className="mt-1 block truncate text-xs text-neutral-500">{metrics.phase}</span>
+            <span className="mt-1 block truncate text-xs text-label-3">{metrics.phase}</span>
           ) : null}
         </span>
 
@@ -142,12 +142,12 @@ function WeekRow({
           <span className="block text-sm tabular-nums">
             {decimal(km)}
             {targetKm != null ? (
-              <span className="text-neutral-500"> / {targetKm.toFixed(0)}</span>
+              <span className="text-label-3"> / {targetKm.toFixed(0)}</span>
             ) : null}
-            <span className="ml-1 text-xs text-neutral-500">km</span>
+            <span className="ml-1 text-xs text-label-3">km</span>
           </span>
           {metrics.sessionsPlanned > 0 ? (
-            <span className="block text-xs tabular-nums text-neutral-500">
+            <span className="block text-xs tabular-nums text-label-3">
               {metrics.sessionsDone}/{metrics.sessionsPlanned} hechas
             </span>
           ) : null}
@@ -161,7 +161,7 @@ function WeekRow({
       ) : null}
 
       {isOpen ? (
-        <div className="border-t border-neutral-800 p-4">
+        <div className="border-t border-line p-4">
           <WeekFields week={week} onReload={onReload} onError={onError} />
 
           <div className="mt-5 space-y-4">
@@ -170,13 +170,13 @@ function WeekRow({
               return (
                 <div key={day} className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <p className="text-[0.6875rem] font-medium uppercase tracking-widest text-neutral-600">
+                    <p className="text-[0.6875rem] font-medium uppercase tracking-widest text-label-4">
                       {dayFmt.format(new Date(day))}
                     </p>
                     <button
                       type="button"
                       onClick={() => onAdd(day)}
-                      className="text-xs text-neutral-400 underline underline-offset-4"
+                      className="text-xs text-label-2 underline underline-offset-4"
                     >
                       Añadir
                     </button>
@@ -270,7 +270,7 @@ function WeekFields({
 
       <Button
         onClick={() => void save({ isDownWeek: !isDownWeek })}
-        className={cn('w-full', isDownWeek && 'border-amber-700/70 text-amber-400')}
+        className={cn('w-full', isDownWeek && 'border-amber/40 text-amber')}
       >
         {isDownWeek ? 'Semana de descarga ✓' : 'Marcar como semana de descarga'}
       </Button>

@@ -54,14 +54,14 @@ export function Dashboard() {
   if (error && !data) {
     return (
       <Card>
-        <p className="text-sm text-red-400">{error}</p>
+        <p className="text-sm text-red">{error}</p>
       </Card>
     )
   }
   if (!data || !progress) {
     return (
       <Card>
-        <p className="text-sm text-neutral-500">Cargando…</p>
+        <p className="text-sm text-label-3">Cargando…</p>
       </Card>
     )
   }
@@ -69,7 +69,7 @@ export function Dashboard() {
   if (!data.stravaConnected) {
     return (
       <Card>
-        <p className="text-sm text-neutral-400">Conecta Strava para traer las salidas de este bloque.</p>
+        <p className="text-sm text-label-2">Conecta Strava para traer las salidas de este bloque.</p>
         <a
           href="/api/strava/connect"
           className="mt-4 inline-flex h-11 items-center justify-center rounded-xl bg-[#fc4c02] px-5 text-sm font-semibold text-white active:opacity-80"
@@ -102,7 +102,7 @@ export function Dashboard() {
               type="button"
               onClick={() => void sync()}
               disabled={busy}
-              className="text-xs text-neutral-400 underline underline-offset-4 disabled:opacity-50"
+              className="text-xs text-label-2 underline underline-offset-4 disabled:opacity-50"
             >
               {busy ? 'Sincronizando…' : 'Sincronizar'}
             </button>
@@ -112,16 +112,20 @@ export function Dashboard() {
         </CardTitle>
 
         {recent.length === 0 ? (
-          <p className="text-sm text-neutral-500">
+          <p className="text-sm text-label-3">
             Nada todavía. El bloque abre el {dayFmt.format(new Date(BLOCK_START))}.
           </p>
         ) : (
-          <ul className="divide-y divide-neutral-800">
+          <ul className="divide-y divide-line">
             {recent.map((run) => (
-              <li key={run.id} className="flex items-baseline justify-between gap-3 py-3">
+              <li key={run.id}>
+                <a
+                  href={`/actividad?id=${run.id}`}
+                  className="flex items-baseline justify-between gap-3 py-3 active:opacity-60"
+                >
                 <div className="min-w-0">
                   <p className="truncate text-sm">{run.name}</p>
-                  <p className="text-xs text-neutral-500">
+                  <p className="text-xs text-label-3">
                     {dayFmt.format(new Date(run.startedOn))}
                     {run.cadenceSpm ? ` · ${run.cadenceSpm} pasos/min` : ''}
                     {/* The zone, not the number — see the same call in SessionCard. */}
@@ -130,10 +134,11 @@ export function Dashboard() {
                 </div>
                 <div className="shrink-0 text-right">
                   <p className="text-sm tabular-nums">{formatKm(run.distanceM)} km</p>
-                  <p className="text-xs tabular-nums text-neutral-500">
+                  <p className="text-xs tabular-nums text-label-3">
                     {formatPace(paceSKm(run.distanceM, run.movingS))}/km
                   </p>
                 </div>
+                </a>
               </li>
             ))}
           </ul>
@@ -142,13 +147,13 @@ export function Dashboard() {
 
       <BlockProgressCard progress={progress} currentWeek={currentWeek} />
 
-      <p className="text-center text-xs text-neutral-600">
+      <p className="text-center text-xs text-label-4">
         {data.lastSyncAt
           ? `Sincronizado el ${dayFmt.format(new Date(data.lastSyncAt))} a las ${timeFmt.format(new Date(data.lastSyncAt))}`
           : 'Sin sincronizar todavía'}
       </p>
 
-      {actionError ? <p className="text-center text-xs text-red-400">{actionError}</p> : null}
+      {actionError ? <p className="text-center text-xs text-red">{actionError}</p> : null}
     </>
   )
 }
@@ -170,15 +175,15 @@ function ThisWeekHeader({
   return (
     <Card>
       <div className="flex items-baseline justify-between gap-3">
-        <p className="text-xs font-medium uppercase tracking-widest text-neutral-500">
+        <p className="text-xs font-medium uppercase tracking-widest text-label-3">
           {notStarted ? 'La semana 1 empieza pronto' : `Semana ${metrics.weekIndex + 1} de ${TOTAL_WEEKS}`}
         </p>
-        <p className="text-xs text-neutral-500">Faltan {daysToRace(Date.now())} días</p>
+        <p className="text-xs text-label-3">Faltan {daysToRace(Date.now())} días</p>
       </div>
 
       <p className="mt-2 text-4xl font-semibold tabular-nums">
         {decimal(km)}
-        <span className="ml-1.5 text-base font-normal text-neutral-500">
+        <span className="ml-1.5 text-base font-normal text-label-3">
           {targetKm == null ? 'km esta semana' : `de ${targetKm.toFixed(0)} km`}
         </span>
       </p>
@@ -250,9 +255,9 @@ function BlockProgressCard({
       </dl>
 
       {plannedToDateKm != null ? (
-        <p className="mt-5 text-xs text-neutral-500">
+        <p className="mt-5 text-xs text-label-3">
           {doneKm.toFixed(0)} km corridos frente a {plannedToDateKm.toFixed(0)} km previstos hasta hoy —{' '}
-          <span className={cn(doneKm >= plannedToDateKm ? 'text-emerald-400' : 'text-amber-400')}>
+          <span className={cn(doneKm >= plannedToDateKm ? 'text-mint' : 'text-amber')}>
             {doneKm >= plannedToDateKm
               ? 'según lo previsto'
               : `${(plannedToDateKm - doneKm).toFixed(0)} km por debajo`}
@@ -287,14 +292,14 @@ function VolumeChart({ weekly, currentWeek }: { weekly: WeekMetrics[]; currentWe
               {target != null ? (
                 <span
                   aria-hidden
-                  className="absolute inset-x-0 border-t border-dashed border-neutral-600"
+                  className="absolute inset-x-0 border-t border-dashed border-line-strong"
                   style={{ bottom: `${Math.min(100, target)}%` }}
                 />
               ) : null}
               <span
                 className={cn(
                   'w-full rounded-sm',
-                  w.weekIndex === currentWeek ? 'bg-neutral-100' : 'bg-neutral-700',
+                  w.weekIndex === currentWeek ? 'bg-mint' : 'bg-fill-strong',
                 )}
                 style={{ height: `${(w.totals.distanceM / max) * 100}%` }}
               />
@@ -302,7 +307,7 @@ function VolumeChart({ weekly, currentWeek }: { weekly: WeekMetrics[]; currentWe
           )
         })}
       </div>
-      <figcaption className="mt-2 flex justify-between text-[0.625rem] tabular-nums text-neutral-600">
+      <figcaption className="mt-2 flex justify-between text-[0.625rem] tabular-nums text-label-4">
         <span>S1</span>
         <span>pico de {(max / 1000).toFixed(0)} km · discontinua = objetivo</span>
         <span>S{TOTAL_WEEKS}</span>

@@ -7,7 +7,7 @@ export const prerender = true
   <main class="mx-auto flex min-h-full max-w-sm flex-col justify-center gap-8 px-6 pb-[env(safe-area-inset-bottom)]">
     <header class="space-y-1">
       <h1 class="text-2xl font-semibold tracking-tight">La Mitja 2027</h1>
-      <p class="text-sm text-neutral-400">Entra para ver tu entrenamiento.</p>
+      <p class="text-sm text-label-2">Entra para ver tu entrenamiento.</p>
     </header>
 
     <form id="login" class="space-y-3">
@@ -17,15 +17,15 @@ export const prerender = true
         autocomplete="current-password"
         placeholder="Contraseña"
         required
-        class="h-12 w-full rounded-xl border border-neutral-800 bg-neutral-900 px-4 text-base outline-none focus:border-neutral-600"
+        class="h-12 w-full rounded-xl border border-line bg-fill px-4 text-base outline-none focus:border-line-strong"
       />
       <button
         type="submit"
-        class="h-12 w-full rounded-xl bg-white text-base font-semibold text-neutral-950 active:opacity-80"
+        class="h-12 w-full rounded-xl bg-mint text-base font-semibold text-surface active:opacity-80"
       >
         Entrar
       </button>
-      <p id="error" class="hidden text-sm text-red-400"></p>
+      <p id="error" class="hidden text-sm text-red"></p>
     </form>
   </main>
 </Base>

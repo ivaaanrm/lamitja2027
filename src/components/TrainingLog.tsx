@@ -29,14 +29,14 @@ export function TrainingLog() {
   if (error && !data) {
     return (
       <Card>
-        <p className="text-sm text-red-400">{error}</p>
+        <p className="text-sm text-red">{error}</p>
       </Card>
     )
   }
   if (!data) {
     return (
       <Card>
-        <p className="text-sm text-neutral-500">Cargando…</p>
+        <p className="text-sm text-label-3">Cargando…</p>
       </Card>
     )
   }
@@ -112,7 +112,7 @@ function SummaryCard({ activities, now }: { activities: Activity[]; now: number 
       </dl>
 
       {lastKm > 0 ? (
-        <p className="mt-5 flex items-center gap-2 text-xs text-neutral-500">
+        <p className="mt-5 flex items-center gap-2 text-xs text-label-3">
           <Delta value={percentDelta(km, lastKm)} />
           <span>frente a la temporada pasada en la misma ventana.</span>
         </p>
@@ -189,7 +189,7 @@ function GridCard({
     <Card>
       <CardTitle
         action={
-          <a href="/plan" className="text-xs text-neutral-400 underline underline-offset-4">
+          <a href="/plan" className="text-xs text-label-2 underline underline-offset-4">
             Ver plan
           </a>
         }
@@ -199,7 +199,7 @@ function GridCard({
 
       {/* Same column structure as a row — spacer, seven cells, spacer — so the letters sit
           over the dots rather than drifting by the width of two gaps. */}
-      <div className="flex items-center gap-1 text-[0.625rem] text-neutral-600">
+      <div className="flex items-center gap-1 text-[0.625rem] text-label-4">
         <span className="w-6 shrink-0" />
         {WEEKDAYS.map((day, i) => (
           <span key={i} className="flex-1 text-center">
@@ -220,11 +220,11 @@ function GridCard({
             <li
               key={week.weekIndex}
               className={cn(
-                'flex items-center gap-1 border-t border-neutral-800/70 py-1.5',
-                week.weekIndex === currentWeek && 'bg-neutral-100/[0.03]',
+                'flex items-center gap-1 border-t border-line py-1.5',
+                week.weekIndex === currentWeek && 'bg-mint/[0.07]',
               )}
             >
-              <span className="w-6 shrink-0 text-[0.625rem] tabular-nums text-neutral-600">
+              <span className="w-6 shrink-0 text-[0.625rem] tabular-nums text-label-4">
                 S{week.weekIndex + 1}
               </span>
 
@@ -236,13 +236,13 @@ function GridCard({
                 <span
                   className={cn(
                     'block text-xs tabular-nums',
-                    km > 0 ? 'text-neutral-200' : 'text-neutral-700',
+                    km > 0 ? 'text-label' : 'text-label-4',
                   )}
                 >
                   {km > 0 ? decimal(km) : '–'}
                 </span>
                 {lastKm != null ? (
-                  <span className="block text-[0.625rem] tabular-nums text-neutral-600">
+                  <span className="block text-[0.625rem] tabular-nums text-label-4">
                     {decimal(lastKm)}
                   </span>
                 ) : null}
@@ -254,7 +254,7 @@ function GridCard({
 
       {/* Only the kinds actually on the grid, so the key never explains a colour that is
           not there — and shrinks to nothing in the first week of a block. */}
-      <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[0.625rem] text-neutral-500">
+      <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[0.625rem] text-label-3">
         {kinds.map((type) => (
           <span key={type} className="flex items-center gap-1.5">
             <span className={cn('size-2 rounded-full', ACCENT[type].rail)} />
@@ -263,13 +263,13 @@ function GridCard({
         ))}
         {hasUnplanned ? (
           <span className="flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-neutral-400" />
+            <span className="size-2 rounded-full bg-label-2" />
             Sin planificar
           </span>
         ) : null}
       </div>
 
-      <p className="mt-3 text-[0.6875rem] leading-relaxed text-neutral-600">
+      <p className="mt-3 text-[0.6875rem] leading-relaxed text-label-4">
         Cada punto es un día, con el área proporcional a los kilómetros y el color de la sesión
         que cumplió. El número gris de la derecha es la misma semana de 2025-26, a la misma
         distancia del día de carrera.
@@ -298,7 +298,7 @@ function Dot({ cell, peak }: { cell: DayCell; peak: number }) {
         <span
           className={cn(
             'rounded-full',
-            cell.type ? ACCENT[cell.type].rail : 'bg-neutral-400',
+            cell.type ? ACCENT[cell.type].rail : 'bg-label-2',
           )}
           style={{ width: size, height: size }}
         />
@@ -306,7 +306,7 @@ function Dot({ cell, peak }: { cell: DayCell; peak: number }) {
         <span
           className={cn(
             'rounded-full',
-            cell.isToday ? 'size-2 ring-1 ring-neutral-500' : 'size-1 bg-neutral-800',
+            cell.isToday ? 'size-2 ring-1 ring-label-3' : 'size-1 bg-fill',
           )}
         />
       )}
@@ -369,7 +369,7 @@ function ActivityListCard({ activities, weeks }: { activities: Activity[]; weeks
       <Segmented options={FILTERS} value={filter} onChange={setFilter} />
 
       {shown.length === 0 ? (
-        <p className="mt-5 text-sm text-neutral-500">Nada todavía en esta vista.</p>
+        <p className="mt-5 text-sm text-label-3">Nada todavía en esta vista.</p>
       ) : (
         <ul className="mt-2">
           {shown.map((activity) => {
@@ -380,7 +380,7 @@ function ActivityListCard({ activities, weeks }: { activities: Activity[]; weeks
             return (
               <li key={activity.id}>
                 {isNewMonth ? (
-                  <p className="mt-4 mb-1 text-[0.625rem] font-medium uppercase tracking-widest text-neutral-600 first:mt-0">
+                  <p className="mt-4 mb-1 text-[0.625rem] font-medium uppercase tracking-widest text-label-4 first:mt-0">
                     {heading}
                   </p>
                 ) : null}
@@ -401,107 +401,45 @@ function ActivityRow({
   activity: Activity
   answered: { title: string; type: SessionType } | null
 }) {
-  const [open, setOpen] = useState(false)
   const run = isRun(activity.sportType)
-  const zone = activity.averageHeartrate == null ? null : hrZone(activity.averageHeartrate)
 
   return (
-    <div className="border-t border-neutral-800/70">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-        className="flex w-full items-center gap-3 py-2.5 text-left"
+    <a
+      href={`/actividad?id=${activity.id}`}
+      className="flex items-center gap-3 border-t border-line py-2.5 active:opacity-60"
+    >
+      <span
+        aria-hidden
+        className={cn(
+          'h-8 w-[3px] shrink-0 rounded-full',
+          answered ? ACCENT[answered.type].rail : 'bg-fill',
+        )}
+      />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm">{activity.name}</span>
+        <span className="block text-xs text-label-3">
+          {dayFmt.format(new Date(activity.startedOn))}
+          {answered ? ` · ${SESSION_META[answered.type].label}` : ''}
+        </span>
+      </span>
+      <span className="shrink-0 text-right">
+        <span className="block text-sm tabular-nums">{formatKm(activity.distanceM)} km</span>
+        <span className="block text-xs tabular-nums text-label-3">
+          {run ? `${formatPace(paceSKm(activity.distanceM, activity.movingS))}/km` : formatDuration(activity.movingS)}
+        </span>
+      </span>
+      <svg
+        aria-hidden
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="size-4 shrink-0 text-label-4"
       >
-        <span
-          aria-hidden
-          className={cn(
-            'h-8 w-[3px] shrink-0 rounded-full',
-            answered ? ACCENT[answered.type].rail : 'bg-neutral-800',
-          )}
-        />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm">{activity.name}</span>
-          <span className="block text-xs text-neutral-500">
-            {dayFmt.format(new Date(activity.startedOn))}
-            {answered ? ` · ${SESSION_META[answered.type].label}` : ''}
-          </span>
-        </span>
-        <span className="shrink-0 text-right">
-          <span className="block text-sm tabular-nums">{formatKm(activity.distanceM)} km</span>
-          <span className="block text-xs tabular-nums text-neutral-500">
-            {run ? `${formatPace(paceSKm(activity.distanceM, activity.movingS))}/km` : formatDuration(activity.movingS)}
-          </span>
-        </span>
-      </button>
-
-      {open ? (
-        <dl className="grid grid-cols-3 gap-y-3 pb-4 pl-[15px]">
-          <Detail label="Tiempo" value={formatDuration(activity.movingS)} />
-          <Detail label="Desnivel" value={`${decimal(activity.elevationGainM ?? 0, 0)} m`} />
-          <Detail
-            label="Esfuerzo"
-            value={Math.round(activityLoad(activity))}
-            hint={activity.sufferScore == null ? 'estimado' : undefined}
-          />
-          <Detail
-            label="Cadencia"
-            value={activity.cadenceSpm ?? '—'}
-            hint={activity.cadenceSpm ? (activity.cadenceSpm >= 170 ? 'spm ✓' : 'spm, bajo') : undefined}
-            tone={
-              activity.cadenceSpm == null
-                ? undefined
-                : activity.cadenceSpm >= 170
-                  ? 'text-emerald-400'
-                  : 'text-amber-400'
-            }
-          />
-          <Detail
-            label="Pulso"
-            value={activity.averageHeartrate ? Math.round(activity.averageHeartrate) : '—'}
-            hint={activity.maxHeartrate ? `máx ${Math.round(activity.maxHeartrate)}` : undefined}
-          />
-          <div>
-            <dt className="text-[0.6875rem] uppercase tracking-widest text-neutral-500">Zona</dt>
-            <dd className="mt-1">
-              {zone ? (
-                <span className={cn('text-sm font-semibold', ZONE_ACCENT[zone].text)}>
-                  {ZONE_NAME[zone]}
-                </span>
-              ) : (
-                <span className="text-sm text-neutral-600">—</span>
-              )}
-            </dd>
-          </div>
-
-          {answered ? (
-            <div className="col-span-3 flex items-center gap-2">
-              <Chip tone="done">Cumplió</Chip>
-              <span className="truncate text-xs text-neutral-400">{answered.title}</span>
-            </div>
-          ) : null}
-        </dl>
-      ) : null}
-    </div>
-  )
-}
-
-function Detail({
-  label,
-  value,
-  hint,
-  tone,
-}: {
-  label: string
-  value: string | number
-  hint?: string
-  tone?: string
-}) {
-  return (
-    <div>
-      <dt className="text-[0.6875rem] uppercase tracking-widest text-neutral-500">{label}</dt>
-      <dd className={cn('mt-1 text-sm font-semibold tabular-nums', tone)}>{value}</dd>
-      {hint ? <p className="text-[0.625rem] text-neutral-600">{hint}</p> : null}
-    </div>
+        <path d="m9 6 6 6-6 6" />
+      </svg>
+    </a>
   )
 }

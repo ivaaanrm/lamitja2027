@@ -52,16 +52,19 @@ describe('block shape', () => {
 })
 
 describe('volume', () => {
-  it('peaks at 68 km, as docs/03 specifies', () => {
+  it('peaks at 62 km — what 68 becomes on four runs a week', () => {
+    // docs/03 §2 budgets 68 km at the peak over six runs. The week is four runs, so the
+    // same figure would put 17 km on the average run; 62 km keeps the longest at 22.
     const peak = Math.max(...weeks.map((w) => w.targetVolumeM ?? 0))
-    expect(peak / 1000).toBeCloseTo(68, 1)
+    expect(peak / 1000).toBeCloseTo(62, 1)
   })
 
-  it('totals roughly the ~965 km the plan budgets for', () => {
+  it('totals roughly the ~935 km the plan budgets for', () => {
     const totalKm = weeks.reduce((sum, w) => sum + (w.targetVolumeM ?? 0), 0) / 1000
-    // A change that moves this by 10%+ means the ramp was altered by accident.
-    expect(totalKm).toBeGreaterThan(930)
-    expect(totalKm).toBeLessThan(1010)
+    // 41 km/wk against last block's 34 — docs/03 §2's ~965 was written for six runs a
+    // week. A change that moves this by 5%+ means the ramp was altered by accident.
+    expect(totalKm).toBeGreaterThan(890)
+    expect(totalKm).toBeLessThan(980)
   })
 
   it('stores a target that the week’s own sessions actually add up to', () => {
@@ -83,11 +86,13 @@ describe('volume', () => {
   })
 
   it('cuts down weeks to ~75%, following docs/03 §2', () => {
-    for (const week of [3, 8, 12, 16, 20]) expect(isDownWeek(week)).toBe(true)
-    for (const week of [0, 4, 7, 13, 17]) expect(isDownWeek(week)).toBe(false)
+    // The fourth cutback sits at 15 rather than 16 so that it carries the December
+    // control 10K: with four runs a week, a race week has only two flexible runs left.
+    for (const week of [3, 8, 12, 15, 20]) expect(isDownWeek(week)).toBe(true)
+    for (const week of [0, 4, 7, 13, 16, 17]) expect(isDownWeek(week)).toBe(false)
 
     // A down week must be lighter than the week before it — that is the whole point.
-    for (const week of [3, 8, 12, 16, 20]) {
+    for (const week of [3, 8, 12, 15, 20]) {
       expect(weeklyVolumeM(week), `week ${week}`).toBeLessThan(weeklyVolumeM(week - 1))
     }
   })
@@ -221,6 +226,11 @@ describe('intensity distribution', () => {
     // docs/03 §6. A week that both steps up and sharpens is how the knee went last time.
     for (let week = 1; week < TOTAL_WEEKS - 1; week++) {
       if (byWeek(week).some((s) => s.type === 'race')) continue // a race is a test, not a load
+      // A cutback and the rebound out of it are exempt, exactly as they are for the growth
+      // cap: a week that follows a cut necessarily grows, and — because a cutback also
+      // drops a quality session — necessarily re-sharpens. That is a return to the trend,
+      // not an addition to it.
+      if (isDownWeek(week) || isDownWeek(week - 1)) continue
       const grew = weeklyVolumeM(week) > weeklyVolumeM(week - 1)
       const sharper = hardShare(week) > hardShare(week - 1) + 0.05
       expect(grew && sharper, `week ${week}`).toBe(false)
@@ -229,11 +239,17 @@ describe('intensity distribution', () => {
 })
 
 describe('frequency and strength', () => {
-  it('runs 5–6 times a week once past the rebuild phase', () => {
-    // docs/03 §3: "Frequency before intensity. 3.6 → 5–6 runs/week."
-    for (let week = 7; week < TOTAL_WEEKS; week++) {
-      expect(runsIn(week).length, `week ${week}`).toBeGreaterThanOrEqual(5)
-      expect(runsIn(week).length, `week ${week}`).toBeLessThanOrEqual(7)
+  it('runs exactly four times a week, every week of the block', () => {
+    // The athlete trains four days plus one strength-only day. This is the constraint the
+    // whole ramp is built around, so it must fail loudly rather than drift a run at a time.
+    for (let week = 0; week < TOTAL_WEEKS; week++) {
+      expect(runsIn(week).length, `week ${week}`).toBe(4)
+    }
+  })
+
+  it('keeps the long run on Sunday', () => {
+    for (const session of sessions.filter((s) => s.type === 'long')) {
+      expect(new Date(session.scheduledOn).getUTCDay(), session.id).toBe(0)
     }
   })
 
@@ -246,11 +262,22 @@ describe('frequency and strength', () => {
     expect(byWeek(TOTAL_WEEKS - 1).filter((s) => s.type === 'strength')).toHaveLength(1)
   })
 
-  it('uses cycling as the impact-free load through the rebuild phase', () => {
-    // docs/03 §6: "Cycling is the pressure valve."
-    for (let week = 0; week <= 6; week++) {
-      expect(byWeek(week).filter((s) => s.type === 'cross'), `week ${week}`).toHaveLength(1)
+  it('leaves two days a week empty, and never trains on a Saturday', () => {
+    // Saturday off is the athlete's own rule, and it is what keeps the Sunday long run —
+    // the session this plan is built on — off tired legs. Thursday is the other empty day:
+    // docs/03 §6 calls cycling the pressure valve, and a valve opened every week by
+    // prescription stops being one, so it lives in that day's note rather than as a row.
+    for (let week = 0; week < TOTAL_WEEKS; week++) {
+      expect(byWeek(week).filter((s) => s.type === 'rest'), `week ${week}`).toHaveLength(2)
     }
+    const saturdays = sessions.filter((s) => new Date(s.scheduledOn).getUTCDay() === 6)
+    // The one exception is the Tast, and that date belongs to the calendar, not the plan.
+    for (const session of saturdays) {
+      expect(['rest', 'race'], session.id).toContain(session.type)
+    }
+    expect(saturdays.filter((s) => s.type === 'race').map((s) => s.title)).toEqual([
+      'Tast de la Mitja · 10K',
+    ])
   })
 })
 
@@ -258,9 +285,22 @@ describe('checkpoints', () => {
   const races = sessions.filter((s) => s.type === 'race')
 
   it('schedules all four checkpoints from docs/03 §5, plus the race', () => {
-    expect(races.map((r) => weekOf(r.scheduledOn))).toEqual([6, 9, 15, 20, 22])
-    // Every one of them lands on a Sunday.
-    for (const race of races) expect(new Date(race.scheduledOn).getUTCDay()).toBe(0)
+    expect(races.map((r) => weekOf(r.scheduledOn))).toEqual([6, 10, 15, 20, 22])
+    // All but one land on a Sunday. The Tast is run on Saturday 31 Oct 2026 — a real date
+    // on a real calendar, which is why that week rests on the Sunday instead.
+    const [tast] = races.filter((r) => new Date(r.scheduledOn).getUTCDay() !== 0)
+    expect(new Date(tast!.scheduledOn).toISOString().slice(0, 10)).toBe('2026-10-31')
+    expect(races.filter((r) => r !== tast).every((r) => new Date(r.scheduledOn).getUTCDay() === 0)).toBe(true)
+  })
+
+  it('runs the Behobia as a long run, not as a race', () => {
+    // The athlete has a dorsal on Sun 8 Nov 2026 and is running it as the week's tirada
+    // larga. Typing it as a race would count all twenty kilometres as quality metres.
+    const behobia = sessions.find((s) => s.title.startsWith('Behobia'))!
+    expect(behobia.type).toBe('long')
+    expect(new Date(behobia.scheduledOn).toISOString().slice(0, 10)).toBe('2026-11-08')
+    expect(behobia.targetDistanceM).toBe(20000)
+    expect(hardDistanceM(behobia.steps!)).toBe(0)
   })
 
   it('carries the marker pace each checkpoint has to hit', () => {

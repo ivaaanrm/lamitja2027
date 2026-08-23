@@ -6,8 +6,23 @@
  * Every panel used to be a box (a border, a fill and its own inner padding, repeated per
  * section), which is what made the app read as a web page of widgets rather than an app.
  * On a 390px screen that repeated inset also costs more room than the content it frames.
- * What replaces it is what iOS itself uses: one black surface, sections divided by a
- * hairline, and hierarchy carried by the type ramp and the label steps below.
+ * What replaces it is what iOS itself uses: one surface, sections divided by a hairline,
+ * and hierarchy carried by the type ramp and the label steps below.
+ *
+ * The palette is sampled from Runna's dark UI rather than mixed by hand — the three
+ * surfaces and all eight accent hues are pixel values taken off their screens. Two things
+ * carry over from that reading and both are load-bearing:
+ *
+ *   1. The ground is a *cool charcoal, not a navy*. The hue is there (≈223°) but the
+ *      saturation is 14%, which is what keeps it reading as graphite. Past roughly 20%
+ *      the whole app turns blue, which is the failure mode this palette replaced.
+ *   2. The accents are mid-lightness, mid-saturation — editorial, not neon. A rail or a
+ *      chip reads as colour without glowing at you in a dark room.
+ *
+ * Where a sampled hue could not clear 4.5:1 against the raised card (blue, violet, coral
+ * and red were all sampled around L=50%) it is lifted in lightness and chroma until it
+ * does; the rest are the sampled values untouched. Every accent below clears AA on both
+ * `surface` and `surface-raised`, so any of them can carry text as well as fill a shape.
  *
  * These tokens are the whole system, so a component never has to invent a value.
  */
@@ -20,20 +35,44 @@
      horizontal padding on `<main>` in App.astro. */
   --spacing-gutter: 1.5rem;
 
-  /* The page is black — nothing sits on a lighter panel. `fill` is a pressed row or a
-     form control, `line` is every rule. Three fills is the whole depth budget. */
-  --color-ink: #000000;
-  --color-fill: rgba(255, 255, 255, 0.07);
-  --color-fill-strong: rgba(255, 255, 255, 0.14);
-  --color-line: rgba(255, 255, 255, 0.11);
-  --color-line-strong: rgba(255, 255, 255, 0.24);
+  /* Three steps of ground and nothing between them: `surface-deep` is what the dock and
+     the sheet scrim sit on, `surface` is the page, `surface-raised` is a card lifted off
+     it. `ink` is the near-white everything is drawn in, and also the fill of an inverted
+     control — `bg-ink text-surface` is a white button. */
+  --color-surface-deep: #0c0c10;
+  --color-surface: #191b21;
+  --color-surface-raised: #262a33;
+  --color-ink: #f7f8fa;
 
-  /* Four steps of emphasis, and nothing between them. `label-3` is Apple's tertiary label
-     raised from 0.30 to 0.52: the platform value lands at 2.5:1 on black, and these are
-     paces and distances, not chrome — they have to clear AA (this is 4.9:1). */
-  --color-label: #f5f5f7;
-  --color-label-2: rgba(235, 235, 245, 0.62);
-  --color-label-3: rgba(235, 235, 245, 0.52);
+  /* `fill` is a pressed row or a form control, `line` is every rule. Ink at an opacity,
+     so the same two values sit correctly on all three grounds. */
+  --color-fill: rgba(247, 248, 250, 0.06);
+  --color-fill-strong: rgba(247, 248, 250, 0.12);
+  --color-line: rgba(247, 248, 250, 0.1);
+  --color-line-strong: rgba(247, 248, 250, 0.22);
+
+  /* Four steps of emphasis, and nothing between them. `label-3` is the reading step for
+     paces and distances, so it is set where it clears AA on the *card* (5.3:1) and not
+     merely on the page. `label-4` is the quiet one — an empty day, a week not yet run —
+     and is the only step that does not clear AA, so nothing but chrome may use it. */
+  --color-label: #f7f8fa;
+  --color-label-2: rgba(247, 248, 250, 0.68);
+  --color-label-3: rgba(247, 248, 250, 0.56);
+  --color-label-4: rgba(247, 248, 250, 0.32);
+
+  /* The eight hues, sampled from Runna's workout tiles and calendar rails. They are named
+     for the colour, not the session, because `src/components/ui/index.tsx` maps them onto
+     both the session types and the five heart-rate zones and no one name fits both. Mint
+     is the odd one out: it is the brand hue off their route line and watch face, and this
+     app spends it on state — done, now, ahead — and on the primary action. */
+  --color-lime: #bfc142;
+  --color-green: #6abc43;
+  --color-mint: #5cc5ac;
+  --color-blue: #6e93dd;
+  --color-violet: #a381da;
+  --color-coral: #dd7540;
+  --color-red: #eb6e68;
+  --color-amber: #e0ae40;
 
   /* iOS's own ramp. Ad-hoc sizes (`text-[0.6875rem]`, `text-[11px]`, `text-[0.8125rem]`)
      were most of what made the old screens feel unplaced. */
@@ -74,7 +113,7 @@
     touch-action: manipulation;
     /* Overscroll and the area behind the translucent dock both expose the html
        background, so it cannot be left at the browser default. */
-    background-color: var(--color-ink);
+    background-color: var(--color-surface);
   }
 
   body {
