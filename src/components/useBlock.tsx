@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { TOTAL_WEEKS, weekIndex } from '@/lib/block'
+import { bootDone } from '@/lib/boot'
 import { blockProgress, type BlockProgress } from '@/lib/metrics'
 import { buildBlock, type WeekPlan } from '@/lib/plan'
 import type { Activity, PlanSession, PlanWeek } from '@/lib/db/schema'
@@ -50,6 +51,9 @@ export function useBlock(nowInput?: number): Block {
     try {
       const response = await fetch('/api/data')
       if (response.status === 401) {
+        // The one path that does *not* end the launch screen: the document is already on
+        // its way to `/login`, and dropping the overlay first would flash a screenful of
+        // skeletons on the way out.
         location.href = '/login'
         return
       }
@@ -63,6 +67,10 @@ export function useBlock(nowInput?: number): Block {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'No se pudo contactar con el servidor')
     }
+    // Outside the `catch`, so both a payload and a failure end the launch screen — an
+    // error card with a retry on it is a screen to act on, not one to keep hiding behind
+    // a mark. Idempotent, so the reload every mutation ends with costs nothing.
+    bootDone()
   }, [])
 
   useEffect(() => {

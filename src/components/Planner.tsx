@@ -25,6 +25,7 @@ import {
   ProgressRing,
   Segmented,
   Skeleton,
+  TextArea,
   TextInput,
 } from './ui'
 
@@ -526,8 +527,11 @@ function WeekFields({
   const km = targetKm.trim() === '' ? null : Number(targetKm)
 
   return (
-    <div className="mt-3 space-y-3 border-t border-line pt-3">
-      <p className="text-caption2 font-semibold uppercase tracking-[0.12em] text-label-2">
+    <div className="mt-2.5 space-y-2 border-t border-line pt-2.5">
+      {/* `label-3`, the same step the field labels wear: this names a region of four
+          controls, and a heading a step brighter than everything it heads is the one
+          element in a settings block that reads as loud. */}
+      <p className="text-caption2 font-semibold uppercase tracking-[0.12em] text-label-3">
         Ajustes de la semana
       </p>
 
@@ -555,8 +559,12 @@ function WeekFields({
         </Field>
       </div>
 
+      {/* A textarea, not a one-line input: a phase focus is a sentence — "Todo suave, en
+          llano y a sensaciones. Cuatro carreras, cadencia y fuerza de cadera desde el
+          primer día." — and a slot that shows the first thirty characters of it is a field
+          you have to scrub through to read what you wrote. It grows to its content. */}
       <Field label="Enfoque">
-        <TextInput
+        <TextArea
           value={focus}
           placeholder="1 sesión de calidad, tirada larga hasta 16 km"
           onChange={(e) => setFocus(e.target.value)}
@@ -572,7 +580,7 @@ function WeekFields({
         <span className="text-caption2 uppercase tracking-[0.09em] text-label-3">
           Volumen de la semana
         </span>
-        <div className="mt-1">
+        <div className="mt-0.5">
           <Segmented<'normal' | 'down'>
             options={[
               { value: 'normal', label: 'Carga normal' },

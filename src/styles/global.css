@@ -8,20 +8,16 @@
  * high-value numbers a clear reading order and enough depth to feel native rather than
  * like a long web document.
  *
- * The palette is sampled from Runna's dark UI rather than mixed by hand — the three
- * surfaces and all eight accent hues are pixel values taken off their screens. Two things
- * carry over from that reading and both are load-bearing:
+ * The palette starts from Runna's dark UI, then pushes it into a more focused "night race"
+ * register. Two things are load-bearing:
  *
- *   1. The ground is a *cool charcoal, not a navy*. The hue is there (≈223°) but the
- *      saturation is 14%, which is what keeps it reading as graphite. Past roughly 20%
- *      the whole app turns blue, which is the failure mode this palette replaced.
- *   2. The accents are mid-lightness, mid-saturation — editorial, not neon. A rail or a
- *      chip reads as colour without glowing at you in a dark room.
+ *   1. The ground is a *cool charcoal, not a navy*. It is darker than the sampled UI but
+ *      stays low-chroma, so the app reads as graphite instead of blue-black.
+ *   2. The accents are compact, high-chroma signals. They are saturated enough to stay
+ *      crisp at rail and dot sizes without becoming fluorescent fields on a dark screen.
  *
- * Where a sampled hue could not clear 4.5:1 against the raised card (blue, violet, coral
- * and red were all sampled around L=50%) it is lifted in lightness and chroma until it
- * does; the rest are the sampled values untouched. Every accent below clears AA on both
- * `surface` and `surface-raised`, so any of them can carry text as well as fill a shape.
+ * Every accent below clears AA on both `surface` and `surface-raised`, so any of them can
+ * carry text as well as fill a shape. Violet sets the lower bound at 4.66:1 on a card.
  *
  * These tokens are the whole system, so a component never has to invent a value.
  */
@@ -59,9 +55,9 @@
      the sheet scrim sit on, `surface` is the page, `surface-raised` is a card lifted off
      it. `ink` is the near-white everything is drawn in, and also the fill of an inverted
      control — `bg-ink text-surface` is a white button. */
-  --color-surface-deep: #0c0c10;
-  --color-surface: #191b21;
-  --color-surface-raised: #262a33;
+  --color-surface-deep: #08090c;
+  --color-surface: #12151a;
+  --color-surface-raised: #1b2027;
   --color-ink: #f7f8fa;
 
   /* `fill` is a pressed row or a form control, `line` is every rule. Ink at an opacity,
@@ -80,19 +76,19 @@
   --color-label-3: rgba(247, 248, 250, 0.56);
   --color-label-4: rgba(247, 248, 250, 0.32);
 
-  /* The eight hues, sampled from Runna's workout tiles and calendar rails. They are named
-     for the colour, not the session, because `src/components/ui/index.tsx` maps them onto
-     both the session types and the five heart-rate zones and no one name fits both. Mint
-     is the odd one out: it is the brand hue off their route line and watch face, and this
-     app spends it on state — done, now, ahead — and on the primary action. */
-  --color-lime: #bfc142;
-  --color-green: #6abc43;
-  --color-mint: #5cc5ac;
-  --color-blue: #6e93dd;
-  --color-violet: #a381da;
-  --color-coral: #dd7540;
-  --color-red: #eb6e68;
-  --color-amber: #e0ae40;
+  /* The eight hues are named for the colour, not the session, because
+     `src/components/ui/index.tsx` maps them onto both the session types and the five
+     heart-rate zones and no one name fits both. Their higher chroma is deliberate: these
+     colours mostly appear as slim rails, dots, chart marks and text, where a dusty tint
+     reads grey. Mint remains the state hue — done, now, ahead — and the primary action. */
+  --color-lime: #b5ca20;
+  --color-green: #36c866;
+  --color-mint: #18c49a;
+  --color-blue: #4f87f7;
+  --color-violet: #9d6df8;
+  --color-coral: #f46332;
+  --color-red: #f44f5e;
+  --color-amber: #ed9e0a;
 
   /* iOS's own ramp, with the leading pulled in a step. Ad-hoc sizes (`text-[0.6875rem]`,
      `text-[11px]`, `text-[0.8125rem]`) were most of what made the old screens feel
@@ -199,8 +195,8 @@
     -webkit-text-size-adjust: 100%;
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
-    /* Overscroll and the area behind the translucent dock both expose the html
-       background, so it cannot be left at the browser default. */
+    /* Overscroll exposes the html background above the dock's opaque underlay, so it
+       cannot be left at the browser default. */
     background-color: var(--color-surface);
   }
 
@@ -277,6 +273,25 @@
 @utility data-number {
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
+}
+
+/**
+ * The gradient down a session card's spine, as a mask rather than as a colour.
+ *
+ * Nine session types means nine hues, and a gradient written in colour needs both stops
+ * spelled out per hue — `from-lime to-lime/45` nine times over, a tenth entry in `ACCENT`,
+ * and a class Tailwind only ships because it was written out. A mask fades whatever is
+ * already painted there, so the spine stays `ACCENT[type].rail` — one solid token — and
+ * this utility is the only thing that knows about the falloff.
+ *
+ * It stops at 45% rather than at zero: a spine that fades out entirely reads as a
+ * rendering artefact at the bottom of the card, and this one still has to say which kind
+ * of session the card is at a glance. `-webkit-mask-image` because Safari is the target and
+ * still wants it.
+ */
+@utility spine-fade {
+  -webkit-mask-image: linear-gradient(to bottom, #fff, color-mix(in srgb, #fff 45%, transparent));
+  mask-image: linear-gradient(to bottom, #fff, color-mix(in srgb, #fff 45%, transparent));
 }
 
 /** One soft depth treatment shared by cards, sheets and the floating dock. */

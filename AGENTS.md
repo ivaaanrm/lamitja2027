@@ -117,6 +117,34 @@ the whole page lurching. Unnamed, the capture is the viewport and the only thing
 opacity. Name an element here only when you actually want its box to travel — which is what
 `dock-active` is, and it is a 60×48 pill.
 
+**The launch screen covers the cold start, and only the cold start**
+(`src/components/Boot.astro` + `src/lib/boot.ts`). A prerendered shell paints instantly and
+then sits there empty: skeletons are the right answer for one late card and the wrong one
+for a whole viewport of them, which is what tapping the home-screen icon used to show. So
+`App.astro` renders an overlay — `/login`'s tile and mark, the mark drawing itself on
+`chart-draw`, an indeterminate mint rail under it — server-side, in the first paint, because
+an overlay a script has to *insert* arrives after the empty screen it was meant to hide.
+Three rules keep it honest: `useBlock` clears it when the first `/api/data` settles, success
+*or* failure (an error card with a retry on it is a screen to act on, not one to keep
+hiding); `boot.ts` holds it for a 480ms floor measured from the page opening, so an edge-fast
+launch does not flash a half-drawn mark; and an inline dead-man switch drops it at 2.6s
+whatever happened, with `<noscript>` removing it outright. The one path that does *not*
+dismiss it is the 401 redirect to `/login` — the document is already leaving, and uncovering
+it first would flash a screenful of skeletons on the way out. It carries
+`transition:persist="boot"` because `ClientRouter` swaps the whole body and the incoming
+page's copy would otherwise flash on every tab tap; persist can only keep a node that is
+still there, so it is left hidden rather than removed (`visibility`, on a delayed step after
+the fade, so it stops swallowing taps).
+
+**`/404` is `/login`'s sibling, not a tab** (`src/pages/404.astro`). It wears `Base`, so it
+has no dock: the lit tab is baked in at build time and a 404 belongs to none of the four, so
+the bar would sit there with nothing highlighted on the one screen whose message is that you
+are nowhere. `404` takes the hero-number slot the goal time takes on `/login`, in `label`
+rather than red — a mistyped URL is not a failure of the training block — and there is one
+way out rather than a menu. It is prerendered like everything else; Astro serves it through
+the adapter's `prerenderedErrorPageFetch`, so an unmatched path comes back as a real 404
+status with this HTML in it instead of the asset handler's bare "Not Found".
+
 **The trace behind a run is read, not stored** (`src/lib/streams.ts`, `/actividad?id=`).
 Tapping a row in `/registro` opens a detail view — pace, pulse, cadence and altitude over
 distance, time in zones, per-km splits, laps and the description. `GET /api/activities/:id`
@@ -206,7 +234,16 @@ Tailwind classes so a chart is styled like everything else on the page.
 15. **A `client:load` island is also rendered during prerender**, in a Worker, where
     `location` and `window` do not exist. Touching either in a component body fails the
     build rather than the page — read them inside an effect or an event handler.
-16. **`pnpm preview` needs `--persist-to`.** Wrangler resolves local storage relative to the
+16. **tailwind-merge only knows the stock scales.** `cn()` decides conflicts by class
+    *group*, and every `text-*` name it does not recognise falls through to `text-color` —
+    so `cn('text-caption2', 'text-label-3')` read as two colours fighting over one slot and
+    returned `text-label-3` alone, dropping the size. The whole ramp is custom and so is
+    every colour, so this hit every element where a size met a colour. `src/lib/cn.ts`
+    declares both lists to `extendTailwindMerge`; a token added to `@theme` and not there
+    starts silently losing its size again. A knock-on: a `text-<size>` now also carries a
+    line-height, so it displaces any `leading-*` written *before* it in the same `cn()` —
+    put the leading after the size.
+17. **`pnpm preview` needs `--persist-to`.** Wrangler resolves local storage relative to the
     config file, and `preview` points at `dist/server/wrangler.json` — so without it the
     preview gets a *second, empty* D1 under `dist/server/.wrangler/`, and every query fails
     with a missing table while `pnpm db:migrate:local` looks like it worked. It also serves
@@ -244,18 +281,16 @@ Tailwind classes so a chart is styled like everything else on the page.
   zod.** They own `SESSION_TYPES` and `Step`, and `db/schema.ts` imports them, not the other
   way round; the zod mirror of `Step` lives in `plan-input.ts`, which only the Worker ever
   loads, and a type-level assignment there fails the build if the two drift apart.
-- **The palette is sampled from Runna, and every colour in the app is a token.** The whole
-  system is the `@theme` block in `src/styles/global.css`: three grounds (`surface-deep`
-  `surface` `surface-raised`), `ink`, two fills, two lines, four label steps and eight
-  named hues (`lime` `green` `mint` `blue` `violet` `coral` `red` `amber`). Nothing outside
-  that file names a colour — no `neutral-*`, no `emerald-400`, no hex, the one exception
-  being Strava's own `#fc4c02` on the connect button. Two properties of the sample are
-  load-bearing and easy to undo by accident: the ground is a **cool charcoal, not a navy**
-  (hue ≈223° but only 14% saturation — past ~20% the whole app turns blue), and the accents
-  are mid-lightness and mid-saturation rather than neon. Every hue clears 4.5:1 on *both*
-  `surface` and `surface-raised`, which is why four of the eight are lifted off their
-  sampled value; re-derive that before changing one. `label-4` is the sole step that does
-  not clear AA, so only chrome may use it.
+- **The palette is a dark, vibrant evolution of Runna, and every colour in the app is a
+  token.** The whole system is the `@theme` block in `src/styles/global.css`: three grounds
+  (`surface-deep` `surface` `surface-raised`), `ink`, two fills, two lines, four label steps
+  and eight named hues (`lime` `green` `mint` `blue` `violet` `coral` `red` `amber`).
+  Nothing outside that file names a colour — no `neutral-*`, no `emerald-400`, no hex, the
+  one exception being Strava's own `#fc4c02` on the connect button. Two properties are
+  load-bearing and easy to undo by accident: the ground is a **near-black cool charcoal,
+  not a navy**, and the accents are high-chroma signals rather than pastel fills. Every hue
+  clears 4.5:1 on *both* `surface` and `surface-raised`; re-derive that before changing one.
+  `label-4` is the sole step that does not clear AA, so only chrome may use it.
 - **Mint is state, not decoration.** Done, now, ahead, the primary button — one colour for
   "the app is telling you something", and `text-surface` is what rides on it. The other
   seven hues belong to the session types and the five zones.

@@ -23,21 +23,25 @@ import { SESSION_META, type SessionType } from '@/lib/plan'
  * of a session, so it gets the neutral fill and nothing else.
  *
  * Written out rather than composed (`bg-${accent}`) because Tailwind resolves classes by
- * scanning the source — an interpolated name is a class that never ships.
+ * scanning the source — an interpolated name is a class that never ships. That is also why
+ * `swatch` spells both gradient stops: the hue fading to 60% of itself over a dark ground
+ * is what makes a 28px square read as an object rather than as a colour chip, and
+ * `from-${hue}` would ship nothing at all. Rest is the only type with no gradient, because
+ * it is the only one with no hue.
  */
 export const ACCENT: Record<
   SessionType,
-  { rail: string; chip: string; text: string; dot: string }
+  { rail: string; chip: string; text: string; dot: string; swatch: string }
 > = {
-  easy: { rail: 'bg-lime', chip: 'bg-lime/12 text-lime ring-lime/25', text: 'text-lime', dot: 'bg-lime' },
-  long: { rail: 'bg-violet', chip: 'bg-violet/12 text-violet ring-violet/25', text: 'text-violet', dot: 'bg-violet' },
-  tempo: { rail: 'bg-amber', chip: 'bg-amber/12 text-amber ring-amber/25', text: 'text-amber', dot: 'bg-amber' },
-  interval: { rail: 'bg-coral', chip: 'bg-coral/12 text-coral ring-coral/25', text: 'text-coral', dot: 'bg-coral' },
-  fartlek: { rail: 'bg-green', chip: 'bg-green/12 text-green ring-green/25', text: 'text-green', dot: 'bg-green' },
-  rest: { rail: 'bg-fill-strong', chip: 'bg-fill text-label-3 ring-line', text: 'text-label-3', dot: 'bg-fill-strong' },
-  race: { rail: 'bg-red', chip: 'bg-red/12 text-red ring-red/25', text: 'text-red', dot: 'bg-red' },
-  cross: { rail: 'bg-mint', chip: 'bg-mint/12 text-mint ring-mint/25', text: 'text-mint', dot: 'bg-mint' },
-  strength: { rail: 'bg-blue', chip: 'bg-blue/12 text-blue ring-blue/25', text: 'text-blue', dot: 'bg-blue' },
+  easy: { rail: 'bg-lime', chip: 'bg-lime/12 text-lime ring-lime/25', text: 'text-lime', dot: 'bg-lime', swatch: 'bg-linear-to-br from-lime to-lime/60' },
+  long: { rail: 'bg-violet', chip: 'bg-violet/12 text-violet ring-violet/25', text: 'text-violet', dot: 'bg-violet', swatch: 'bg-linear-to-br from-violet to-violet/60' },
+  tempo: { rail: 'bg-amber', chip: 'bg-amber/12 text-amber ring-amber/25', text: 'text-amber', dot: 'bg-amber', swatch: 'bg-linear-to-br from-amber to-amber/60' },
+  interval: { rail: 'bg-coral', chip: 'bg-coral/12 text-coral ring-coral/25', text: 'text-coral', dot: 'bg-coral', swatch: 'bg-linear-to-br from-coral to-coral/60' },
+  fartlek: { rail: 'bg-green', chip: 'bg-green/12 text-green ring-green/25', text: 'text-green', dot: 'bg-green', swatch: 'bg-linear-to-br from-green to-green/60' },
+  rest: { rail: 'bg-fill-strong', chip: 'bg-fill text-label-3 ring-line', text: 'text-label-3', dot: 'bg-fill-strong', swatch: 'bg-fill' },
+  race: { rail: 'bg-red', chip: 'bg-red/12 text-red ring-red/25', text: 'text-red', dot: 'bg-red', swatch: 'bg-linear-to-br from-red to-red/60' },
+  cross: { rail: 'bg-mint', chip: 'bg-mint/12 text-mint ring-mint/25', text: 'text-mint', dot: 'bg-mint', swatch: 'bg-linear-to-br from-mint to-mint/60' },
+  strength: { rail: 'bg-blue', chip: 'bg-blue/12 text-blue ring-blue/25', text: 'text-blue', dot: 'bg-blue', swatch: 'bg-linear-to-br from-blue to-blue/60' },
 }
 
 /**
@@ -379,7 +383,7 @@ export function Segmented<T extends string>({
   return (
     <div
       role="tablist"
-      className={cn('flex gap-0.5 rounded-xl bg-surface-deep/55 p-0.5', className)}
+      className={cn('flex gap-0.5 rounded-lg bg-surface-deep/55 p-0.5', className)}
     >
       {options.map((option) => (
         <button
@@ -389,7 +393,7 @@ export function Segmented<T extends string>({
           aria-selected={option.value === value}
           onClick={() => onChange(option.value)}
           className={cn(
-            'motion-standard h-11 flex-1 rounded-[0.625rem] text-footnote font-medium transition-colors',
+            'motion-standard h-11 flex-1 rounded-[0.375rem] text-footnote font-medium transition-colors',
             option.value === value
               ? 'bg-surface-raised text-label shadow-sm'
               : 'text-label-3 active:bg-fill active:text-label-2',
@@ -508,7 +512,7 @@ export function Field({ label, children }: { label: string; children: ReactNode 
   return (
     <label className="block">
       <span className="text-caption2 uppercase tracking-[0.09em] text-label-3">{label}</span>
-      <div className="mt-1">{children}</div>
+      <div className="mt-0.5">{children}</div>
     </label>
   )
 }
@@ -516,19 +520,40 @@ export function Field({ label, children }: { label: string; children: ReactNode 
 /**
  * Filled rather than outlined, like every field iOS draws.
  *
- * `text-body` is 17px and load-bearing: Safari zooms the whole page in on a focused input
- * whose text is under 16px, and the old 14px controls did exactly that on every tap — the
- * page came back scrolled sideways with the dock off-screen.
+ * Two measurements in here are pinned and are the reason a form cannot simply be made
+ * smaller. `text-body` is 17px because Safari zooms the whole page in on a focused input
+ * whose text is under 16px — the old 14px controls did exactly that on every tap, and the
+ * page came back scrolled sideways with the dock off-screen. `h-11` is the 44px touch
+ * floor. What a tighter form buys instead is everything around them: no resting border, a
+ * corner proportional to the inset, and less horizontal padding.
+ *
+ * Borderless at rest and bordered on focus, rather than a hairline that is always on. A
+ * field is already a well — `surface-deep/35` against the `surface-raised` it sits on — so
+ * the rule was a second edge drawn around an edge, and eight of them stacked down a form
+ * read as a grid of boxes. `border-transparent` rather than no border at all, so the box
+ * does not resize by two pixels the moment it takes focus.
  */
 const CONTROL =
-  'motion-standard h-11 w-full rounded-xl border border-line bg-surface-deep/35 px-3 text-body text-label placeholder:text-label-3 outline-none transition-colors focus:border-line-strong focus:bg-fill'
+  'motion-standard h-11 w-full rounded-lg border border-transparent bg-surface-deep/35 px-2.5 text-body text-label placeholder:text-label-3 outline-none transition-colors focus:border-line-strong focus:bg-fill'
 
 export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={cn(CONTROL, props.className)} />
 }
 
+/**
+ * `field-sizing-content` is what makes this the field for prose: it grows to whatever it
+ * holds, so a week's focus is read whole rather than scrolled sideways through a slot.
+ * `rows` is the floor it starts from, and the fallback wherever the property is not
+ * supported — there it scrolls, which is the old behaviour rather than a broken one.
+ */
 export function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea {...props} className={cn(CONTROL, 'h-auto py-2 leading-snug', props.className)} />
+  return (
+    <textarea
+      rows={2}
+      {...props}
+      className={cn(CONTROL, 'h-auto field-sizing-content py-2 leading-snug', props.className)}
+    />
+  )
 }
 
 /** A select with no chevron is a text input that ignores you when you type in it, so the

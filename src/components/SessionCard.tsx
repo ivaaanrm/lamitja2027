@@ -27,10 +27,19 @@ import { ACCENT, Button, Chevron, DoneToggle, TypeChip } from './ui'
  * column of empty gutter down the left of everything it had unfolded. Regions and one
  * rhythm inside each of them, instead of eight negative margins holding a layout together.
  *
- * The header keeps two measurements and nothing else may reinvent them: the type rail is
- * 4px and the tick is 24px. Everything the header stacks — title, effort, workout shape —
+ * The header keeps two measurements and nothing else may reinvent them: the spine is 6px
+ * and the tick is 24px. Everything the header stacks — title, effort, workout shape —
  * lives inside the button's own column, so it aligns under the title by construction
  * rather than by a `pl-8` that has to be re-derived every time the gap changes.
+ *
+ * **The spine runs the card's full height and carries no radius of its own.** The article
+ * is `overflow-hidden rounded-xl`, so the corners clip it and it picks up the card's own
+ * curve at both ends — one shape, rather than a bar with a second radius fighting the
+ * first. Six pixels rather than four, because at four a hue is a tint and telling violet
+ * from coral meant comparing two cards; and `spine-fade` takes it to 45% by the bottom, so
+ * it reads as lit from the title rather than as a solid bar of paint. It spans every
+ * region the card unfolds, which is what ties the workout and the result back to the
+ * header they belong to.
  *
  * The 8px gap is narrower than the 10px `DoneToggle` grows its hit area by, and that is
  * fine: the toggle is `position: relative`, so it and its `::after` paint in the
@@ -100,12 +109,16 @@ export function SessionCard({
     <article className="relative overflow-hidden rounded-xl bg-surface-deep/40">
       <span
         aria-hidden
-        className={cn('absolute inset-y-0 left-0 w-1', accent.rail, done && 'opacity-40')}
+        className={cn(
+          'absolute inset-y-0 left-0 w-1.5 spine-fade',
+          accent.rail,
+          done && 'opacity-40',
+        )}
       />
 
-      <div className="flex items-start gap-2 py-3 pl-4 pr-3">
+      <div className="flex items-center gap-2 py-2 pl-3.5 pr-2.5">
         {session.type === 'rest' ? (
-          <span aria-hidden className="mt-0.5 size-6" />
+          <span aria-hidden className="size-6 shrink-0" />
         ) : (
           <DoneToggle done={done} label={session.title} onToggle={onToggle} />
         )}
@@ -115,53 +128,59 @@ export function SessionCard({
           onClick={() => expandable && setOpen(!open)}
           aria-expanded={expandable ? open : undefined}
           disabled={!expandable}
-          // `items-baseline` rather than `items-start`: the distance is a step up the ramp
-          // from the title, and aligning two different sizes by their box tops leaves the
-          // number floating. A disabled button never sees `:active`, so the press state
-          // costs a card with nothing to unfold nothing.
-          className="tappable flex min-h-11 min-w-0 flex-1 items-baseline justify-between gap-2 text-left disabled:cursor-default"
+          // A disabled button never sees `:active`, so the press state costs a card with
+          // nothing to unfold nothing.
+          className="tappable flex min-h-11 min-w-0 flex-1 items-center text-left disabled:cursor-default"
         >
-          <span className="min-w-0">
-            <span className="flex flex-wrap items-center gap-1.5">
-              {/* The chip is what pairs the rail's hue with a word — colour is never the
-                  only thing saying which kind of session this is. */}
-              <TypeChip type={session.type} />
-              <span className={cn('text-footnote font-medium', done ? 'text-label-2' : 'text-label')}>
-                {session.title}
+          {/* Two flexes, not one, and each is doing a different job. The button is 44px
+              because that is the touch floor, and a collapsed card's two lines are shorter
+              than that — so the button centres, and the slack falls above and below the
+              content instead of all of it underneath. Inside, `items-baseline` is what
+              pairs the title with the distance: the number is a step up the ramp, and
+              aligning two sizes by their box tops leaves it floating. */}
+          <span className="flex min-w-0 flex-1 items-baseline justify-between gap-2">
+            <span className="min-w-0">
+              <span className="flex flex-wrap items-center gap-1.5">
+                {/* The chip is what pairs the rail's hue with a word — colour is never the
+                    only thing saying which kind of session this is. */}
+                <TypeChip type={session.type} />
+                <span className={cn('text-footnote font-medium', done ? 'text-label-2' : 'text-label')}>
+                  {session.title}
+                </span>
               </span>
+
+              {meta ? (
+                <span className="mt-1 block text-caption tabular-nums text-label-3">{meta}</span>
+              ) : null}
+
+              {detailed && !open ? <WorkoutLine steps={steps} /> : null}
             </span>
 
-            {meta ? (
-              <span className="mt-1 block text-caption tabular-nums text-label-3">{meta}</span>
-            ) : null}
-
-            {detailed && !open ? <WorkoutLine steps={steps} /> : null}
-          </span>
-
-          <span className="flex shrink-0 items-center gap-1.5">
-            {target ? (
-              // Once an activity has answered the session the plan's number is the
-              // secondary one — what was actually run leads, in mint, below.
-              <span
-                className={cn(
-                  'data-number text-subhead font-semibold',
-                  done ? 'text-label-2' : 'text-label',
-                )}
-              >
-                {target}
-              </span>
-            ) : null}
-            {expandable ? <Chevron open={open} /> : null}
+            <span className="flex shrink-0 items-center gap-1.5">
+              {target ? (
+                // Once an activity has answered the session the plan's number is the
+                // secondary one — what was actually run leads, in mint, below.
+                <span
+                  className={cn(
+                    'data-number text-subhead font-semibold',
+                    done ? 'text-label-2' : 'text-label',
+                  )}
+                >
+                  {target}
+                </span>
+              ) : null}
+              {expandable ? <Chevron open={open} /> : null}
+            </span>
           </span>
         </button>
       </div>
 
       {open && expandable ? (
-        // One region, one rhythm: `space-y-3` between the workout, the note and the
+        // One region, one rhythm: `space-y-2.5` between the workout, the note and the
         // actions, and no margins of their own. The note needs no rule beside it — the
         // hairline above already says this is a different part of the cell, and a second
         // rule inside it was a frame around one paragraph.
-        <div className="fade-up space-y-3 border-t border-line px-4 pb-3 pt-2.5">
+        <div className="fade-up space-y-2.5 border-t border-line px-3.5 pb-2.5 pt-2.5">
           {detailed ? <StepList steps={steps} type={session.type} /> : null}
           {session.notes ? (
             // Coaching prose, so it gets the one thing prose needs and data does not: a
@@ -324,7 +343,7 @@ function Result({
   }
 
   return (
-    <div className="border-t border-line px-4 py-2.5">
+    <div className="border-t border-line px-3.5 py-2">
       <p className="data-number text-footnote font-semibold text-mint">
         {formatKm(activity.distanceM)} km
         {pace ? <span className="ml-2 font-medium">{formatPace(pace)}/km</span> : null}
@@ -366,22 +385,30 @@ export function ExtraCard({
 
   return (
     <article className="relative overflow-hidden rounded-xl bg-surface-deep/40">
-      <span aria-hidden className="absolute inset-y-0 left-0 w-1 bg-fill-strong" />
+      <span
+        aria-hidden
+        className="absolute inset-y-0 left-0 w-1.5 bg-fill-strong spine-fade"
+      />
 
-      <div className="flex items-start gap-2 py-3 pl-4 pr-3">
+      <div className="flex items-center gap-2 py-2 pl-3.5 pr-2.5">
         <span aria-hidden className="size-6 shrink-0" />
-        <div className="flex min-h-11 min-w-0 flex-1 items-baseline justify-between gap-2">
-          <span className="min-w-0">
-            <span className="block truncate text-footnote font-medium text-label-2">
-              {activity.name}
+        <div className="flex min-h-11 min-w-0 flex-1 items-center">
+          {/* The same two-flex split `SessionCard` uses: 44px for the touch floor, the
+              content centred in it, and the baseline pairing kept for the name and the
+              number. */}
+          <div className="flex min-w-0 flex-1 items-baseline justify-between gap-2">
+            <span className="min-w-0">
+              <span className="block truncate text-footnote font-medium text-label-2">
+                {activity.name}
+              </span>
+              <span className="mt-1 block text-caption tabular-nums text-label-3">
+                {['Sin planificar', pace].filter(Boolean).join(' · ')}
+              </span>
             </span>
-            <span className="mt-1 block text-caption tabular-nums text-label-3">
-              {['Sin planificar', pace].filter(Boolean).join(' · ')}
+            <span className="data-number shrink-0 text-subhead font-semibold text-label-2">
+              {formatKm(activity.distanceM)} km
             </span>
-          </span>
-          <span className="data-number shrink-0 text-subhead font-semibold text-label-2">
-            {formatKm(activity.distanceM)} km
-          </span>
+          </div>
         </div>
       </div>
     </article>

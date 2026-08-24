@@ -1,0 +1,74 @@
+---
+import Base from '../layouts/Base.astro'
+export const prerender = true
+
+/**
+ * The address that does not exist — a stale home-screen shortcut, a link typed by hand, a
+ * bookmark from a route this app no longer has.
+ *
+ * It wears `Base` rather than `App`, so there is no dock on it, and that is a decision
+ * rather than an omission: the dock's lit tab is baked in at build time and a 404 belongs
+ * to none of the four, so the bar would sit there with nothing highlighted — chrome that
+ * says "you are somewhere" on the one screen whose whole message is that you are not.
+ * What replaces it is a single way out, which is what an error screen owes you.
+ *
+ * That makes this and `/login` the two screens in the app with no dock, so it is built as
+ * `/login`'s sibling: the same tile and mark, the same eyebrow, the same hero-number
+ * composition, the same 12px gutter. `404` is the number this screen is about, so it takes
+ * the hero slot the goal time takes there — set in Manrope like every other figure the app
+ * puts at that size, and in `label` rather than in red. Nothing here is an alarm: a wrong
+ * URL is not a failure of the training block, and painting it red would say it was.
+ *
+ * Prerendered like every other page. Astro serves it through the adapter's
+ * `prerenderedErrorPageFetch`, so an unmatched path still comes back as a real 404 status
+ * with this HTML in the body rather than as the asset handler's bare "Not Found".
+ */
+---
+
+<Base
+  title="Página no encontrada · La Mitja 2027"
+  description="Esta dirección no existe en el cuaderno de La Mitja 2027."
+>
+  <main
+    class="mx-auto flex min-h-full max-w-sm flex-col justify-center gap-5 px-gutter py-10 pb-[calc(2.5rem+env(safe-area-inset-bottom))]"
+  >
+    <header class="fade-up">
+      {/* Decorative, so the alt is empty — the heading under it carries the message. */}
+      <span
+        class="performance-shadow grid size-16 place-items-center rounded-2xl border border-line bg-surface-raised"
+      >
+        <img src="/favicon.svg" alt="" width="40" height="40" class="size-10" />
+      </span>
+
+      <p class="mt-5 text-caption2 font-semibold uppercase tracking-[0.16em] text-label-3">
+        La Mitja 2027
+      </p>
+
+      {/* The heading is the sentence, not the number: a screen reader announcing "404" and
+          stopping has said nothing. The figure is inside it, read first and out loud, and
+          the line under it is what it means. */}
+      <h1 class="mt-2">
+        <span class="data-number block font-display text-display font-bold leading-none text-label">
+          404
+        </span>
+        <span class="mt-2 block text-subhead text-label-2">Esta página no existe</span>
+      </h1>
+
+      <p class="mt-3 text-footnote leading-relaxed text-label-2">
+        La dirección que has abierto no lleva a ninguna parte del bloque. Puede que sea un
+        enlace antiguo o que falte algo en la URL.
+      </p>
+    </header>
+
+    {/* 30ms behind the header — the stagger every list in the app reveals at. One action
+        and no second link: the four tabs are one tap away from Hoy, and a menu of ways out
+        is how an error screen turns into a decision. */}
+    <a
+      href="/"
+      class="tappable fade-up flex h-12 w-full items-center justify-center rounded-xl bg-mint text-body font-semibold text-surface"
+      style="animation-delay: 30ms"
+    >
+      Volver a Hoy
+    </a>
+  </main>
+</Base>

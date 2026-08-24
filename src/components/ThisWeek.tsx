@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import { formatDuration, formatKm } from '@/lib/activity'
 import { DAY_MS, startOfDay } from '@/lib/block'
 import { cn } from '@/lib/cn'
@@ -19,11 +19,13 @@ import { ACCENT, Card, CardTitle, DoneToggle, EmptyState, TextLink } from './ui'
  * a detail pinned to last Tuesday with no way out is a screen that has quietly stopped
  * answering "what do I run today".
  *
- * Three things tell one line from another and none of them is colour on its own: the
- * *shape* in the marker column (a rail for a prescribed session, a ring for a run nobody
- * asked for, a hairline for a rest day), the tick at the end of the row, and the mint on
- * a distance that was actually run. The hue on the rail is the session's kind, the same
- * one the strip above and the card below give it.
+ * Every row opens with a 28px tile in the session's own hue, and that tile is what the
+ * week is scanned by: at a rail's four pixels a hue is a tint, and telling violet from
+ * coral meant comparing two rows rather than reading one. Shape still separates the three
+ * kinds of line, so none of this rests on colour alone — a filled tile is a prescribed
+ * session, a hollow one is a run nobody asked for, a neutral one is a rest day — and
+ * whether a day is behind you is said by the tick at the end of the row and by the mint on
+ * a distance that was actually run.
  *
  * The rows arrive staggered 30 ms apart, so the eye is walked down the week rather than
  * handed all seven at once — brightening rather than travelling, because the card they
@@ -139,7 +141,11 @@ export function ThisWeek({
             </EmptyState>
           )}
 
-          <ul className="-mx-2 mt-2 divide-y divide-line border-t border-line pt-1">
+          {/* No rule between the rows any more: seven tiles down the left edge already
+              group the list, and a hairline under each one was a second grid drawn over
+              the first. The single rule at the top is what separates the list from the
+              session card above it. */}
+          <ul className="-mx-1.5 mt-2 border-t border-line pt-1">
             {week.days.map((day, i) => (
               <DayLines
                 key={day.date}
@@ -236,15 +242,15 @@ function DayLines({
 }
 
 /** Shared by all three kinds of line, so their titles start at the same x. */
-const LINE = 'flex min-h-11 min-w-0 flex-1 items-center gap-2 py-2 pl-2 text-left'
+const LINE = 'flex min-h-12 min-w-0 flex-1 items-center gap-2.5 py-1.5 pl-1.5 text-left'
 
 function DayLabel({ children, isToday }: { children: string; isToday: boolean }) {
   return (
     <span
       className={cn(
-        // 56px holds "sáb 30" uppercased at 11px with room to spare, and holds it at a
-        // fixed width so seven titles start on one line rather than on seven.
-        'w-14 shrink-0 whitespace-nowrap text-caption2 font-medium uppercase tracking-wide tabular-nums',
+        // 48px holds "sáb 30" uppercased at 11px, and holds it at a fixed width so seven
+        // titles start on one line rather than on seven.
+        'w-12 shrink-0 whitespace-nowrap text-caption2 font-medium uppercase tracking-wide tabular-nums',
         // `label-3`, not `label-4`: the date is data, and `label-4` is the one step that
         // misses AA, so nothing but chrome may wear it.
         isToday ? 'text-mint' : 'text-label-3',
@@ -256,19 +262,21 @@ function DayLabel({ children, isToday }: { children: string; isToday: boolean })
 }
 
 /**
- * The 8px column every row's kind-marker centres in.
+ * The 28px tile every row opens with — the session's kind, as an object rather than a rule.
  *
- * The shape in here is what separates the three kinds of line — a rail for a prescribed
- * session, a ring for a run nobody asked for, a hairline for a rest day — so the
- * distinction survives without colour and the titles still line up down the card whatever
- * sits in the slot.
+ * It replaced a 4px rail in an 8px column. The rail was correct and unreadable: at four
+ * pixels a hue is a tint, and telling violet from coral at that width is a thing the eye
+ * does by comparing two rows rather than by reading one. A tile is the same information at
+ * fifty times the area, and it is what lets a week be scanned by colour at arm's length,
+ * which is the whole reason the session types have hues at all.
+ *
+ * Shape still separates the three kinds of line, so nothing here rests on colour alone: a
+ * filled tile is a prescribed session, a hollow one is a run nobody asked for, and a rest
+ * day gets the neutral fill. Squared off at `rounded-[0.625rem]` rather than
+ * round, because a circle at this size reads as an avatar.
  */
-function Marker({ children }: { children: ReactNode }) {
-  return (
-    <span aria-hidden className="flex w-2 shrink-0 justify-center">
-      {children}
-    </span>
-  )
+function Swatch({ className }: { className?: string }) {
+  return <span aria-hidden className={cn('size-7 shrink-0 rounded-[0.625rem]', className)} />
 }
 
 /** Where a tick would be on a row that cannot have one, so the column stays straight. */
@@ -311,15 +319,16 @@ function SessionLine({
       )}
     >
       <button type="button" onClick={onSelect} aria-pressed={selected} className={cn('tappable', LINE)}>
+        {/* The tile leads the row rather than following the date, because the hue is what
+            the week is scanned by — the date is the index you land on once a colour has
+            already caught the eye. Held at full strength on a done row: "have I run this"
+            is said three times over by the tick, the mint distance and the dimmed title,
+            and a week gone grey by Sunday is a week that stops reading as a week. */}
+        <Swatch className={ACCENT[session.type].swatch} />
         <DayLabel isToday={isToday}>{label}</DayLabel>
-        <Marker>
-          {/* The same 4px rail `SessionCard` runs down its left edge, at line scale — and
-              dimmed on a done row for the same reason it is dimmed there. */}
-          <span className={cn('h-4 w-1 rounded-full', ACCENT[session.type].rail, done && 'opacity-40')} />
-        </Marker>
         <span
           className={cn(
-            'min-w-0 flex-1 truncate text-footnote',
+            'min-w-0 flex-1 truncate text-subhead',
             done ? 'text-label-3' : 'text-label',
           )}
         >
@@ -335,6 +344,7 @@ function SessionLine({
             {value}
           </span>
         ) : null}
+
       </button>
 
       {/* The system's toggle rather than a second, squarer one drawn here: it keeps its
@@ -368,12 +378,10 @@ function ExtraLine({
   return (
     <div className="flex items-center gap-2 pr-2">
       <span className={LINE}>
+        {/* Hollow, not filled: it happened, it just was not asked for. */}
+        <Swatch className="ring-1 ring-inset ring-line-strong" />
         <DayLabel isToday={isToday}>{label}</DayLabel>
-        <Marker>
-          {/* Hollow, not filled: it happened, it just was not asked for. */}
-          <span className="size-1.5 rounded-full border border-line-strong" />
-        </Marker>
-        <span className="min-w-0 flex-1 truncate text-footnote text-label-2">{activity.name}</span>
+        <span className="min-w-0 flex-1 truncate text-subhead text-label-2">{activity.name}</span>
         <span className="data-number shrink-0 text-footnote text-label-2">
           {formatKm(activity.distanceM)} km
         </span>
@@ -388,12 +396,11 @@ function RestLine({ label, isToday }: { label: string; isToday: boolean }) {
   return (
     <div className="flex items-center gap-2 pr-2">
       <span className={LINE}>
+        {/* The neutral fill, so a rest day keeps the column straight without claiming a
+            hue. It is a day with nothing on it, not a day missing its data. */}
+        <Swatch className={ACCENT.rest.swatch} />
         <DayLabel isToday={isToday}>{label}</DayLabel>
-        <Marker>
-          {/* The same hairline the strip puts at the foot of a rest column. */}
-          <span className="h-px w-2 bg-fill-strong" />
-        </Marker>
-        <span className="min-w-0 flex-1 truncate text-footnote text-label-3">Descanso</span>
+        <span className="min-w-0 flex-1 truncate text-subhead text-label-3">Descanso</span>
       </span>
       <TickSpacer />
     </div>

@@ -1,5 +1,6 @@
 ---
 import Base from './Base.astro'
+import Boot from '../components/Boot.astro'
 import Dock from '../components/Dock.astro'
 import type { Tab } from '../lib/nav'
 
@@ -72,4 +73,11 @@ const { title, heading, sub, tab } = Astro.props
     <slot />
   </main>
   <Dock tab={tab} />
+  {/*
+    Last in the body and above the dock, because for the half-second it is up it is the
+    whole app. It belongs to this layout rather than to `Base.astro`: every page that wears
+    the dock opens by fetching the block, and `/login` — the only other `Base` page — has
+    nothing to load and its own first impression already.
+  */}
+  <Boot />
 </Base>
