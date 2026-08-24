@@ -151,9 +151,10 @@ export function SessionForm({
     <div className="fixed inset-0 z-50 flex flex-col justify-end bg-surface-deep/80 backdrop-blur-sm">
       <button type="button" aria-label="Cerrar" className="flex-1" onClick={onClose} />
 
-      <div className="max-h-[85vh] overflow-y-auto rounded-t-3xl bg-surface-raised p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]">
+      <div className="performance-shadow max-h-[88vh] overflow-y-auto rounded-t-3xl border-t border-line bg-surface-raised p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]">
         <div className="mx-auto max-w-md space-y-4">
-          <h2 className="text-sm font-medium">{session ? 'Editar sesión' : 'Nueva sesión'}</h2>
+          <span aria-hidden className="mx-auto block h-1 w-10 rounded-full bg-fill-strong" />
+          <h2 className="text-xl font-semibold tracking-tight">{session ? 'Editar sesión' : 'Nueva sesión'}</h2>
 
           <Field label="Día">
             <Select value={draft.scheduledOn} onChange={(e) => set('scheduledOn', e.target.value)}>
@@ -219,8 +220,8 @@ export function SessionForm({
           </div>
 
           {session?.steps?.length ? (
-            <div className="rounded-xl border border-line bg-fill p-3">
-              <p className="text-[0.6875rem] uppercase tracking-widest text-label-3">Entrenamiento</p>
+            <div className="rounded-2xl border border-line bg-surface-deep/30 p-4">
+              <p className="text-caption2 uppercase tracking-widest text-label-3">Entrenamiento</p>
               <ol className="mt-2 space-y-1">
                 {session.steps.map((step, i) => (
                   <li key={i} className="text-xs tabular-nums text-label-2">
@@ -228,7 +229,7 @@ export function SessionForm({
                   </li>
                 ))}
               </ol>
-              <p className={cn('mt-2 text-[0.6875rem]', prescriptionEdited ? 'text-amber' : 'text-label-3')}>
+              <p className={cn('mt-2 text-caption2', prescriptionEdited ? 'text-amber' : 'text-label-3')}>
                 {prescriptionEdited
                   ? 'Al guardar, este desglose se sustituye por los valores de arriba.'
                   : 'Viene del plan. Cambiar aquí una distancia o un ritmo lo sustituye.'}

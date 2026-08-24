@@ -170,9 +170,9 @@ function SeasonHero({ view, currentWeek }: { view: View; currentWeek: number }) 
         <p className="text-xs text-label-3">faltan {daysToRace(view.today)} días</p>
       </div>
 
-      <p className="mt-2 text-4xl font-semibold tabular-nums">
+      <p className="data-number mt-3 text-4xl font-semibold leading-none">
         {decimal(km, 0)}
-        <span className="ml-1.5 text-base font-normal text-label-3">km en el bloque</span>
+        <span className="ml-2 font-sans text-footnote font-normal tracking-normal text-label-3">km en el bloque</span>
       </p>
 
       <p className="mt-1 text-sm text-label-2">
@@ -205,7 +205,7 @@ function SeasonHero({ view, currentWeek }: { view: View; currentWeek: number }) 
             },
           ]}
         />
-        <figcaption className="mt-2 flex items-center justify-between gap-2 text-[0.625rem] text-label-4">
+        <figcaption className="mt-2 flex items-center justify-between gap-2 text-caption2 text-label-4">
           <span>17 ago</span>
           <Legend
             items={[
@@ -265,7 +265,7 @@ function FormCard({ view }: { view: View }) {
             },
           ]}
         />
-        <figcaption className="mt-2 text-[0.625rem] leading-relaxed text-label-4">
+        <figcaption className="mt-2 text-caption2 leading-relaxed text-label-3">
           <Legend
             items={[
               { label: 'Forma', className: 'bg-mint' },
@@ -312,7 +312,7 @@ function WeeklyCard({
     <Card>
       <CardTitle>Volumen semanal</CardTitle>
       <BarRow bars={bars} height={80} />
-      <div className="mt-2 flex items-center justify-between gap-2 text-[0.625rem] tabular-nums text-label-4">
+      <div className="mt-2 flex items-center justify-between gap-2 text-caption2 tabular-nums text-label-4">
         <span>S1</span>
         <Legend
           items={[
@@ -363,9 +363,9 @@ function ProjectionCard({ view }: { view: View }) {
 
       {projection && goalDelta != null ? (
         <>
-          <p className="text-3xl font-semibold tabular-nums">
+          <p className="data-number text-3xl font-semibold">
             {formatClock(projection.timeS)}
-            <span className="ml-2 text-sm font-normal text-label-3">media proyectada</span>
+            <span className="ml-2 font-sans text-footnote font-normal tracking-normal text-label-3">media proyectada</span>
           </p>
           <p className="mt-1 text-sm">
             <span className={cn(goalDelta <= 0 ? 'text-mint' : 'text-amber')}>
@@ -383,7 +383,7 @@ function ProjectionCard({ view }: { view: View }) {
         </p>
       )}
 
-      <div className="mt-5 flex items-baseline justify-between gap-3 pb-1 text-[0.625rem] uppercase tracking-widest text-label-4">
+      <div className="mt-5 flex items-baseline justify-between gap-3 pb-1 text-caption2 uppercase tracking-widest text-label-4">
         <span>Distancia</span>
         <span className="flex gap-3">
           <span>Este bloque</span>
@@ -398,14 +398,14 @@ function ProjectionCard({ view }: { view: View }) {
             <li key={effort.label} className="flex items-baseline justify-between gap-3 py-2.5">
               <span className="text-sm text-label-2">{effort.label}</span>
               <span className="flex items-baseline gap-3 text-right">
-                <span className="text-sm tabular-nums">
+                <span className="data-number text-sm">
                   {effort.timeS == null ? (
                     <span className="text-label-4">—</span>
                   ) : (
                     formatClock(effort.timeS)
                   )}
                 </span>
-                <span className="w-24 text-xs tabular-nums text-label-3">
+                <span className="data-number w-24 text-xs text-label-3">
                   {last?.timeS == null ? '' : formatClock(last.timeS)}
                 </span>
               </span>
@@ -414,7 +414,7 @@ function ProjectionCard({ view }: { view: View }) {
         })}
       </ul>
 
-      <p className="mt-3 text-[0.6875rem] leading-relaxed text-label-4">
+      <p className="mt-3 text-caption2 leading-relaxed text-label-3">
         El mejor ritmo medio en una salida completa de al menos esa distancia, llevada al listón
         exacto — la app guarda resúmenes, no los parciales de los que Strava saca sus mejores
         marcas. Solo cuentan los esfuerzos: Z4 o más, o más rápido que ritmo medio. La media se
@@ -461,7 +461,7 @@ function IntensityCard({ view }: { view: View }) {
               ))}
           </ul>
           {view.zoneCoverage < 0.95 ? (
-            <p className="mt-3 text-[0.6875rem] text-label-4">
+            <p className="mt-3 text-caption2 text-label-3">
               El {Math.round((1 - view.zoneCoverage) * 100)}% del tiempo corriendo fue sin pulso y
               no cuenta aquí.
             </p>
@@ -498,7 +498,7 @@ function ConsistencyCard({ view }: { view: View }) {
         />
       </dl>
 
-      <p className="mt-4 text-[0.6875rem] leading-relaxed text-label-4">
+      <p className="mt-4 text-caption2 leading-relaxed text-label-3">
         Corriste {now.daysRun} de {now.days} días. El entrenamiento cruzado no cierra un parón de
         carrera: una semana de bici alrededor de una rodilla tocada es una buena semana y sigue
         siendo una semana sin correr.
@@ -568,7 +568,7 @@ function HeadToHead({ view }: { view: View }) {
     <Card>
       <CardTitle
         action={
-          <span className="text-[0.625rem] uppercase tracking-widest text-label-4">
+          <span className="text-caption2 uppercase tracking-widest text-label-4">
             vs 2025-26
           </span>
         }
@@ -581,8 +581,8 @@ function HeadToHead({ view }: { view: View }) {
           {rows.map((row) => (
             <tr key={row.label}>
               <td className="py-2.5 pr-2 text-label-2">{row.label}</td>
-              <td className="py-2.5 text-right tabular-nums">{row.format(row.now)}</td>
-              <td className="w-24 py-2.5 pl-3 text-right tabular-nums text-label-3">
+              <td className="data-number py-2.5 text-right">{row.format(row.now)}</td>
+              <td className="data-number w-24 py-2.5 pl-3 text-right text-label-3">
                 {row.then === 0 ? '—' : row.format(row.then)}
               </td>
               <td className="w-14 py-2.5 pl-2 text-right">
@@ -593,7 +593,7 @@ function HeadToHead({ view }: { view: View }) {
         </tbody>
       </table>
 
-      <p className="mt-3 text-[0.6875rem] leading-relaxed text-label-4">
+      <p className="mt-3 text-caption2 leading-relaxed text-label-3">
         Las dos temporadas medidas a la misma distancia del día de carrera: hoy faltan{' '}
         {daysToRace(view.today)} días, que la temporada pasada fue el{' '}
         {dateFmt.format(new Date(view.today - BASELINE_SHIFT_MS))}.

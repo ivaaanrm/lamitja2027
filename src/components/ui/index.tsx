@@ -8,11 +8,8 @@ import { SESSION_META, type SessionType } from '@/lib/plan'
  * targets are 44px, nothing relies on hover, and numbers are tabular so they stop
  * jittering as they update.
  *
- * None of them is a box. A panel per section — border, fill, inner padding, repeated —
- * is what made the app read as a page of widgets, and on a 390px screen the repeated
- * inset costs more room than the content it frames. `Card` is now a band of one
- * continuous surface, divided from the next by a hairline drawn edge to edge; every
- * value it uses comes from the tokens in `src/styles/global.css`.
+ * Cards establish one clear level of grouping without inventing colours or hiding data.
+ * The surface, radius and shadow are shared, so dense analytics still read as one app.
  */
 
 /**
@@ -129,30 +126,25 @@ export function DoneToggle({
   )
 }
 
-/**
- * One band of the page.
- *
- * Not a card: no border, no fill, no radius — it breaks out of the page gutter to draw a
- * hairline edge to edge, then puts the gutter back for its own content. The rule belongs
- * to the section below it and there is nothing above the first, which is how a grouped
- * list reads on iOS.
- */
+/** One grouped surface, sized to keep useful data above the fold on a 375 px phone. */
 export function Card({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <section
-      className={cn('-mx-gutter px-gutter py-4 [&:not(:first-child)]:hairline-t', className)}
+      className={cn(
+        'performance-shadow rounded-3xl border border-line bg-surface-raised px-4 py-4',
+        className,
+      )}
     >
       {children}
     </section>
   )
 }
 
-/** A section's name, in the register iOS gives a grouped-list header: small, quiet, and
- *  close enough to what it labels that it does not need a box to claim it. */
+/** A section name that is quiet but still anchors the scanning order. */
 export function CardTitle({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
     <div className="mb-3 flex items-center justify-between gap-3">
-      <h2 className="text-caption2 font-semibold uppercase tracking-[0.09em] text-label-3">
+      <h2 className="text-caption2 font-semibold uppercase tracking-[0.12em] text-label-2">
         {children}
       </h2>
       {action}
@@ -172,7 +164,7 @@ export function Stat({
   return (
     <div>
       <dt className="text-caption2 uppercase tracking-[0.09em] text-label-3">{label}</dt>
-      <dd className="mt-1 text-title3 font-semibold tabular-nums text-label">{value}</dd>
+      <dd className="data-number mt-1 text-body font-semibold text-label">{value}</dd>
       {hint ? <p className="text-caption tabular-nums text-label-3">{hint}</p> : null}
     </div>
   )
@@ -183,7 +175,7 @@ export function Stat({
 export function ProgressBar({ value, target }: { value: number; target: number }) {
   const pct = target > 0 ? (value / target) * 100 : 0
   return (
-    <div className="h-1 overflow-hidden rounded-full bg-fill">
+    <div className="h-1.5 overflow-hidden rounded-full bg-fill-strong">
       <div
         className={cn('h-full rounded-full transition-[width]', pct >= 100 ? 'bg-mint' : 'bg-label')}
         style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
@@ -196,7 +188,7 @@ export function Chip({ children, tone = 'neutral' }: { children: ReactNode; tone
   return (
     <span
       className={cn(
-        'rounded-full px-2 py-0.5 text-caption font-medium',
+        'inline-flex min-h-6 items-center rounded-full px-2.5 py-1 text-caption font-medium',
         tone === 'done' && 'bg-mint/15 text-mint',
         tone === 'down' && 'bg-amber/15 text-amber',
         tone === 'neutral' && 'bg-fill text-label-2',
@@ -260,7 +252,7 @@ export function Segmented<T extends string>({
   return (
     <div
       role="tablist"
-      className={cn('flex gap-1 rounded-xl bg-fill p-1', className)}
+      className={cn('flex gap-1 rounded-2xl bg-surface-deep/55 p-1', className)}
     >
       {options.map((option) => (
         <button
@@ -270,8 +262,10 @@ export function Segmented<T extends string>({
           aria-selected={option.value === value}
           onClick={() => onChange(option.value)}
           className={cn(
-            'h-10 flex-1 rounded-lg text-footnote font-medium transition-colors',
-            option.value === value ? 'bg-fill-strong text-label' : 'text-label-3 active:text-label-2',
+            'h-11 flex-1 rounded-xl text-footnote font-medium transition-colors',
+            option.value === value
+              ? 'bg-surface-raised text-label shadow-sm'
+              : 'text-label-3 active:bg-fill active:text-label-2',
           )}
         >
           {option.label}
@@ -304,7 +298,7 @@ export function Button({
       className={cn(
         // Filled, not outlined: an outlined button is a web convention, and against a
         // surface with no panels behind it a border is the only box left on the screen.
-        'inline-flex h-11 items-center justify-center rounded-xl px-4 text-subhead font-semibold active:opacity-60 disabled:opacity-40',
+        'inline-flex h-12 items-center justify-center rounded-2xl px-5 text-subhead font-semibold transition-[transform,opacity] active:scale-[0.98] active:opacity-80 disabled:opacity-40',
         variant === 'primary' && 'bg-mint text-surface',
         variant === 'ghost' && 'bg-fill text-label',
         variant === 'danger' && 'bg-red/15 text-red',
@@ -333,7 +327,7 @@ export function Field({ label, children }: { label: string; children: ReactNode 
  * page came back scrolled sideways with the dock off-screen.
  */
 const CONTROL =
-  'h-11 w-full rounded-xl bg-fill px-3.5 text-body text-label placeholder:text-label-3 outline-none focus:ring-2 focus:ring-inset focus:ring-line-strong'
+  'h-12 w-full rounded-2xl border border-line bg-surface-deep/35 px-4 text-body text-label placeholder:text-label-3 outline-none transition-colors focus:border-line-strong focus:bg-fill'
 
 export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={cn(CONTROL, props.className)} />

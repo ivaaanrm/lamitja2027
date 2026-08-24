@@ -92,8 +92,8 @@ export function Dashboard() {
 
   return (
     <>
-      <ThisWeekHeader metrics={metrics} notStarted={notStarted} week={week} today={today} />
       <ThisWeek week={week} today={today} onToggle={toggle} />
+      <ThisWeekHeader metrics={metrics} notStarted={notStarted} week={week} today={today} />
 
       <Card>
         <CardTitle
@@ -102,7 +102,7 @@ export function Dashboard() {
               type="button"
               onClick={() => void sync()}
               disabled={busy}
-              className="text-xs text-label-2 underline underline-offset-4 disabled:opacity-50"
+              className="-my-2 inline-flex min-h-11 items-center px-2 text-xs text-label-2 underline underline-offset-4 disabled:opacity-50"
             >
               {busy ? 'Sincronizando…' : 'Sincronizar'}
             </button>
@@ -121,7 +121,7 @@ export function Dashboard() {
               <li key={run.id}>
                 <a
                   href={`/actividad?id=${run.id}`}
-                  className="flex items-baseline justify-between gap-3 py-3 active:opacity-60"
+                  className="flex min-h-14 items-center justify-between gap-3 py-3 transition-opacity active:opacity-60"
                 >
                 <div className="min-w-0">
                   <p className="truncate text-sm">{run.name}</p>
@@ -132,12 +132,24 @@ export function Dashboard() {
                     {run.averageHeartrate ? ` · ${zoneTag(hrZone(run.averageHeartrate))}` : ''}
                   </p>
                 </div>
-                <div className="shrink-0 text-right">
-                  <p className="text-sm tabular-nums">{formatKm(run.distanceM)} km</p>
-                  <p className="text-xs tabular-nums text-label-3">
-                    {formatPace(paceSKm(run.distanceM, run.movingS))}/km
-                  </p>
-                </div>
+                  <div className="shrink-0 text-right">
+                    <p className="data-number text-sm">{formatKm(run.distanceM)} km</p>
+                    <p className="data-number text-xs text-label-3">
+                      {formatPace(paceSKm(run.distanceM, run.movingS))}/km
+                    </p>
+                  </div>
+                  <svg
+                    aria-hidden
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="size-4 shrink-0 text-label-4"
+                  >
+                    <path d="m9 6 6 6-6 6" />
+                  </svg>
                 </a>
               </li>
             ))}
@@ -173,7 +185,7 @@ function ThisWeekHeader({
   const targetKm = metrics.targetVolumeM == null ? null : metrics.targetVolumeM / 1000
 
   return (
-    <Card>
+    <Card className="overflow-hidden">
       <div className="flex items-baseline justify-between gap-3">
         <p className="text-xs font-medium uppercase tracking-widest text-label-3">
           {notStarted ? 'La semana 1 empieza pronto' : `Semana ${metrics.weekIndex + 1} de ${TOTAL_WEEKS}`}
@@ -181,22 +193,29 @@ function ThisWeekHeader({
         <p className="text-xs text-label-3">Faltan {daysToRace(Date.now())} días</p>
       </div>
 
-      <p className="mt-2 text-4xl font-semibold tabular-nums">
-        {decimal(km)}
-        <span className="ml-1.5 text-base font-normal text-label-3">
-          {targetKm == null ? 'km esta semana' : `de ${targetKm.toFixed(0)} km`}
-        </span>
-      </p>
+      <div className="mt-3 flex items-end justify-between gap-4">
+        <div className="min-w-0">
+          <p className="data-number text-4xl font-semibold leading-none text-label">{decimal(km)}</p>
+          <p className="mt-1.5 text-caption text-label-3">
+            {targetKm == null ? 'km esta semana' : `de ${decimal(targetKm, 0)} km previstos`}
+          </p>
+        </div>
+        <WeekRing
+          value={targetKm != null ? km : metrics.sessionsDone}
+          target={targetKm ?? metrics.sessionsPlanned}
+          label={targetKm != null ? 'volumen' : 'sesiones'}
+        />
+      </div>
 
       {targetKm != null ? (
-        <div className="mt-3">
+        <div className="mt-2.5">
           <ProgressBar value={km} target={targetKm} />
         </div>
       ) : null}
 
-      {week ? <WeekCalendar week={week} today={today} className="mt-5" /> : null}
+      {week ? <WeekCalendar week={week} today={today} className="mt-3" /> : null}
 
-      <div className="mt-4 flex flex-wrap items-center gap-2">
+      <div className="mt-3 flex flex-wrap items-center gap-1.5">
         {metrics.phase ? <Chip>{metrics.phase}</Chip> : null}
         {metrics.isDownWeek ? <Chip tone="down">Descarga</Chip> : null}
         {metrics.sessionsPlanned > 0 ? (
@@ -225,11 +244,11 @@ function BlockProgressCard({
     <Card>
       <CardTitle>Rumbo al 24 de enero</CardTitle>
 
-      <dl className="grid grid-cols-3 gap-y-5">
+      <dl className="grid grid-cols-2 gap-x-6 gap-y-6">
         <Stat
           label="Km del bloque"
-          value={doneKm.toFixed(0)}
-          hint={plannedTotalKm ? `de ${plannedTotalKm.toFixed(0)} previstos` : `${block.runs} salidas`}
+          value={decimal(doneKm, 0)}
+          hint={plannedTotalKm ? `de ${decimal(plannedTotalKm, 0)} previstos` : `${block.runs} salidas`}
         />
         <Stat
           label="Ritmo medio"
@@ -256,11 +275,11 @@ function BlockProgressCard({
 
       {plannedToDateKm != null ? (
         <p className="mt-5 text-xs text-label-3">
-          {doneKm.toFixed(0)} km corridos frente a {plannedToDateKm.toFixed(0)} km previstos hasta hoy —{' '}
+          {decimal(doneKm, 0)} km corridos frente a {decimal(plannedToDateKm, 0)} km previstos hasta hoy —{' '}
           <span className={cn(doneKm >= plannedToDateKm ? 'text-mint' : 'text-amber')}>
             {doneKm >= plannedToDateKm
               ? 'según lo previsto'
-              : `${(plannedToDateKm - doneKm).toFixed(0)} km por debajo`}
+              : `${decimal(plannedToDateKm - doneKm, 0)} km por debajo`}
           </span>
           .
         </p>
@@ -307,11 +326,43 @@ function VolumeChart({ weekly, currentWeek }: { weekly: WeekMetrics[]; currentWe
           )
         })}
       </div>
-      <figcaption className="mt-2 flex justify-between text-[0.625rem] tabular-nums text-label-4">
+      <figcaption className="mt-2 flex justify-between text-caption2 tabular-nums text-label-4">
         <span>S1</span>
-        <span>pico de {(max / 1000).toFixed(0)} km · discontinua = objetivo</span>
+        <span>pico de {decimal(max / 1000, 0)} km · discontinua = objetivo</span>
         <span>S{TOTAL_WEEKS}</span>
       </figcaption>
+    </figure>
+  )
+}
+
+function WeekRing({ value, target, label }: { value: number; target: number; label: string }) {
+  const pct = target > 0 ? Math.max(0, Math.min(100, (value / target) * 100)) : 0
+  const radius = 28
+  const circumference = 2 * Math.PI * radius
+
+  return (
+    <figure
+      aria-label={`${Math.round(pct)}% del objetivo de ${label}`}
+      className="relative grid size-16 shrink-0 place-items-center"
+    >
+      <svg aria-hidden viewBox="0 0 72 72" className="absolute inset-0 size-full -rotate-90">
+        <circle cx="36" cy="36" r={radius} fill="none" strokeWidth="6" className="stroke-fill-strong" />
+        <circle
+          cx="36"
+          cy="36"
+          r={radius}
+          fill="none"
+          strokeWidth="6"
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={circumference * (1 - pct / 100)}
+          className="stroke-mint transition-[stroke-dashoffset]"
+        />
+      </svg>
+      <span className="text-center">
+        <span className="data-number block text-footnote font-semibold text-label">{Math.round(pct)}%</span>
+        <span className="block text-caption2 text-label-3">{label}</span>
+      </span>
     </figure>
   )
 }

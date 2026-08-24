@@ -59,13 +59,13 @@ export function SessionCard({
   return (
     <article
       className={cn(
-        'relative overflow-hidden rounded-xl bg-surface-raised transition-colors',
-        done && 'bg-surface-raised/60',
+        'relative overflow-hidden rounded-2xl border border-line bg-surface-deep/30 transition-colors',
+        done && 'opacity-75',
       )}
     >
       <span aria-hidden className={cn('absolute inset-y-0 left-0 w-1', accent.rail, done && 'opacity-40')} />
 
-      <div className="py-3 pl-4 pr-3">
+      <div className="py-3.5 pl-4 pr-3.5">
         <div className="flex items-start gap-2.5">
           {session.type === 'rest' ? (
             <span aria-hidden className="mt-0.5 size-6" />
@@ -78,7 +78,7 @@ export function SessionCard({
             onClick={() => expandable && setOpen(!open)}
             aria-expanded={expandable ? open : undefined}
             disabled={!expandable}
-            className="flex min-w-0 flex-1 items-start justify-between gap-3 text-left disabled:cursor-default"
+            className="flex min-h-11 min-w-0 flex-1 items-start justify-between gap-3 text-left disabled:cursor-default"
           >
             <span className="min-w-0">
               <span className="flex flex-wrap items-center gap-1.5">
@@ -97,7 +97,7 @@ export function SessionCard({
 
             <span className="flex shrink-0 items-center gap-1.5">
               {target ? (
-                <span className="text-sm font-semibold tabular-nums text-label">{target}</span>
+                <span className="data-number text-sm font-semibold text-label">{target}</span>
               ) : null}
               {expandable ? <Chevron open={open} /> : null}
             </span>
@@ -182,12 +182,12 @@ function StepList({ steps, type }: { steps: Step[]; type: MatchedSession['sessio
           </div>
 
           {step.recovery && step.reps > 1 ? (
-            <p className="ml-3.5 border-l border-line pl-2.5 text-[0.6875rem] text-label-3">
+            <p className="ml-3.5 border-l border-line pl-2.5 text-caption2 text-label-3">
               {formatRecovery(step.recovery)} entre series
             </p>
           ) : null}
           {step.note ? (
-            <p className="ml-3.5 pl-2.5 text-[0.6875rem] text-label-3">{step.note}</p>
+            <p className="ml-3.5 pl-2.5 text-caption2 text-label-3">{step.note}</p>
           ) : null}
         </li>
       ))}
@@ -214,7 +214,7 @@ function Result({
       {delta != null && Math.abs(delta) >= 0.2 ? (
         <span className="text-label-3">
           {delta > 0 ? '+' : ''}
-          {delta.toFixed(1)} km
+          {formatKm(Math.abs(delta) * 1000)} km
         </span>
       ) : null}
       {activity.cadenceSpm ? (
@@ -240,11 +240,11 @@ export function ExtraCard({
   activity: { name: string; distanceM: number; movingS: number; sportType: string }
 }) {
   return (
-    <article className="relative overflow-hidden rounded-xl bg-surface-raised">
+    <article className="relative overflow-hidden rounded-2xl border border-line bg-surface-deep/30">
       <span aria-hidden className="absolute inset-y-0 left-0 w-[3px] bg-fill" />
       <div className="flex items-start justify-between gap-3 py-3 pl-4 pr-3">
         <div className="min-w-0">
-          <p className="text-[0.625rem] font-semibold uppercase tracking-wider text-label-4">
+          <p className="text-caption2 font-semibold uppercase tracking-wider text-label-3">
             Sin planificar
           </p>
           <p className="truncate text-sm text-label-2">{activity.name}</p>

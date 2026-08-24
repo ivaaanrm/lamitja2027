@@ -1,13 +1,12 @@
 @import 'tailwindcss';
 
 /**
- * The design layer: one surface, ruled — not a stack of cards.
+ * The design layer: a compact performance cockpit.
  *
- * Every panel used to be a box (a border, a fill and its own inner padding, repeated per
- * section), which is what made the app read as a web page of widgets rather than an app.
- * On a 390px screen that repeated inset also costs more room than the content it frames.
- * What replaces it is what iOS itself uses: one surface, sections divided by a hairline,
- * and hierarchy carried by the type ramp and the label steps below.
+ * Each card is one decision unit — this week, one trend, one group of activities — rather
+ * than a wrapper around every row. That keeps the 375px layout compact while giving the
+ * high-value numbers a clear reading order and enough depth to feel native rather than
+ * like a long web document.
  *
  * The palette is sampled from Runna's dark UI rather than mixed by hand — the three
  * surfaces and all eight accent hues are pixel values taken off their screens. Two things
@@ -27,13 +26,11 @@
  * These tokens are the whole system, so a component never has to invent a value.
  */
 @theme {
-  --font-sans: ui-sans-serif, system-ui, -apple-system, 'SF Pro Text', sans-serif;
-  --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, monospace;
+  --font-sans: 'Avenir Next', 'Segoe UI', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'SF Mono', 'Roboto Mono', ui-monospace, monospace;
 
-  /* The one margin the app aligns to. `-mx-gutter` is how a section breaks out of the
-     page's own padding to draw its rule edge to edge — so this has to stay equal to the
-     horizontal padding on `<main>` in App.astro. */
-  --spacing-gutter: 1.5rem;
+  /* The one outer margin every page and its floating dock align to. */
+  --spacing-gutter: 1rem;
 
   /* Three steps of ground and nothing between them: `surface-deep` is what the dock and
      the sheet scrim sit on, `surface` is the page, `surface-raised` is a card lifted off
@@ -95,15 +92,6 @@
     /* So form controls, scrollbars and the keyboard render dark without being asked. */
     color-scheme: dark;
 
-    /* One *device* pixel, not one CSS pixel: on a 3× iPhone a 1px rule is three physical
-       pixels and reads as a bar rather than a hairline. */
-    --hairline: 1px;
-  }
-
-  @media (min-resolution: 2dppx) {
-    :root {
-      --hairline: 0.5px;
-    }
   }
 
   html {
@@ -127,6 +115,19 @@
        into the bezel on that edge only. */
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
+    min-width: 20rem;
+    background-color: var(--color-surface);
+    background-image: radial-gradient(
+      circle at 50% -8rem,
+      color-mix(in srgb, var(--color-ink) 5%, transparent),
+      transparent 30rem
+    );
+    background-attachment: fixed;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--color-mint) 32%, transparent);
+    color: var(--color-ink);
   }
 
   /* Nothing here animates to convey meaning — every transition is decoration, so all of
@@ -143,7 +144,17 @@
   }
 }
 
-/** The rule that divides one section from the next, in place of a border around each. */
-@utility hairline-t {
-  border-top: var(--hairline) solid var(--color-line);
+/** Large metrics use a stable-width face, tighter spacing and no digit jitter. */
+@utility data-number {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.045em;
+}
+
+/** One soft depth treatment shared by cards, sheets and the floating dock. */
+@utility performance-shadow {
+  box-shadow:
+    0 16px 44px color-mix(in srgb, var(--color-surface-deep) 30%, transparent),
+    0 4px 14px color-mix(in srgb, var(--color-surface-deep) 18%, transparent),
+    inset 0 1px color-mix(in srgb, var(--color-ink) 4%, transparent);
 }

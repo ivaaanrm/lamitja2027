@@ -146,7 +146,7 @@ const dateFmt = new Intl.DateTimeFormat('es-ES', {
 
 function BackLink() {
   return (
-    <a href="/registro" className="mt-3 inline-block text-xs text-label-2 underline underline-offset-4">
+    <a href="/registro" className="mt-3 inline-flex min-h-11 items-center text-xs text-label-2 underline underline-offset-4">
       Volver al registro
     </a>
   )
@@ -154,11 +154,11 @@ function BackLink() {
 
 function Header({ activity, answered }: { activity: Activity; answered: PlanSession | null }) {
   return (
-    <Card className="pt-0">
-      <a href="/registro" className="text-xs text-label-2 underline underline-offset-4">
+    <Card>
+      <a href="/registro" className="-mt-2 inline-flex min-h-11 items-center text-xs text-label-2 underline underline-offset-4">
         ← Registro
       </a>
-      <h2 className="mt-3 text-xl font-semibold tracking-tight">{activity.name}</h2>
+      <h2 className="mt-2 text-title3 font-semibold tracking-tight">{activity.name}</h2>
       <p className="mt-1 text-sm text-label-3">{dateFmt.format(new Date(activity.startedOn))}</p>
       {answered ? (
         <p className="mt-3 flex items-center gap-2">
@@ -177,7 +177,7 @@ function Summary({ activity }: { activity: Activity }) {
 
   return (
     <Card>
-      <dl className="grid grid-cols-3 gap-y-5">
+      <dl className="grid grid-cols-2 gap-x-6 gap-y-6">
         <Stat label="Distancia" value={`${formatKm(activity.distanceM)} km`} />
         <Stat label="Tiempo" value={formatClock(activity.movingS)} hint="en movimiento" />
         {run ? (
@@ -186,14 +186,11 @@ function Summary({ activity }: { activity: Activity }) {
           <Stat label="Duración" value={formatDuration(activity.movingS)} />
         )}
         <Stat
-          label="Pulso"
-          value={activity.averageHeartrate ? Math.round(activity.averageHeartrate) : '—'}
+          label="Intensidad"
+          value={zone ? zoneTag(zone) : '—'}
           hint={
             zone ? (
-              <span className={ZONE_ACCENT[zone].text}>
-                {ZONE_NAME[zone]}
-                {activity.maxHeartrate ? ` · máx ${Math.round(activity.maxHeartrate)}` : ''}
-              </span>
+              <span className={ZONE_ACCENT[zone].text}>{ZONE_NAME[zone]}</span>
             ) : undefined
           }
         />
@@ -284,8 +281,8 @@ function Traces({
       {hr.some((v) => v != null) ? (
         <Trace
           title="Pulso"
-          value={activity.averageHeartrate ? `${Math.round(activity.averageHeartrate)} de media` : ''}
-          span={range(hr, String)}
+          value={activity.averageHeartrate ? `${zoneTag(hrZone(activity.averageHeartrate))} de media` : ''}
+          span=""
           km={km}
         >
           <LineChart
@@ -297,7 +294,7 @@ function Traces({
             yMax={Math.max(...hr.filter(isNumber)) + 5}
             rules={([2, 3, 4, 5] as const).map((zone) => ({ at: ZONE_FLOOR_BPM[zone] }))}
           />
-          <p className="mt-1 text-[0.625rem] text-label-4">Las líneas son los umbrales de zona, Z2 a Z5.</p>
+          <p className="mt-1 text-caption2 text-label-3">Las líneas son los umbrales de zona, Z2 a Z5.</p>
         </Trace>
       ) : null}
 
@@ -317,12 +314,12 @@ function Traces({
             yMax={Math.max(...cadence.filter(isNumber)) + 5}
             rules={[{ at: 170, className: 'stroke-mint/60' }]}
           />
-          <p className="mt-1 text-[0.625rem] text-label-4">La línea es el objetivo del protocolo de rodilla, 170 pasos/min.</p>
+          <p className="mt-1 text-caption2 text-label-3">La línea es el objetivo del protocolo de rodilla, 170 pasos/min.</p>
         </Trace>
       ) : null}
 
       {altitude.some((v) => v != null) ? (
-        <p className="-mt-2 text-[0.625rem] text-label-4">
+        <p className="-mt-2 text-caption2 text-label-3">
           El relieve de fondo es la altitud: {range(altitude, (v) => `${v} m`)}.
         </p>
       ) : null}
@@ -362,7 +359,7 @@ function Trace({
       <CardTitle action={<span className="text-xs tabular-nums text-label-3">{span}</span>}>{title}</CardTitle>
       <p className="mb-2 text-sm tabular-nums text-label-2">{value}</p>
       {children}
-      <div className="relative mt-1 h-3 text-[0.625rem] tabular-nums text-label-4">
+      <div className="relative mt-1 h-3 text-caption2 tabular-nums text-label-4">
         {ticks.map((tick) => (
           <span key={tick} className="absolute -translate-x-1/2" style={{ left: `${(tick / total) * 100}%` }}>
             {tick}
@@ -392,7 +389,7 @@ function Zones({ zoneS }: { zoneS: Record<Zone, number> }) {
           <li key={z}>
             <span className={cn('block text-xs font-semibold', ZONE_ACCENT[z].text)}>{zoneTag(z)}</span>
             <span className="block text-xs tabular-nums text-label-2">{formatDuration(zoneS[z])}</span>
-            <span className="block text-[0.625rem] tabular-nums text-label-4">
+            <span className="block text-caption2 tabular-nums text-label-3">
               {Math.round((zoneS[z] / total) * 100)} %
             </span>
           </li>
@@ -418,12 +415,12 @@ function SplitTable<T extends Split>({
     <Card>
       <CardTitle>{title}</CardTitle>
       <table className="w-full text-sm tabular-nums">
-        <thead className="text-[0.625rem] uppercase tracking-widest text-label-4">
+        <thead className="text-caption2 uppercase tracking-widest text-label-4">
           <tr>
             <th className="py-1 text-left font-medium">#</th>
             <th className="py-1 text-right font-medium">km</th>
             <th className="py-1 text-right font-medium">Ritmo</th>
-            {hasHr ? <th className="py-1 text-right font-medium">Pulso</th> : null}
+            {hasHr ? <th className="py-1 text-right font-medium">Zona</th> : null}
             <th className="py-1 text-right font-medium">Desn.</th>
           </tr>
         </thead>
@@ -439,7 +436,7 @@ function SplitTable<T extends Split>({
                 </td>
                 {hasHr ? (
                   <td className={cn('py-1.5 text-right', zone ? ZONE_ACCENT[zone].text : 'text-label-4')}>
-                    {row.heartrate ?? '—'}
+                    {zone ? zoneTag(zone) : '—'}
                   </td>
                 ) : null}
                 <td className="py-1.5 text-right text-label-3">

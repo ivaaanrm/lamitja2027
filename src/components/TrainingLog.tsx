@@ -189,7 +189,7 @@ function GridCard({
     <Card>
       <CardTitle
         action={
-          <a href="/plan" className="text-xs text-label-2 underline underline-offset-4">
+          <a href="/plan" className="-my-2 inline-flex min-h-11 items-center px-2 text-xs text-label-2 underline underline-offset-4">
             Ver plan
           </a>
         }
@@ -199,7 +199,7 @@ function GridCard({
 
       {/* Same column structure as a row — spacer, seven cells, spacer — so the letters sit
           over the dots rather than drifting by the width of two gaps. */}
-      <div className="flex items-center gap-1 text-[0.625rem] text-label-4">
+      <div className="flex items-center gap-1 text-caption2 text-label-4">
         <span className="w-6 shrink-0" />
         {WEEKDAYS.map((day, i) => (
           <span key={i} className="flex-1 text-center">
@@ -224,7 +224,7 @@ function GridCard({
                 week.weekIndex === currentWeek && 'bg-mint/[0.07]',
               )}
             >
-              <span className="w-6 shrink-0 text-[0.625rem] tabular-nums text-label-4">
+              <span className="data-number w-6 shrink-0 text-caption2 text-label-4">
                 S{week.weekIndex + 1}
               </span>
 
@@ -235,14 +235,14 @@ function GridCard({
               <span className="w-[3.25rem] shrink-0 pl-1 text-right">
                 <span
                   className={cn(
-                    'block text-xs tabular-nums',
+                    'data-number block text-xs',
                     km > 0 ? 'text-label' : 'text-label-4',
                   )}
                 >
                   {km > 0 ? decimal(km) : '–'}
                 </span>
                 {lastKm != null ? (
-                  <span className="block text-[0.625rem] tabular-nums text-label-4">
+                  <span className="data-number block text-caption2 text-label-4">
                     {decimal(lastKm)}
                   </span>
                 ) : null}
@@ -254,7 +254,7 @@ function GridCard({
 
       {/* Only the kinds actually on the grid, so the key never explains a colour that is
           not there — and shrinks to nothing in the first week of a block. */}
-      <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[0.625rem] text-label-3">
+      <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-caption2 text-label-3">
         {kinds.map((type) => (
           <span key={type} className="flex items-center gap-1.5">
             <span className={cn('size-2 rounded-full', ACCENT[type].rail)} />
@@ -269,7 +269,7 @@ function GridCard({
         ) : null}
       </div>
 
-      <p className="mt-3 text-[0.6875rem] leading-relaxed text-label-4">
+      <p className="mt-3 text-caption2 leading-relaxed text-label-3">
         Cada punto es un día, con el área proporcional a los kilómetros y el color de la sesión
         que cumplió. El número gris de la derecha es la misma semana de 2025-26, a la misma
         distancia del día de carrera.
@@ -380,7 +380,7 @@ function ActivityListCard({ activities, weeks }: { activities: Activity[]; weeks
             return (
               <li key={activity.id}>
                 {isNewMonth ? (
-                  <p className="mt-4 mb-1 text-[0.625rem] font-medium uppercase tracking-widest text-label-4 first:mt-0">
+                  <p className="mt-4 mb-1 text-caption2 font-medium uppercase tracking-widest text-label-3 first:mt-0">
                     {heading}
                   </p>
                 ) : null}
@@ -406,7 +406,7 @@ function ActivityRow({
   return (
     <a
       href={`/actividad?id=${activity.id}`}
-      className="flex items-center gap-3 border-t border-line py-2.5 active:opacity-60"
+      className="flex min-h-16 items-center gap-3 border-t border-line py-2.5 transition-opacity active:opacity-60"
     >
       <span
         aria-hidden
@@ -423,8 +423,8 @@ function ActivityRow({
         </span>
       </span>
       <span className="shrink-0 text-right">
-        <span className="block text-sm tabular-nums">{formatKm(activity.distanceM)} km</span>
-        <span className="block text-xs tabular-nums text-label-3">
+        <span className="data-number block text-sm">{formatKm(activity.distanceM)} km</span>
+        <span className="data-number block text-xs text-label-3">
           {run ? `${formatPace(paceSKm(activity.distanceM, activity.movingS))}/km` : formatDuration(activity.movingS)}
         </span>
       </span>

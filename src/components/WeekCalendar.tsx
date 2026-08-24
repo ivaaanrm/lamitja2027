@@ -19,7 +19,7 @@ import { SESSION_META, isQuality, type DayPlan, type WeekPlan } from '@/lib/plan
 const WEEKDAYS = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
 
 /** Bar track height in px. Fixed so the row keeps its shape on an empty week. */
-const TRACK = 88
+const TRACK = 52
 
 interface DayStats {
   date: number
@@ -64,7 +64,7 @@ export function WeekCalendar({
   const peak = Math.max(1000, ...days.map((d) => Math.max(d.actualM, d.plannedM)))
 
   return (
-    <div className={cn('flex items-end gap-1.5', className)}>
+    <div className={cn('flex items-end gap-1 rounded-2xl bg-surface-deep/25 px-2 py-1.5', className)}>
       {days.map((d, i) => (
         <DayColumn key={d.date} stats={d} weekday={WEEKDAYS[i]!} peak={peak} />
       ))}
@@ -78,10 +78,10 @@ function DayColumn({ stats, weekday, peak }: { stats: DayStats; weekday: string;
   const dayOfMonth = new Date(stats.date).getUTCDate()
 
   return (
-    <div className="flex flex-1 flex-col items-center gap-1.5 px-0.5 py-2">
+    <div className="flex flex-1 flex-col items-center gap-1 px-0.5 py-1.5">
       <span
         className={cn(
-          'text-[10px] font-medium uppercase',
+          'text-caption2 font-medium uppercase',
           stats.isToday ? 'text-mint' : 'text-label-3',
         )}
       >
@@ -92,7 +92,7 @@ function DayColumn({ stats, weekday, peak }: { stats: DayStats; weekday: string;
         {/* Prescribed volume: a ghost the actual bar grows into. */}
         {plannedPct > 0 ? (
           <span
-            className="absolute bottom-0 w-full rounded-md border border-dashed border-line-strong"
+            className="absolute bottom-0 w-full rounded-lg border border-dashed border-line-strong"
             style={{ height: `${Math.max(plannedPct, 2)}%` }}
           />
         ) : null}
@@ -100,7 +100,7 @@ function DayColumn({ stats, weekday, peak }: { stats: DayStats; weekday: string;
         {stats.actualM > 0 ? (
           <span
             className={cn(
-              'absolute bottom-0 w-full rounded-md',
+              'absolute bottom-0 w-full rounded-lg',
               stats.hasQuality ? 'bg-amber' : 'bg-label-2',
             )}
             style={{ height: `${Math.max(actualPct, 3)}%` }}
@@ -127,7 +127,7 @@ function DayColumn({ stats, weekday, peak }: { stats: DayStats; weekday: string;
 
       <span
         className={cn(
-          'text-[11px] tabular-nums',
+          'data-number text-caption2',
           stats.actualM > 0 ? 'text-label' : 'text-label-4',
         )}
       >
@@ -136,7 +136,7 @@ function DayColumn({ stats, weekday, peak }: { stats: DayStats; weekday: string;
 
       <span
         className={cn(
-          'flex size-5 items-center justify-center rounded-full text-[10px] tabular-nums',
+          'flex size-5 items-center justify-center rounded-full text-caption2 tabular-nums',
           stats.isToday ? 'bg-mint font-semibold text-surface' : 'text-label-4',
         )}
       >

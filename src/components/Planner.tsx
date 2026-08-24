@@ -57,7 +57,7 @@ export function Planner() {
 
   return (
     <>
-      <div className="space-y-2">
+      <div className="space-y-3">
         {weeks.map((week) => (
           <WeekRow
             key={week.weekIndex}
@@ -118,16 +118,16 @@ function WeekRow({
   const targetKm = metrics.targetVolumeM == null ? null : metrics.targetVolumeM / 1000
 
   return (
-    <Card className={cn('p-0', isCurrent && 'border-line-strong')}>
+    <Card className={cn('overflow-hidden p-0', isCurrent && 'border-mint/35')}>
       <button
         type="button"
         onClick={onOpen}
         aria-expanded={isOpen}
-        className="flex w-full items-center justify-between gap-3 p-4 text-left"
+        className="flex min-h-20 w-full items-center justify-between gap-3 p-5 text-left transition-colors active:bg-fill"
       >
         <span className="min-w-0">
           <span className="flex items-center gap-2">
-            <span className="text-sm font-medium">S{week.weekIndex + 1}</span>
+            <span className="data-number text-sm font-semibold">S{week.weekIndex + 1}</span>
             <span className="text-xs text-label-3">
               {rangeFmt.format(new Date(days[0]))} – {rangeFmt.format(new Date(days[6]))}
             </span>
@@ -139,10 +139,10 @@ function WeekRow({
         </span>
 
         <span className="shrink-0 text-right">
-          <span className="block text-sm tabular-nums">
+          <span className="data-number block text-sm">
             {decimal(km)}
             {targetKm != null ? (
-              <span className="text-label-3"> / {targetKm.toFixed(0)}</span>
+              <span className="text-label-3"> / {decimal(targetKm, 0)}</span>
             ) : null}
             <span className="ml-1 text-xs text-label-3">km</span>
           </span>
@@ -155,13 +155,13 @@ function WeekRow({
       </button>
 
       {targetKm != null ? (
-        <div className="px-4 pb-4">
+        <div className="px-5 pb-5">
           <ProgressBar value={km} target={targetKm} />
         </div>
       ) : null}
 
       {isOpen ? (
-        <div className="border-t border-line p-4">
+        <div className="border-t border-line p-5">
           <WeekFields week={week} onReload={onReload} onError={onError} />
 
           <div className="mt-5 space-y-4">
@@ -170,13 +170,13 @@ function WeekRow({
               return (
                 <div key={day} className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <p className="text-[0.6875rem] font-medium uppercase tracking-widest text-label-4">
+                    <p className="text-caption2 font-medium uppercase tracking-widest text-label-3">
                       {dayFmt.format(new Date(day))}
                     </p>
                     <button
                       type="button"
                       onClick={() => onAdd(day)}
-                      className="text-xs text-label-2 underline underline-offset-4"
+                      className="-my-2 inline-flex min-h-11 items-center px-2 text-xs text-label-2 underline underline-offset-4"
                     >
                       Añadir
                     </button>
@@ -270,7 +270,7 @@ function WeekFields({
 
       <Button
         onClick={() => void save({ isDownWeek: !isDownWeek })}
-        className={cn('w-full', isDownWeek && 'border-amber/40 text-amber')}
+        className={cn('w-full', isDownWeek && 'bg-amber/10 text-amber')}
       >
         {isDownWeek ? 'Semana de descarga ✓' : 'Marcar como semana de descarga'}
       </Button>

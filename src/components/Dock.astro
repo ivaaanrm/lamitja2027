@@ -38,9 +38,9 @@ const ICONS: Record<Tab, string> = {
   aria-label="Secciones"
   transition:name="dock"
   transition:animate="none"
-  class="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface-deep/80 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl"
+  class="pointer-events-none fixed inset-x-0 bottom-0 z-40 px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
 >
-  <ul class="mx-auto flex max-w-md">
+  <ul class="performance-shadow pointer-events-auto mx-auto flex max-w-md gap-1 rounded-[1.375rem] border border-line bg-surface-deep/90 p-1.5 backdrop-blur-2xl">
     {
       TABS.map((entry) => {
         const active = entry.key === tab
@@ -50,8 +50,8 @@ const ICONS: Record<Tab, string> = {
               href={entry.href}
               aria-current={active ? 'page' : undefined}
               class:list={[
-                'flex h-14 flex-col items-center justify-center gap-[3px] transition-opacity active:opacity-60',
-                active ? 'text-label' : 'text-label-3',
+                'flex h-14 flex-col items-center justify-center gap-1 rounded-2xl transition-[background-color,color,transform] active:scale-95',
+                active ? 'bg-fill-strong text-mint' : 'text-label-3 active:bg-fill',
               ]}
             >
               <svg
@@ -62,10 +62,10 @@ const ICONS: Record<Tab, string> = {
                 stroke-width={active ? 2.25 : 1.75}
                 stroke-linecap="round"
                 stroke-linejoin="round"
-                class="size-[22px]"
+                class="size-5"
                 set:html={ICONS[entry.key]}
               />
-              <span class:list={['text-[0.625rem] leading-none', active && 'font-semibold']}>
+              <span class:list={['text-caption2 leading-none', active && 'font-semibold']}>
                 {entry.label}
               </span>
             </a>

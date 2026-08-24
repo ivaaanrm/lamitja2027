@@ -51,7 +51,7 @@ export function ThisWeek({
     <Card>
       <CardTitle
         action={
-          <a href="/plan" className="text-xs text-label-2 underline underline-offset-4">
+          <a href="/plan" className="-my-2 inline-flex min-h-11 items-center px-2 text-xs text-label-2 underline underline-offset-4">
             Editar plan
           </a>
         }
@@ -69,23 +69,10 @@ export function ThisWeek({
         </p>
       ) : (
         <>
-          <ul className="-mx-2 divide-y divide-line">
-            {week.days.map((day) => (
-              <DayLines
-                key={day.date}
-                day={day}
-                today={today}
-                selectedId={selected?.session.id ?? null}
-                onSelect={setPicked}
-                onToggle={onToggle}
-              />
-            ))}
-          </ul>
-
-          <div className="mt-4 border-t border-line pt-4">
+          <div>
             {selected ? (
               <>
-                <p className="mb-2 text-[0.6875rem] font-medium uppercase tracking-widest">
+                <p className="mb-2 text-caption2 font-medium uppercase tracking-widest">
                   <span className="text-label-2">
                     {whenLabel(startOfDay(selected.session.scheduledOn), today)}
                   </span>
@@ -106,19 +93,32 @@ export function ThisWeek({
               </>
             ) : (
               // Not "all done": a week can run out of sessions ahead of you because they
-              // were run, or because they were missed. The lines above say which.
+              // were run, or because they were missed. The lines below say which.
               <p className="text-sm text-label-3">
                 Ya no queda nada esta semana. Toca un día para mirar atrás.
               </p>
             )}
           </div>
+
+          <ul className="-mx-2 mt-3 divide-y divide-line border-t border-line pt-1">
+            {week.days.map((day) => (
+              <DayLines
+                key={day.date}
+                day={day}
+                today={today}
+                selectedId={selected?.session.id ?? null}
+                onSelect={setPicked}
+                onToggle={onToggle}
+              />
+            ))}
+          </ul>
         </>
       )}
     </Card>
   )
 }
 
-/** The first session still owed, from today forward. What the detail below is for. */
+/** The first session still owed, from today forward. What the leading detail is for. */
 function nextSession(week: WeekPlan, today: number): MatchedSession | null {
   for (const day of week.days) {
     if (day.date < today) continue
@@ -188,7 +188,7 @@ function DayLabel({ children, isToday }: { children: string; isToday: boolean })
   return (
     <span
       className={cn(
-        'w-14 shrink-0 text-[0.625rem] font-medium uppercase tracking-wide tabular-nums',
+        'w-16 shrink-0 whitespace-nowrap text-caption2 font-medium uppercase tracking-wide tabular-nums',
         isToday ? 'text-mint' : 'text-label-4',
       )}
     >
@@ -214,7 +214,7 @@ function SessionLine({
 }) {
   const { session, activity, done } = match
   // What happened, or failing that what was asked for — one number, never both, because
-  // the bars above already carry planned against actual.
+  // the compact weekly summary already carries planned against actual.
   const value = activity
     ? `${formatKm(activity.distanceM)} km`
     : session.targetDistanceM != null
@@ -224,12 +224,12 @@ function SessionLine({
         : null
 
   return (
-    <div className={cn('flex items-center rounded-lg', selected && 'bg-fill')}>
+    <div className={cn('flex items-center rounded-xl transition-colors', selected && 'bg-fill')}>
       <button
         type="button"
         onClick={onSelect}
         aria-pressed={selected}
-        className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-2 text-left"
+        className="flex min-h-11 min-w-0 flex-1 items-center gap-2 py-2 pl-2 text-left"
       >
         <DayLabel isToday={isToday}>{label}</DayLabel>
         <span
@@ -242,7 +242,7 @@ function SessionLine({
         />
         <span
           className={cn(
-            'min-w-0 flex-1 truncate text-[0.8125rem]',
+            'min-w-0 flex-1 truncate text-footnote',
             done ? 'text-label-3' : 'text-label',
           )}
         >
@@ -251,7 +251,7 @@ function SessionLine({
         {value ? (
           <span
             className={cn(
-              'shrink-0 text-[0.8125rem] tabular-nums',
+              'data-number shrink-0 text-footnote',
               activity ? 'text-mint' : done ? 'text-label-4' : 'text-label-2',
             )}
           >
@@ -286,13 +286,13 @@ function ExtraLine({
 }) {
   return (
     <div className="flex items-center">
-      <span className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-2">
+      <span className="flex min-h-11 min-w-0 flex-1 items-center gap-2 py-2 pl-2">
         <DayLabel isToday={isToday}>{label}</DayLabel>
         <span aria-hidden className="size-1.5 shrink-0 rounded-full border border-line-strong" />
-        <span className="min-w-0 flex-1 truncate text-[0.8125rem] text-label-2">
+        <span className="min-w-0 flex-1 truncate text-footnote text-label-2">
           {activity.name}
         </span>
-        <span className="shrink-0 text-[0.8125rem] tabular-nums text-label-2">
+        <span className="data-number shrink-0 text-footnote text-label-2">
           {formatKm(activity.distanceM)} km
         </span>
       </span>
@@ -305,10 +305,10 @@ function ExtraLine({
 function RestLine({ label, isToday }: { label: string; isToday: boolean }) {
   return (
     <div className="flex items-center">
-      <span className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-2">
+      <span className="flex min-h-11 min-w-0 flex-1 items-center gap-2 py-2 pl-2">
         <DayLabel isToday={isToday}>{label}</DayLabel>
         <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-fill" />
-        <span className="min-w-0 flex-1 truncate text-[0.8125rem] text-label-4">Descanso</span>
+        <span className="min-w-0 flex-1 truncate text-footnote text-label-3">Descanso</span>
       </span>
       <span className="w-8" />
     </div>
@@ -328,13 +328,24 @@ function Tick({
   const face = (
     <span
       className={cn(
-        'flex size-4 items-center justify-center rounded border text-[0.5rem] font-bold',
+        'flex size-4 items-center justify-center rounded border',
         done
           ? 'border-mint/50 bg-mint/15 text-mint'
           : 'border-line text-transparent',
       )}
     >
-      ✓
+      <svg
+        aria-hidden
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="3.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="size-3"
+      >
+        <path d="m5 13 4.5 4.5L19 7" />
+      </svg>
     </span>
   )
 
@@ -345,7 +356,7 @@ function Tick({
       onClick={onToggle}
       aria-pressed={done}
       aria-label={done ? `Marcar ${label} como pendiente` : `Marcar ${label} como hecho`}
-      className="flex px-2 py-2"
+      className="flex size-11 items-center justify-center"
     >
       {face}
     </button>
