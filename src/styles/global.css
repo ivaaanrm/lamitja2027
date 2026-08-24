@@ -311,6 +311,48 @@
  * under a chart line that is drawing itself in (an area cannot travel — it is anchored to
  * the baseline — so it takes the same duration as opacity instead).
  */
+/**
+ * The tab-to-tab cross-fade: the most-seen animation in the product, and the cheapest
+ * shape it can take.
+ *
+ * It is the *root* snapshot that dissolves, not a named page element. That is the whole
+ * fix for a tab tap stuttering on the phone, and the reasoning is in `layouts/App.astro`:
+ * a named element gets its own group, and a group animates a box — so naming the page
+ * column meant animating a several-thousand-pixel texture from wherever the finger left
+ * the scroll position to the top of the next screen. The root snapshot is the viewport
+ * and nothing else: it never moves and never resizes, so the only thing left to animate
+ * is opacity.
+ *
+ * Only the timing is written here. The keyframes stay the browser's own — the default
+ * `::view-transition-old/new` pair is already a `mix-blend-mode: plus-lighter` cross-fade,
+ * which is the one that does not dip through a dark hole at the midpoint because the two
+ * opacities sum to exactly 1 at every instant. What the default gets wrong is 250ms on a
+ * web `ease`, the one curve this design system does not have; `--ease-ios` decelerates
+ * from the first frame, so the new tab is essentially there within the first hundred
+ * milliseconds and merely settles after.
+ *
+ * There is no travel in it. A slide is what iOS spends on a *hierarchical* push, and
+ * using it for a lateral tab switch is what makes four peers read as four levels. Apple's
+ * own tab bars swap with no animation at all; a short dissolve is the honest web
+ * equivalent.
+ *
+ * The group is in the selector for the one case where the root box does change size: iOS
+ * collapses and expands the URL bar as you scroll, so a tab tapped from a scrolled page
+ * can land on a viewport a few points taller.
+ *
+ * Reduced motion is already covered — `ClientRouter` ships a blanket
+ * `::view-transition-group(*) { animation: none !important }` under that media query.
+ *
+ * Unlayered on purpose: Astro writes its own transition rules into `@layer astro`, and an
+ * unlayered rule outranks any layer.
+ */
+::view-transition-group(root),
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--duration-standard);
+  animation-timing-function: var(--ease-ios);
+}
+
 @keyframes fade-up {
   from {
     opacity: 0;

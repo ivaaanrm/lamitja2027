@@ -100,10 +100,22 @@ indicator. It has no JavaScript of its own: every page is prerendered, so which 
 known at build time. Tabs still switch without a document load — `Base.astro` mounts Astro's
 `<ClientRouter />`, the dock is `transition:animate="none"` (swapped in place, never faded or
 slid with the content — and never `transition:persist`, which would keep the old highlight
-lit), the page column fades, the four shells are prefetched on load, and `useBlock` keeps the
-last `/api/data` payload in module scope so the next tab paints with data and revalidates
-behind it. `src/layouts/App.astro` is the shell that pairs it with the page column and
-reserves the bottom padding; `/login` uses `Base.astro` directly and has no dock.
+lit), the page column carries **no** `transition:name` at all so it rides the root snapshot,
+which cross-fades on the app's own tokens in `global.css`, the four shells are prefetched on
+load, and `useBlock` keeps the last `/api/data` payload in module scope so the next tab
+paints with data and revalidates behind it. `src/layouts/App.astro` is the shell that pairs
+it with the page column and reserves the bottom padding; `/login` uses `Base.astro` directly
+and has no dock.
+
+Naming the page column is the one change to resist here. A `view-transition-name` lifts an
+element into its own `::view-transition-group`, and a group animates the element's *box* —
+so with a name on `<main>` every tab tap animated the full-document-height texture from
+wherever the finger had left the scroll position (the router resets it to the top inside the
+transition callback) to the top of the next screen, interpolating a height between a
+one-screen `/` and a several-thousand-pixel `/registro` on the way. On a phone that reads as
+the whole page lurching. Unnamed, the capture is the viewport and the only thing animating is
+opacity. Name an element here only when you actually want its box to travel — which is what
+`dock-active` is, and it is a 60×48 pill.
 
 **The trace behind a run is read, not stored** (`src/lib/streams.ts`, `/actividad?id=`).
 Tapping a row in `/registro` opens a detail view — pace, pulse, cadence and altitude over

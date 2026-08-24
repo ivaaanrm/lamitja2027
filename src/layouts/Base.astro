@@ -71,8 +71,9 @@ const ogImage = new URL('/og.png', Astro.site)
       Tabs navigate in place. Without this every tap is a full document load: the dock is
       torn down and rebuilt, the page flashes blank, and the island refetches from zero —
       which is what makes a prerendered app read as a website. The router swaps the body
-      and keeps the shell; the dock opts out of animating in Dock.astro, the page column
-      cross-fades in App.astro.
+      and keeps the shell; the dock and its highlight are the only two named transitions
+      (Dock.astro), and everything else rides the root snapshot, which cross-fades on the
+      app's own motion tokens in global.css.
     -->
     <ClientRouter />
   </head>

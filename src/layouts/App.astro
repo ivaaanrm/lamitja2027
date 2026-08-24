@@ -2,7 +2,6 @@
 import Base from './Base.astro'
 import Dock from '../components/Dock.astro'
 import type { Tab } from '../lib/nav'
-import type { TransitionDirectionalAnimations } from 'astro'
 
 /**
  * The shell every signed-in page wears: one column sized for a phone, a compact title that
@@ -26,6 +25,32 @@ import type { TransitionDirectionalAnimations } from 'astro'
  * 24 de enero de 2027" — a line of chrome, repeated everywhere, naming the app to the one
  * person who installed it. iOS puts the title first and the app's name on the home-screen
  * icon; so does this now, and every screen starts ~16px higher for it.
+ *
+ * ---
+ *
+ * **This column deliberately carries no `transition:name`.** It used to — `name="page"`
+ * with a custom cross-fade — and that is what made a tab tap stutter on the phone.
+ *
+ * A `view-transition-name` lifts an element out of the root snapshot and gives it its own
+ * `::view-transition-group`, and the group's job is to animate the element's *box* from
+ * where it was to where it lands. Astro writes rules for `old` and `new` only, so that
+ * group animation stayed on the browser's default 250ms `ease` — and it had real work to
+ * do, because this column is the whole scrolling page:
+ *
+ *   - The router resets the scroll to the top inside the transition callback. Snapshots
+ *     are positioned against the viewport, so a column tapped at 1500px down has its old
+ *     box at −1500 and its new box at 0 — and the group dutifully *slid the entire page*
+ *     that distance while it faded. Every tap from anywhere but the top of a screen.
+ *   - `/registro` is several thousand pixels tall and `/` is one screen, so the same group
+ *     interpolated a height between them on every switch.
+ *   - Capturing a named element captures all of it, not the part you can see. The old
+ *     texture was the full document height rather than the phone's 800 points.
+ *
+ * Left unnamed, the column is part of the root snapshot instead, which is exactly the
+ * viewport — one small texture, no travel, nothing to resize. The cross-fade itself moved
+ * to `::view-transition-old(root)` / `-new(root)` in `global.css`, on the same two motion
+ * tokens. The dock keeps its own name, so it is still lifted out of that snapshot and
+ * still swapped in place rather than fading with the page.
  */
 interface Props {
   title: string
@@ -34,51 +59,10 @@ interface Props {
   tab: Tab
 }
 const { title, heading, sub, tab } = Astro.props
-
-/**
- * The tab-to-tab cross-fade, on this app's own two motion tokens.
- *
- * It is the most-seen animation in the product — every tap on the dock plays it — and
- * until now it was Astro's `fade` default: 180ms on `cubic-bezier(0.76, 0, 0.24, 1)`, an
- * ease-in-out quart. That curve accelerates into the middle of the move and coasts out of
- * it, which is exactly the web feel the rest of the motion layer was rewritten to get rid
- * of. `--ease-ios` decelerates from the first frame, so at the same duration the new page
- * is essentially there in the first hundred milliseconds and merely settles after: calm
- * and quick, which is what a tab bar owes you.
- *
- * There is no travel in it. A slide is what iOS spends on a *hierarchical* push — the
- * activity detail opening out of the log — and using it for a lateral tab switch is what
- * makes four peers read as four levels. Apple's own tab bars swap with no animation at
- * all; a short dissolve is the honest web equivalent.
- *
- * `mix-blend-mode: plus-lighter` on both halves is what stops the dissolve dipping through
- * a dark hole at the midpoint: the two opacities sum to exactly 1 at every instant, so the
- * page never loses brightness on the way across.
- *
- * The durations are `var()` rather than numbers because `::view-transition-*` inherits its
- * custom properties from the root element, so the tokens in `global.css` reach in here —
- * and this file gets to obey the same rule every component does about never typing a
- * millisecond count. Reduced motion is already covered: `ClientRouter` ships a blanket
- * `::view-transition-group(*) { animation: none !important }` under that media query.
- */
-const timing = {
-  duration: 'var(--duration-standard)',
-  easing: 'var(--ease-ios)',
-  fillMode: 'both',
-}
-// Both directions are the same dissolve: there is no "back" between four peer tabs, so a
-// browser Back out of /progreso should look exactly like the tap that got you there.
-const pair = {
-  old: { name: 'page-swap-out', ...timing },
-  new: { name: 'page-swap-in', ...timing },
-}
-const pageSwap: TransitionDirectionalAnimations = { forwards: pair, backwards: pair }
 ---
 
 <Base title={title}>
   <main
-    transition:name="page"
-    transition:animate={pageSwap}
     class="mx-auto flex min-h-full max-w-lg flex-col gap-2 px-gutter pt-3 pb-[calc(4.75rem+env(safe-area-inset-bottom))]"
   >
     <header class="px-0.5 pb-0.5">
@@ -89,36 +73,3 @@ const pageSwap: TransitionDirectionalAnimations = { forwards: pair, backwards: p
   </main>
   <Dock tab={tab} />
 </Base>
-
-<style is:global>
-  /**
-   * The two halves of the page swap above.
-   *
-   * `is:global` because the animation is named from a `::view-transition-old/new` rule
-   * Astro writes into the document head — a scoped `@keyframes` would be renamed and the
-   * rule would point at nothing. Astro's own `astroFadeIn`/`astroFadeOut` would have done
-   * the same job, but they are internals of a package this repo has already been bitten
-   * by across a major version (see AGENTS.md gotcha 1), and they are ten lines.
-   */
-  @keyframes page-swap-in {
-    from {
-      opacity: 0;
-      mix-blend-mode: plus-lighter;
-    }
-    to {
-      opacity: 1;
-      mix-blend-mode: plus-lighter;
-    }
-  }
-
-  @keyframes page-swap-out {
-    from {
-      opacity: 1;
-      mix-blend-mode: plus-lighter;
-    }
-    to {
-      opacity: 0;
-      mix-blend-mode: plus-lighter;
-    }
-  }
-</style>
