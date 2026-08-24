@@ -93,12 +93,40 @@ const mean = (values: number[]) =>
   values.length ? values.reduce((sum, v) => sum + v, 0) / values.length : null
 
 /**
+ * Where one sample of `values` sits on the distance stream's index space.
+ *
+ * Strava does not return every stream at the same sample count. GPS-derived streams
+ * (`distance`, `altitude`) come back at the recording rate; a strap that reports every
+ * few seconds, or a `velocity_smooth` the device computed at its own cadence, come back
+ * shorter — the same run, sampled less often. `original_size` is per stream, not per
+ * activity.
+ *
+ * Reading every stream at the distance stream's index `i` therefore did two wrong things
+ * at once. Past the end of a shorter array `data[i]` is `undefined`, so its last fifth
+ * simply vanished: on a 12 km run the pace and the pulse stopped at 9.7 km while the
+ * altitude behind them ran the full width, which reads as a chart that gave up. Worse,
+ * everything before that point was *shifted* — sample 1500 of a 3100-long strap stream is
+ * the middle of the run, not the 1500th second of it — so the pulse shown at 5 km was the
+ * pulse from 4 km, quietly and with no gap to give it away.
+ *
+ * Both go away by placing a sample proportionally: sample `j` of `length` is the same
+ * fraction through the activity as index `j / (length - 1) * (distance.length - 1)` is
+ * through the distance stream. When the two lengths match this is the identity, so a
+ * device that samples everything at 1 Hz is binned exactly as before.
+ */
+const distanceAt = (j: number, length: number, distance: number[]) =>
+  distance[length <= 1 ? 0 : Math.round((j / (length - 1)) * (distance.length - 1))]!
+
+/**
  * Folds the streams into `points` equal distance bins.
  *
  * Distance rather than time on the x axis because a run is thought about in kilometres:
  * the splits underneath are per km, the plan prescribes metres, and a two-minute stop at
  * a crossing should not stretch the trace. Each bin reports the mean of the samples that
  * fell inside it; a bin with no samples (a GPS dropout) is a gap in the line, not a zero.
+ *
+ * Each stream is walked on its own index and placed by `distanceAt`, rather than all of
+ * them being read off the distance stream's cursor — see there for what that cost.
  */
 export function resample(streams: StravaStreams, points = POINTS): TracePoint[] {
   const distance = streams.distance?.data ?? []
@@ -113,17 +141,29 @@ export function resample(streams: StravaStreams, points = POINTS): TracePoint[] 
     alt: [] as number[],
   }))
 
-  for (const [i, d] of distance.entries()) {
-    const bin = bins[Math.min(points - 1, Math.floor((d / total) * points))]!
-    const v = streams.velocity_smooth?.data[i]
-    if (v != null && v >= MIN_SPEED_MS) bin.pace.push(1000 / v)
-    const hr = streams.heartrate?.data[i]
-    if (hr != null && hr > 0) bin.hr.push(hr)
-    const cad = streams.cadence?.data[i]
-    if (cad != null && cad > 0) bin.cad.push(cad * 2)
-    const alt = streams.altitude?.data[i]
-    if (alt != null) bin.alt.push(alt)
+  /** Drops every sample the caller has no use for, then bins the rest by where it was run. */
+  const fold = (
+    values: number[] | undefined,
+    take: (value: number) => number | null,
+    into: (bin: (typeof bins)[number]) => number[],
+  ) => {
+    if (!values?.length) return
+    for (const [j, value] of values.entries()) {
+      if (value == null) continue
+      const kept = take(value)
+      if (kept == null) continue
+      const d = distanceAt(j, values.length, distance)
+      into(bins[Math.min(points - 1, Math.floor((d / total) * points))]!).push(kept)
+    }
   }
+
+  // Below `MIN_SPEED_MS` the watch is paused or the runner is walking; either way it is
+  // not a pace, and a zero would drag the bin's mean down rather than leave a gap.
+  fold(streams.velocity_smooth?.data, (v) => (v >= MIN_SPEED_MS ? 1000 / v : null), (b) => b.pace)
+  fold(streams.heartrate?.data, (hr) => (hr > 0 ? hr : null), (b) => b.hr)
+  // Strava reports cadence in rpm; the app stores and renders spm. 85 rpm is 170 pasos/min.
+  fold(streams.cadence?.data, (cad) => (cad > 0 ? cad * 2 : null), (b) => b.cad)
+  fold(streams.altitude?.data, (alt) => alt, (b) => b.alt)
 
   return bins.map((bin) => ({
     distanceM: Math.round(bin.distanceM),
@@ -139,14 +179,26 @@ const round = (value: number | null) => (value == null ? null : Math.round(value
 /**
  * Seconds spent in each zone, sample by sample. Each sample owns the interval since the
  * one before it, so a strap that reported every 3 s weighs the same as one every second.
+ *
+ * The strap and the clock are read on their own indices for the reason `distanceAt`
+ * explains. Walking both to `Math.min(time.length, hr.length)` — which is what this did —
+ * stopped at whichever ran out first and charged every zone the *clock's* interval at the
+ * strap's index, so a strap sampling at 4/5 the recording rate reported four fifths of a
+ * run and called it the whole thing. The shares underneath the trace were then a
+ * percentage of a number that was itself short.
  */
 export function timeInZones(streams: StravaStreams): Record<Zone, number> {
   const out: Record<Zone, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
   const time = streams.time?.data ?? []
   const hr = streams.heartrate?.data ?? []
-  for (let i = 1; i < Math.min(time.length, hr.length); i++) {
-    const bpm = hr[i]!
-    if (bpm > 0) out[hrZone(bpm)] += time[i]! - time[i - 1]!
+  if (time.length < 2 || hr.length < 2) return out
+
+  // When the two lengths match this is `time[j]`, so a 1 Hz device is unaffected.
+  const clock = (j: number) => time[Math.round((j / (hr.length - 1)) * (time.length - 1))]!
+
+  for (let j = 1; j < hr.length; j++) {
+    const bpm = hr[j]!
+    if (bpm > 0) out[hrZone(bpm)] += clock(j) - clock(j - 1)
   }
   return out
 }

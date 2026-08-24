@@ -118,4 +118,6 @@ export const ZONE_FLOOR_BPM: Record<Exclude<Zone, 1>, number> = {
 }
 
 /** Mid-band pace, s/km — what a prescribed distance is costed at when estimating time. */
-export const midPaceSKm = (zone: PaceZone) => (PACES[zone].lo + PACES[zone].hi) / 2
+export const midOf = (band: PaceBand) => (band.lo + band.hi) / 2
+
+export const midPaceSKm = (zone: PaceZone) => midOf(PACES[zone])

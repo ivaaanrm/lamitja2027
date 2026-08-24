@@ -1,49 +1,122 @@
-import { useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
+import { TOTAL_WEEKS, startOfDay } from '@/lib/block'
 import { cn } from '@/lib/cn'
 import { decimal } from '@/lib/format'
 import type { WeekMetrics } from '@/lib/metrics'
 import { setDone, updateWeek } from '@/lib/plan-client'
-import { weekDays, type MatchedSession, type WeekPlan } from '@/lib/plan'
+import type { MatchedSession, WeekPlan } from '@/lib/plan'
 import type { PlanSession } from '@/lib/db/schema'
 import { SessionForm } from './SessionForm'
 import { ExtraCard, SessionCard } from './SessionCard'
 import { useBlock } from './useBlock'
-import { Button, Card, Chip, Field, ProgressBar, TextInput } from './ui'
-
-const rangeFmt = new Intl.DateTimeFormat('es-ES', { day: 'numeric', month: 'short', timeZone: 'UTC' })
-const dayFmt = new Intl.DateTimeFormat('es-ES', { weekday: 'short', day: 'numeric', timeZone: 'UTC' })
+import {
+  Button,
+  Card,
+  Chevron,
+  Chip,
+  EmptyState,
+  ErrorCard,
+  Field,
+  HeroMetric,
+  Icon,
+  LoadingCard,
+  PLUS,
+  ProgressBar,
+  ProgressRing,
+  Segmented,
+  Skeleton,
+  TextInput,
+} from './ui'
 
 /**
- * The whole 22-week block, one accordion row per week, opening on the current one.
+ * The whole 23-week block, one accordion row per week.
+ *
+ * A block this long is a navigation problem before it is an editing one. Twenty-three
+ * weeks is three phone-screens of list, and until the athlete is looking at the right one
+ * nothing else on the page is worth reading — so the screen answers "where am I" twice
+ * before it asks for anything: once in the header, as the prescription for the current
+ * week, and once in the list, which is grouped by phase and scrolled to that week on
+ * arrival, the way a calendar opens on today rather than on January.
+ *
+ * A week that has not started shows what it *asks for*; a week that has shows what
+ * answered it, plus the bar along its bottom edge. Those are different questions and
+ * printing "0,0 / 42 km" against next month reads as a week already failed.
  *
  * Every edit writes straight through and re-reads `/api/data`. With a block this small
  * that is a fast round trip, and it means the editor can never drift from what was saved
  * — which matters more here than the few hundred milliseconds an optimistic update saves.
  */
+
+const dayNumFmt = new Intl.DateTimeFormat('es-ES', { day: 'numeric', timeZone: 'UTC' })
+// Dates are UTC midnight of the local day; formatting in the viewer's zone slides them.
+const dayMonthFmt = new Intl.DateTimeFormat('es-ES', { day: 'numeric', month: 'short', timeZone: 'UTC' })
+const weekdayFmt = new Intl.DateTimeFormat('es-ES', { weekday: 'short', day: 'numeric', timeZone: 'UTC' })
+const longDayFmt = new Intl.DateTimeFormat('es-ES', {
+  weekday: 'long',
+  day: 'numeric',
+  month: 'long',
+  timeZone: 'UTC',
+})
+
+/** `17–23 ago`, and `31 ago – 6 sep` on the weeks that straddle two months. */
+function weekRange(from: number, to: number): string {
+  const start = new Date(from)
+  const end = new Date(to)
+  return start.getUTCMonth() === end.getUTCMonth()
+    ? `${dayNumFmt.format(start)}–${dayMonthFmt.format(end)}`
+    : `${dayMonthFmt.format(start)} – ${dayMonthFmt.format(end)}`
+}
+
+/**
+ * What the week asks for, in metres: its stored target, or failing that whatever its own
+ * sessions add up to.
+ *
+ * The two are the same number by construction — a week's target is the sum of what its
+ * sessions prescribe, because "a target no session adds up to is a number that quietly
+ * stops meaning anything" — so falling back to the sum is not an estimate, it is the same
+ * figure recomputed for a week whose row was never written. Zero when nothing is planned.
+ */
+function prescribedM(week: WeekPlan, metrics: WeekMetrics): number {
+  if (metrics.targetVolumeM != null) return metrics.targetVolumeM
+  return week.sessions.reduce((sum, match) => sum + (match.session.targetDistanceM ?? 0), 0)
+}
+
+/** Where a week sits relative to today — which decides what its row is allowed to claim. */
+type WeekState = 'past' | 'current' | 'future'
+
 export function Planner() {
-  const { data, error, reload, weeks, progress, currentWeek } = useBlock()
+  const { data, error, now, reload, weeks, progress, currentWeek } = useBlock()
   const [open, setOpen] = useState<number | null>(null)
   const [editing, setEditing] = useState<{ weekIndex: number; day?: number; session?: PlanSession } | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [jumped, setJumped] = useState(false)
 
   // Opens on the current week the first time real data arrives, and stays wherever the
   // athlete puts it after that.
   const expanded = open ?? currentWeek
 
-  if (error && !data) {
-    return (
-      <Card>
-        <p className="text-sm text-red">{error}</p>
-      </Card>
-    )
-  }
-  if (!data || !progress) {
-    return (
-      <Card>
-        <p className="text-sm text-label-3">Cargando…</p>
-      </Card>
-    )
-  }
+  /**
+   * …and scrolls to it, once, on the first payload. By December the current week is a
+   * thousand pixels down a list whose first rows are months behind: a plan screen that
+   * opens on week 1 is a plan screen you have to fight before you can read it.
+   *
+   * Three guards keep it from being the wrong kind of clever: it fires once, never after
+   * the athlete has opened a week of their own, and never when the browser has already
+   * restored a scroll offset — Astro's `ClientRouter` does that on a back navigation, and
+   * yanking the page away from where someone left it is worse than opening at the top.
+   * `document` is read here rather than in the body because this island is also rendered
+   * during prerender, in a Worker (AGENTS gotcha 15); `Card` forwards the `id` it needs.
+   */
+  useEffect(() => {
+    if (jumped || !data || open !== null) return
+    setJumped(true)
+    if (window.scrollY > 0) return
+    document.getElementById(`semana-${currentWeek}`)?.scrollIntoView({ block: 'start' })
+  }, [jumped, data, open, currentWeek])
+
+  if (error && !data)
+    return <ErrorCard title="Sin datos del bloque" message={error} onRetry={() => void reload()} />
+  if (!data || !progress) return <PlannerSkeleton />
 
   async function toggle(match: MatchedSession) {
     setActionError(null)
@@ -55,27 +128,66 @@ export function Planner() {
     }
   }
 
+  const weekly = progress.weekly
+  const today = startOfDay(now)
+
+  function toggleWeek(weekIndex: number) {
+    const opening = weekIndex !== expanded
+    setOpen(opening ? weekIndex : -1)
+    if (!opening) return
+
+    // Wait until React has closed the previous row and laid this one out. Scrolling before
+    // that reflow lands at the old position whenever the previously open week sat above it.
+    requestAnimationFrame(() => {
+      document.getElementById(`semana-${weekIndex}`)?.scrollIntoView({ block: 'start' })
+    })
+  }
+
   return (
     <>
-      <div className="space-y-3">
-        {weeks.map((week) => (
-          <WeekRow
-            key={week.weekIndex}
-            week={week}
-            metrics={progress.weekly[week.weekIndex]}
-            isCurrent={week.weekIndex === currentWeek}
-            isOpen={week.weekIndex === expanded}
-            onOpen={() => setOpen(week.weekIndex === expanded ? -1 : week.weekIndex)}
-            onReload={reload}
-            onToggle={toggle}
-            onEdit={(session) => setEditing({ weekIndex: week.weekIndex, session })}
-            onAdd={(day) => setEditing({ weekIndex: week.weekIndex, day })}
-            onError={setActionError}
-          />
-        ))}
+      <BlockHeader week={weeks[currentWeek]!} metrics={weekly[currentWeek]!} />
+
+      <div className="flex flex-col gap-2">
+        {weeks.map((week, i) => {
+          const metrics = weekly[i]!
+          // A phase name repeated down seven consecutive rows is six rows of noise; said
+          // once, over the block it labels, it is the map of the whole 23 weeks.
+          const openingPhase = metrics.phase && metrics.phase !== weekly[i - 1]?.phase
+          return (
+            <Fragment key={week.weekIndex}>
+              {openingPhase ? (
+                <PhaseHeading phase={metrics.phase!} from={i} weekly={weekly} />
+              ) : null}
+              <WeekRow
+                week={week}
+                metrics={metrics}
+                index={i}
+                today={today}
+                state={
+                  week.weekIndex === currentWeek
+                    ? 'current'
+                    : week.weekIndex < currentWeek
+                      ? 'past'
+                      : 'future'
+                }
+                isOpen={week.weekIndex === expanded}
+                onOpen={() => toggleWeek(week.weekIndex)}
+                onReload={reload}
+                onToggle={toggle}
+                onEdit={(session) => setEditing({ weekIndex: week.weekIndex, session })}
+                onAdd={(day) => setEditing({ weekIndex: week.weekIndex, day })}
+                onError={setActionError}
+              />
+            </Fragment>
+          )
+        })}
       </div>
 
-      {actionError ? <p className="mt-4 text-center text-xs text-red">{actionError}</p> : null}
+      {actionError ? (
+        <p role="alert" className="text-center text-caption text-red">
+          {actionError}
+        </p>
+      ) : null}
 
       {editing ? (
         <SessionForm
@@ -90,11 +202,78 @@ export function Planner() {
   )
 }
 
+/**
+ * What this week asks for, before the list of 23 asks anything.
+ *
+ * The one hero on the screen, and it is deliberately the *prescription* rather than the
+ * distance already run: `/plan` is where the plan is read and edited, and "how far have I
+ * got" is the question `/` opens with. The ring beside it is the one share this card is
+ * about — sessions ticked off — which is a ring and not a bar by the same rule.
+ */
+function BlockHeader({ week, metrics }: { week: WeekPlan; metrics: WeekMetrics }) {
+  const targetKm = prescribedM(week, metrics) / 1000
+  const planned = metrics.sessionsPlanned
+
+  return (
+    <Card className="fade-up">
+      <HeroMetric
+        eyebrow={`Semana ${metrics.weekIndex + 1} de ${TOTAL_WEEKS}`}
+        value={decimal(targetKm, 0)}
+        unit="km previstos"
+        context={
+          planned === 0
+            ? 'Esta semana todavía no tiene ninguna sesión escrita.'
+            : [metrics.phase, `${planned} ${planned === 1 ? 'sesión' : 'sesiones'}`]
+                .filter(Boolean)
+                .join(' · ')
+        }
+        trailing={
+          planned > 0 ? (
+            <ProgressRing
+              value={metrics.sessionsDone}
+              target={planned}
+              label={`${metrics.sessionsDone}/${planned}`}
+              sublabel="hechas"
+              ariaLabel={`${metrics.sessionsDone} de ${planned} sesiones hechas esta semana`}
+            />
+          ) : null
+        }
+      />
+    </Card>
+  )
+}
+
+/** The block's own structure, printed where it changes: `BASE Y VOLUMEN · S1–S6`. */
+function PhaseHeading({
+  phase,
+  from,
+  weekly,
+}: {
+  phase: string
+  from: number
+  weekly: WeekMetrics[]
+}) {
+  let to = from
+  while (to + 1 < weekly.length && weekly[to + 1]!.phase === phase) to++
+
+  return (
+    <h2 className="mt-1.5 px-1 text-caption2 font-semibold uppercase tracking-[0.12em] text-label-2 first:mt-0">
+      {phase}
+      <span className="data-number font-normal text-label-3">
+        {' · '}
+        {from === to ? `S${from + 1}` : `S${from + 1}–S${to + 1}`}
+      </span>
+    </h2>
+  )
+}
+
 function WeekRow({
   week,
   metrics,
-  isCurrent,
+  index,
+  state,
   isOpen,
+  today,
   onOpen,
   onReload,
   onToggle,
@@ -104,8 +283,12 @@ function WeekRow({
 }: {
   week: WeekPlan
   metrics: WeekMetrics
-  isCurrent: boolean
+  /** Position in the rendered list — the reveal stagger, nothing else. */
+  index: number
+  state: WeekState
   isOpen: boolean
+  /** UTC midnight of the current local day. */
+  today: number
   onOpen: () => void
   onReload: () => Promise<void>
   onToggle: (match: MatchedSession) => void
@@ -113,98 +296,207 @@ function WeekRow({
   onAdd: (day: number) => void
   onError: (message: string | null) => void
 }) {
-  const days = weekDays(week.weekIndex)
   const km = metrics.totals.distanceM / 1000
-  const targetKm = metrics.targetVolumeM == null ? null : metrics.targetVolumeM / 1000
+  const asked = prescribedM(week, metrics)
+  const targetKm = asked > 0 ? asked / 1000 : null
+  const started = state !== 'future'
+  // A share incidental to a row in a list is a bar, not a ring — and a week nobody has
+  // run yet has no share to report, so it gets no track either.
+  const showBar = started && targetKm != null
+  const hasContent = week.sessions.length > 0 || week.extras.length > 0
+  // Opening the sheet on a day that is already full is one extra tap on the picker every
+  // time; the first free day of the week is nearly always the one meant.
+  const addDay = (week.days.find((day) => day.sessions.length === 0) ?? week.days[0]!).date
 
   return (
-    <Card className={cn('overflow-hidden p-0', isCurrent && 'border-mint/35')}>
+    <Card
+      id={`semana-${week.weekIndex}`}
+      // The scroll margin is for the jump above: landing flush against the top of the
+      // viewport reads as clipped, a gutter short of it reads as scrolled to.
+      className={cn(
+        'fade-up scroll-mt-3 overflow-hidden p-0',
+        state === 'current' && 'border-mint/40',
+      )}
+      style={{ animationDelay: `${Math.min(index, 7) * 30}ms` }}
+    >
       <button
         type="button"
         onClick={onOpen}
         aria-expanded={isOpen}
-        className="flex min-h-20 w-full items-center justify-between gap-3 p-5 text-left transition-colors active:bg-fill"
+        className="tappable flex min-h-14 w-full items-center gap-2.5 px-3 py-2.5 text-left"
       >
-        <span className="min-w-0">
-          <span className="flex items-center gap-2">
-            <span className="data-number text-sm font-semibold">S{week.weekIndex + 1}</span>
-            <span className="text-xs text-label-3">
-              {rangeFmt.format(new Date(days[0]))} – {rangeFmt.format(new Date(days[6]))}
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-1.5">
+            <span className="data-number text-footnote font-semibold text-label">
+              S{week.weekIndex + 1}
             </span>
+            {/* The mint border alone would leave "which week is now" carried by colour and
+                nothing else, and it is gone the moment another week is opened. */}
+            {state === 'current' ? (
+              <span className="text-caption2 font-semibold uppercase tracking-[0.12em] text-mint">
+                Ahora
+              </span>
+            ) : null}
             {metrics.isDownWeek ? <Chip tone="down">Descarga</Chip> : null}
           </span>
-          {metrics.phase ? (
-            <span className="mt-1 block truncate text-xs text-label-3">{metrics.phase}</span>
-          ) : null}
+          <span className="mt-0.5 block truncate text-caption text-label-3">
+            {weekRange(week.days[0]!.date, week.days[6]!.date)}
+          </span>
         </span>
 
         <span className="shrink-0 text-right">
-          <span className="data-number block text-sm">
-            {decimal(km)}
-            {targetKm != null ? (
-              <span className="text-label-3"> / {decimal(targetKm, 0)}</span>
-            ) : null}
-            <span className="ml-1 text-xs text-label-3">km</span>
+          <span className="data-number block text-footnote text-label">
+            {started ? (
+              <>
+                {decimal(km)}
+                {targetKm != null ? <span className="text-label-3"> / {decimal(targetKm, 0)}</span> : null}
+                <span className="ml-1 text-caption font-normal text-label-3">km</span>
+              </>
+            ) : targetKm != null ? (
+              <>
+                {decimal(targetKm, 0)}
+                <span className="ml-1 text-caption font-normal text-label-3">km</span>
+              </>
+            ) : (
+              <span className="text-label-3">—</span>
+            )}
           </span>
           {metrics.sessionsPlanned > 0 ? (
-            <span className="block text-xs tabular-nums text-label-3">
-              {metrics.sessionsDone}/{metrics.sessionsPlanned} hechas
+            <span className="mt-0.5 block text-caption tabular-nums text-label-3">
+              {started
+                ? `${metrics.sessionsDone}/${metrics.sessionsPlanned} sesiones`
+                : `${metrics.sessionsPlanned} ${metrics.sessionsPlanned === 1 ? 'sesión prevista' : 'sesiones previstas'}`}
             </span>
           ) : null}
         </span>
+
+        <Chevron open={isOpen} />
       </button>
 
-      {targetKm != null ? (
-        <div className="px-5 pb-5">
-          <ProgressBar value={km} target={targetKm} />
-        </div>
-      ) : null}
+      {/* Full-bleed along the card's bottom edge rather than inset above it: at 23 rows an
+          inset bar costs a whole extra line of padding per week, and read as an edge it
+          also doubles as the rule between the header and what unfolds under it. */}
+      {showBar ? <ProgressBar value={km} target={targetKm} className="h-1 rounded-none" /> : null}
 
       {isOpen ? (
-        <div className="border-t border-line p-5">
-          <WeekFields week={week} onReload={onReload} onError={onError} />
-
-          <div className="mt-5 space-y-4">
-            {days.map((day) => {
-              const plan = week.days.find((d) => d.date === day)
-              return (
-                <div key={day} className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <p className="text-caption2 font-medium uppercase tracking-widest text-label-3">
-                      {dayFmt.format(new Date(day))}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => onAdd(day)}
-                      className="-my-2 inline-flex min-h-11 items-center px-2 text-xs text-label-2 underline underline-offset-4"
-                    >
-                      Añadir
-                    </button>
-                  </div>
-
-                  {plan?.sessions.map((match) => (
-                    <SessionCard
-                      key={match.session.id}
-                      match={match}
-                      onToggle={match.activity ? undefined : () => onToggle(match)}
-                      onEdit={() => onEdit(match.session)}
+        <div className={cn('px-3 pb-3 pt-2.5', !showBar && 'border-t border-line')}>
+          {hasContent ? (
+            <>
+              <div className="space-y-2">
+                {week.days.map((day) =>
+                  day.sessions.length === 0 && day.extras.length === 0 ? (
+                    <EmptyDay
+                      key={day.date}
+                      date={day.date}
+                      isToday={day.date === today}
+                      onAdd={() => onAdd(day.date)}
                     />
-                  ))}
-                  {plan?.extras.map((activity) => (
-                    <ExtraCard key={activity.id} activity={activity} />
-                  ))}
-                </div>
-              )
-            })}
-          </div>
+                  ) : (
+                    <div key={day.date}>
+                      <DayLabel date={day.date} isToday={day.date === today} />
+                      <div className="mt-1 space-y-1.5">
+                        {day.sessions.map((match) => (
+                          <SessionCard
+                            key={match.session.id}
+                            match={match}
+                            onToggle={match.activity ? undefined : () => onToggle(match)}
+                            onEdit={() => onEdit(match.session)}
+                          />
+                        ))}
+                        {day.extras.map((activity) => (
+                          <ExtraCard key={activity.id} activity={activity} />
+                        ))}
+                      </div>
+                    </div>
+                  ),
+                )}
+              </div>
+
+              {/* The per-day affordance is the empty row above; this one exists for the
+                  double days, where every row is already taken. */}
+              <Button className="mt-2.5 w-full" onClick={() => onAdd(addDay)}>
+                Añadir sesión
+              </Button>
+            </>
+          ) : (
+            <EmptyState
+              action={
+                <Button variant="primary" onClick={() => onAdd(addDay)}>
+                  Añadir sesión
+                </Button>
+              }
+            >
+              Esta semana no tiene ninguna sesión escrita todavía.
+            </EmptyState>
+          )}
+
+          <WeekFields week={week} onReload={onReload} onError={onError} />
         </div>
       ) : null}
     </Card>
   )
 }
 
-/** Phase, focus and volume target for one week. Saved on blur — there is no Save button
- *  to forget, and a stray keystroke costs one request. */
+/** `LUN 17`, and mint plus the word on the one day that is today. */
+function DayLabel({ date, isToday }: { date: number; isToday: boolean }) {
+  return (
+    <p
+      className={cn(
+        'px-0.5 text-caption2 font-medium uppercase tracking-[0.09em]',
+        isToday ? 'text-mint' : 'text-label-3',
+      )}
+    >
+      {weekdayFmt.format(new Date(date))}
+      {isToday ? ' · hoy' : ''}
+    </p>
+  )
+}
+
+/**
+ * A day with nothing on it, as one 44px row that is also the way to fill it.
+ *
+ * The alternative — a heading and an "Añadir" link on all seven days — is fourteen
+ * elements to say a week has three sessions in it. Here an empty day states itself and
+ * carries its own action, so the week reads as a calendar rather than as a form.
+ */
+function EmptyDay({
+  date,
+  isToday,
+  onAdd,
+}: {
+  date: number
+  isToday: boolean
+  onAdd: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onAdd}
+      aria-label={`Añadir sesión el ${longDayFmt.format(new Date(date))}`}
+      className="tappable flex min-h-11 w-full items-center gap-2 rounded-xl px-2 text-left"
+    >
+      <span
+        className={cn(
+          'w-16 shrink-0 text-caption2 font-medium uppercase tracking-[0.09em]',
+          isToday ? 'text-mint' : 'text-label-3',
+        )}
+      >
+        {weekdayFmt.format(new Date(date))}
+      </span>
+      <span className="flex-1 text-footnote text-label-3">Sin sesión</span>
+      <Icon path={PLUS} className="text-label-3" />
+    </button>
+  )
+}
+
+/**
+ * Phase, focus and volume target for one week. Saved on blur — there is no Save button to
+ * forget, and a stray keystroke costs one request.
+ *
+ * It sits *under* the sessions rather than over them: what a week asks of you is what the
+ * row was opened for, and four form controls between the tap and the plan is a filing
+ * cabinet where a calendar should be.
+ */
 function WeekFields({
   week,
   onReload,
@@ -234,8 +526,12 @@ function WeekFields({
   const km = targetKm.trim() === '' ? null : Number(targetKm)
 
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3">
+    <div className="mt-3 space-y-3 border-t border-line pt-3">
+      <p className="text-caption2 font-semibold uppercase tracking-[0.12em] text-label-2">
+        Ajustes de la semana
+      </p>
+
+      <div className="grid grid-cols-2 gap-2">
         <Field label="Fase">
           <TextInput
             value={phase}
@@ -268,12 +564,66 @@ function WeekFields({
         />
       </Field>
 
-      <Button
-        onClick={() => void save({ isDownWeek: !isDownWeek })}
-        className={cn('w-full', isDownWeek && 'bg-amber/10 text-amber')}
-      >
-        {isDownWeek ? 'Semana de descarga ✓' : 'Marcar como semana de descarga'}
-      </Button>
+      {/* Two named states rather than a button whose label is also its value: "Marcar como
+          semana de descarga" never says which of the two it currently is. `Field` is not
+          the wrapper here because it renders a `<label>`, and a label has to point at a
+          labelable control — `Segmented` is a tablist of buttons. */}
+      <div>
+        <span className="text-caption2 uppercase tracking-[0.09em] text-label-3">
+          Volumen de la semana
+        </span>
+        <div className="mt-1">
+          <Segmented<'normal' | 'down'>
+            options={[
+              { value: 'normal', label: 'Carga normal' },
+              { value: 'down', label: 'Descarga' },
+            ]}
+            value={isDownWeek ? 'down' : 'normal'}
+            onChange={(next) => {
+              // Tapping the option already selected is not an edit, and every edit here
+              // costs a write plus a re-read of the whole block.
+              if ((next === 'down') !== isDownWeek) void save({ isDownWeek: next === 'down' })
+            }}
+          />
+        </div>
+      </div>
     </div>
+  )
+}
+
+/**
+ * The shape of the screen that is coming: the header card, then week rows.
+ *
+ * Not `LoadingCard` repeated — a week row is two short columns and a hairline, not a
+ * title-plus-hero-plus-rows, and a skeleton that guesses the wrong shape makes the list
+ * visibly rearrange itself the moment the payload lands.
+ *
+ * No `fade-up` and no stagger on any of them: the skeleton already breathes, and the real
+ * cards fade up as they replace it. Two reveals over the same pixels inside half a second
+ * is a flicker, not a transition. Only the header card announces the wait; the rows behind
+ * it are `aria-hidden`, because six "Cargando" regions is six announcements of one fetch.
+ */
+function PlannerSkeleton() {
+  return (
+    <>
+      <LoadingCard rows={1} />
+      <div className="flex flex-col gap-2">
+        {Array.from({ length: 6 }, (_, i) => (
+          <Card key={i} aria-hidden>
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-1.5">
+                <Skeleton className="h-3 w-8" />
+                <Skeleton className="h-2.5 w-20" />
+              </div>
+              <div className="flex flex-col items-end space-y-1.5">
+                <Skeleton className="h-3 w-20" />
+                <Skeleton className="h-2.5 w-16" />
+              </div>
+            </div>
+            <Skeleton className="mt-2.5 h-1 w-full" />
+          </Card>
+        ))}
+      </div>
+    </>
   )
 }

@@ -11,11 +11,11 @@ import {
   jogFor,
   jogOver,
   km,
-  primaryZone,
   reps,
   steady,
   strides,
   warmup,
+  workoutBand,
   workoutDistanceM,
   type Step,
 } from './workout'
@@ -786,7 +786,7 @@ export function buildPlan(now: number): PlanSeed {
       const steps = stepsFor(slot, sizes)
       const meta = SESSION_META[slot.type]
       const distanceM = steps && meta.countsAsVolume ? workoutDistanceM(steps) : null
-      const band = slot.pace ?? (steps ? bandFor(steps) : null)
+      const band = slot.pace ?? (steps ? workoutBand(steps) : null)
 
       if (distanceM) volumeByWeek[week]! += distanceM
 
@@ -820,11 +820,6 @@ export function buildPlan(now: number): PlanSeed {
   }))
 
   return { weeks, sessions }
-}
-
-const bandFor = (steps: Step[]): PaceBand | null => {
-  const zone = primaryZone(steps)
-  return zone ? PACES[zone] : null
 }
 
 /**

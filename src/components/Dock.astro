@@ -2,22 +2,43 @@
 import { TABS, type Tab } from '../lib/nav'
 
 /**
- * The tab bar, iPhone-style: fixed to the bottom of the viewport, translucent over
- * whatever is scrolling behind it, and sitting above the home indicator rather than under
- * it.
+ * The tab bar, iPhone-style: fixed to the bottom of the viewport, fully opaque so the
+ * page scrolling behind it never competes with its labels, and sitting above the home
+ * indicator rather than under it.
  *
  * Prerendered into every page rather than rendered by React. It is four links and a
  * highlight — the active tab is known at build time, because a prerendered page can only
  * ever be one of them — so shipping a component to work that out on the client would be
  * JavaScript spent re-deriving a constant.
  *
- * Each tab is a full-height 56px column: on a phone the target is the column, not the
- * glyph, and there is no hover state to lean on.
+ * Each tab is a full-height 48px column: on a phone the target is the column, not the
+ * glyph, and there is no hover state to lean on. 48 clears the 44px floor with room to
+ * spare, and the four px it gives back come off every screen in the app.
  *
  * Across a navigation the bar is swapped in place, not animated: a tab bar that fades or
  * slides with the content is a bar that looks like part of the page. Only the highlight
  * moves — the active state is still baked in per page, so `transition:persist` would be
  * wrong here (it would keep the previous page's highlight lit).
+ *
+ * "Only the highlight moves" is now literal. The lit pill is its own element carrying
+ * `transition:name="dock-active"`, and it renders on exactly one tab per page, so across
+ * a navigation the browser has the same named box in two places and slides one into the
+ * other. An element with a `view-transition-name` is lifted out of its ancestor's
+ * snapshot, so the pill animates even though the `<nav>` around it is explicitly told not
+ * to — the bar is still swapped in place, the highlight is the one thing that travels.
+ * The alternative costs a resize observer and a `requestAnimationFrame` loop to measure
+ * four columns the browser has already laid out.
+ *
+ * The state is never carried by the pill alone: the active tab is also mint, its glyph is
+ * drawn a quarter-step heavier, its label is semibold, and it is the one link with
+ * `aria-current="page"`.
+ *
+ * One known consequence, so nobody spends an afternoon "fixing" it: for the length of the
+ * transition the pill paints *over* the glyphs rather than behind them, because a captured
+ * element is composited above the group it was lifted out of and nothing in the pseudo-tree
+ * can be reordered without dropping it behind the page snapshot entirely. `fill-strong` is
+ * ink at 12%, so what that costs is a barely-there lightening of one icon for a fifth of a
+ * second while the pill is on the move.
  */
 interface Props {
   tab: Tab
@@ -38,9 +59,9 @@ const ICONS: Record<Tab, string> = {
   aria-label="Secciones"
   transition:name="dock"
   transition:animate="none"
-  class="pointer-events-none fixed inset-x-0 bottom-0 z-40 px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+  class="pointer-events-none fixed inset-x-0 bottom-0 z-40 px-gutter pb-[max(0.375rem,env(safe-area-inset-bottom))]"
 >
-  <ul class="performance-shadow pointer-events-auto mx-auto flex max-w-md gap-1 rounded-[1.375rem] border border-line bg-surface-deep/90 p-1.5 backdrop-blur-2xl">
+  <ul class="performance-shadow pointer-events-auto mx-auto flex max-w-md gap-0.5 rounded-2xl border border-line bg-surface-deep p-1">
     {
       TABS.map((entry) => {
         const active = entry.key === tab
@@ -50,10 +71,20 @@ const ICONS: Record<Tab, string> = {
               href={entry.href}
               aria-current={active ? 'page' : undefined}
               class:list={[
-                'flex h-14 flex-col items-center justify-center gap-1 rounded-2xl transition-[background-color,color,transform] active:scale-95',
-                active ? 'bg-fill-strong text-mint' : 'text-label-3 active:bg-fill',
+                // `isolate` + `-z-10` keeps the pill behind the glyph without needing the
+                // glyph and the label to be positioned as well: the link becomes its own
+                // stacking context, so the negative layer cannot escape it.
+                'tappable isolate relative flex h-12 flex-col items-center justify-center gap-0.5 rounded-xl',
+                active ? 'text-mint' : 'text-label-3 active:bg-fill',
               ]}
             >
+              {active && (
+                <span
+                  transition:name="dock-active"
+                  aria-hidden="true"
+                  class="absolute inset-0 -z-10 rounded-xl bg-fill-strong"
+                />
+              )}
               <svg
                 aria-hidden="true"
                 viewBox="0 0 24 24"
@@ -75,3 +106,31 @@ const ICONS: Record<Tab, string> = {
     }
   </ul>
 </nav>
+
+<style is:global>
+  /**
+   * The highlight's travel, put on the app's own motion tokens.
+   *
+   * `is:global` because these are pseudo-elements on the document root, not on anything
+   * inside this component — Astro's scoping attribute has nothing here to attach to.
+   *
+   * Only the timing is overridden. The keyframes stay the browser's, because what is
+   * being animated is the box itself moving between two measured positions and the UA is
+   * the only thing that knows both. Left alone it runs 250ms on a web `ease`, which is
+   * the one curve this design system does not have.
+   *
+   * The old and new images are in here too: they are the same flat rounded rectangle at
+   * both ends, so their cross-fade is invisible — but leaving it on Astro's default would
+   * leave a second easing curve in the app for no benefit.
+   *
+   * Nothing needs a reduced-motion guard: `ClientRouter` ships
+   * `@media (prefers-reduced-motion) { ::view-transition-group(*) { animation: none !important } }`,
+   * which outranks a plain duration.
+   */
+  ::view-transition-group(dock-active),
+  ::view-transition-old(dock-active),
+  ::view-transition-new(dock-active) {
+    animation-duration: var(--duration-standard);
+    animation-timing-function: var(--ease-ios);
+  }
+</style>

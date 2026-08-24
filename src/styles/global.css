@@ -26,11 +26,34 @@
  * These tokens are the whole system, so a component never has to invent a value.
  */
 @theme {
-  --font-sans: 'Avenir Next', 'Segoe UI', ui-sans-serif, system-ui, sans-serif;
-  --font-mono: 'SF Mono', 'Roboto Mono', ui-monospace, monospace;
+  /* Two faces, both self-hosted, the same pair Runna sets its own app in — which is the
+     other half of the sample this palette came from.
 
-  /* The one outer margin every page and its floating dock align to. */
-  --spacing-gutter: 1rem;
+     `sans` is Inter and is the app: every label, every row, every number in a grid. It is
+     drawn for screens at small sizes, and that is what this app is almost entirely made
+     of — a taller x-height than the Geist it replaces, wider apertures on c/e/s/a, and a
+     1/l/I that cannot be mistaken for each other in `1:19:59` or `11,1 km`.
+
+     `display` is Manrope and is reserved for two roles: the page heading and the one hero
+     number a screen is about. It is a shade more geometric and a good deal rounder, so at
+     34px it reads as a *figure* rather than as large UI text — and at 11px it would read
+     as neither, which is why nothing small is ever set in it.
+
+     Self-hosted, so the cockpit renders identically on every device. The stack before
+     Geist led with 'Avenir Next' and 'SF Mono' — both Apple-only, so every label and,
+     worse, every large metric fell back to a different face on Android and Windows. A
+     training app whose hero numbers change shape per platform is not one typeface, it is
+     three.
+
+     Both fall back to the *other* one first: a display heading that lost Manrope should
+     land on Inter, not on whatever the platform calls a sans. */
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Manrope', 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Roboto Mono', monospace;
+
+  /* The one outer margin every page and its floating dock align to. 12px, not 16 — on a
+     375px phone those 8px back are a whole column of a stat grid. */
+  --spacing-gutter: 0.75rem;
 
   /* Three steps of ground and nothing between them: `surface-deep` is what the dock and
      the sheet scrim sit on, `surface` is the page, `surface-raised` is a card lifted off
@@ -71,20 +94,97 @@
   --color-red: #eb6e68;
   --color-amber: #e0ae40;
 
-  /* iOS's own ramp. Ad-hoc sizes (`text-[0.6875rem]`, `text-[11px]`, `text-[0.8125rem]`)
-     were most of what made the old screens feel unplaced. */
+  /* iOS's own ramp, with the leading pulled in a step. Ad-hoc sizes (`text-[0.6875rem]`,
+     `text-[11px]`, `text-[0.8125rem]`) were most of what made the old screens feel
+     unplaced, and raw Tailwind steps (`text-sm`, `text-xs`) were the rest — 14px and 12px
+     that belong to no ramp at all.
+
+     Density is bought in the leading, never in the size: 11px is already the floor for a
+     label and `body` is pinned at 17px because Safari zooms the page on a focused input
+     under 16px (see CONTROL in `ui/index.tsx`). Inter carries a tall x-height (54.6% of
+     the em, against Geist's 53%) and was fitted for exactly this range, so it reads at
+     leading that would close up Avenir Next.
+
+     The four display steps exist so a hero metric has a token to reach for. Without them
+     components reached past the ramp into `text-2xl`/`text-3xl`/`text-4xl`, which is how
+     three different heading sizes ended up on three different screens. */
   --text-caption2: 0.6875rem; /* 11 */
   --text-caption2--line-height: 0.875rem;
   --text-caption: 0.75rem; /* 12 */
-  --text-caption--line-height: 1rem;
+  --text-caption--line-height: 0.9375rem;
   --text-footnote: 0.8125rem; /* 13 */
-  --text-footnote--line-height: 1.125rem;
+  --text-footnote--line-height: 1.0625rem;
   --text-subhead: 0.9375rem; /* 15 */
-  --text-subhead--line-height: 1.25rem;
+  --text-subhead--line-height: 1.1875rem;
   --text-body: 1.0625rem; /* 17 */
-  --text-body--line-height: 1.375rem;
+  --text-body--line-height: 1.3125rem;
   --text-title3: 1.25rem; /* 20 */
-  --text-title3--line-height: 1.5rem;
+  --text-title3--line-height: 1.375rem;
+  --text-title2: 1.375rem; /* 22 — a page heading */
+  --text-title2--line-height: 1.5rem;
+  --text-title1: 1.75rem; /* 28 — a card's headline metric */
+  --text-title1--line-height: 1.75rem;
+  --text-display: 2.125rem; /* 34 — the one number a screen is about */
+  --text-display--line-height: 2.125rem;
+
+  /* ------------------------------------------------------------------------
+     Motion. Three durations and two curves, and nothing in the app may invent
+     a fourth.
+
+     The curves are the load-bearing half. A web `ease-in-out` accelerates into
+     the middle of the move and coasts out of it, which is what makes a page
+     feel like a page; iOS decelerates hard from the first frame and settles,
+     which is what makes a sheet feel like it was thrown. `--ease-ios` is that
+     emphasised decelerate (it is the curve UIKit's own sheet presentation
+     traces), and `--ease-ios-spring` adds the small overshoot a control gets
+     when a thumb comes off it. Nothing here bounces twice.
+
+     The durations are the iOS ladder: a press is faster than the eye tracks,
+     a state change is quick enough not to be waited on, and a sheet is the
+     one thing allowed to take its time because it is covering the screen.
+
+     `--duration-*` is not a Tailwind theme namespace, so these do not generate
+     `duration-*` utilities. Reach for them through `motion-press` /
+     `motion-standard` below, or `duration-[var(--duration-standard)]` — never
+     by typing a millisecond count into a component.
+     --------------------------------------------------------------------- */
+  --ease-ios: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-ios-spring: cubic-bezier(0.34, 1.32, 0.62, 1);
+  --duration-press: 120ms;
+  --duration-standard: 220ms;
+  --duration-sheet: 320ms;
+}
+
+/**
+ * Latin subset only, both of them — U+0000-00FF covers every accent Spanish needs (á é í
+ * ó ú ñ ü ¿ ¡ ·) and the ranges above it carry the — and the − that `Delta` renders. One
+ * variable file per family spans the whole weight range, so every weight in the app costs
+ * one download: 48 KB for Inter, 24 KB for Manrope. Adding a glyph outside this range
+ * means adding a subset, not swapping a file.
+ *
+ * Manrope's variable default instance is 200, not 400 — declaring `font-weight: 200 800`
+ * is what keeps an unstyled heading from rendering hairline.
+ */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/inter-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+    U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url('/fonts/manrope-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+    U+FEFF, U+FFFD;
 }
 
 @layer base {
@@ -130,13 +230,23 @@
     color: var(--color-ink);
   }
 
-  /* Nothing here animates to convey meaning — every transition is decoration, so all of
-     it can go. */
+  /* The blanket kill switch for the motion layer above.
+     Every animation in this app is written to end on its resting state with
+     `animation-fill-mode: both`, so collapsing the duration to nothing lands
+     the element exactly where it would have finished — a card reveal becomes a
+     card that is simply there, a chart draw-in becomes a drawn chart.
+
+     `animation-delay` is in here for the stagger: a list row carries its delay
+     as an inline style, and an inline style loses to `!important` from a
+     stylesheet. Without this line the eighth row of a reduced-motion list would
+     still wait 210 ms at `opacity: 0` before appearing, which is the one thing
+     a reader who asked for less motion would actually notice. */
   @media (prefers-reduced-motion: reduce) {
     *,
     *::before,
     *::after {
       animation-duration: 0.01ms !important;
+      animation-delay: 0ms !important;
       animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
       scroll-behavior: auto !important;
@@ -144,11 +254,29 @@
   }
 }
 
-/** Large metrics use a stable-width face, tighter spacing and no digit jitter. */
+/**
+ * Every metric in the app: stable digit widths, tight fit, no jitter as a number updates.
+ *
+ * Tabular *figures*, not a monospaced *face*. The two are often conflated and they are not
+ * the same thing: `tabular-nums` equalises the advance of the ten digits and leaves
+ * everything else proportional, which is the whole of what this utility ever needed. A
+ * monospace face also puts the comma, the space and the slash on that same wide advance —
+ * and this app writes its decimals the Spanish way, so `47,3` came out spaced as `47 , 3`
+ * and `3,9 km` carried a double gap before the unit. Every distance, pace and split on
+ * every screen has one of those separators in it, so the cost was continuous and the
+ * benefit was zero.
+ *
+ * The tracking is lighter than the old value too — -0.045em was compensating for a
+ * monospace's loose fit, and applied to a proportional face it closes the digits up too
+ * far. -0.02em suits both faces here: Inter and Manrope are each fitted a touch wide, and
+ * this is the step that pulls a run of digits into one shape without welding them.
+ *
+ * Both carry `tnum`, so this utility means the same thing on a hero number set in Manrope
+ * and on a split time set in Inter. Check that before introducing a third face.
+ */
 @utility data-number {
-  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.045em;
+  letter-spacing: -0.02em;
 }
 
 /** One soft depth treatment shared by cards, sheets and the floating dock. */
@@ -157,4 +285,145 @@
     0 16px 44px color-mix(in srgb, var(--color-surface-deep) 30%, transparent),
     0 4px 14px color-mix(in srgb, var(--color-surface-deep) 18%, transparent),
     inset 0 1px color-mix(in srgb, var(--color-ink) 4%, transparent);
+}
+
+/**
+ * The motion layer: two energies, and everything else is press feedback.
+ *
+ * The rule this replaces said "nothing here animates to convey meaning". That was true of
+ * a set of screens with no reveal on them, and it is the wrong target: the calm in a
+ * native training app does not come from stillness, it comes from every element moving in
+ * the same two ways. So there are exactly two named energies, both cheap (transform and
+ * opacity only — never a width, a height or a top, which would put layout on the
+ * compositor's critical path), and both landing on their resting state so
+ * `prefers-reduced-motion` can collapse them to nothing without leaving a hole.
+ *
+ *   `fade-up`    — a card, a stat strip or a list row arriving. 12px of travel, no more:
+ *                  past about 16px the eye reads it as a slide rather than as a settle.
+ *                  Stagger a list by handing each row `style={{ animationDelay }}` at
+ *                  30ms a row and stop counting at the eighth — a ninth row waiting a
+ *                  third of a second to exist is a loading screen, not a reveal.
+ *   `sheet-rise` — anything modal, and nothing else. It travels its own full height, so
+ *                  it reads as the sheet coming up from the bottom edge of the phone
+ *                  rather than as a box growing in the middle of the page.
+ *
+ * `fade-in` is the supporting cast for both: a scrim behind a sheet, and the filled area
+ * under a chart line that is drawing itself in (an area cannot travel — it is anchored to
+ * the baseline — so it takes the same duration as opacity instead).
+ */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 0.75rem, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes sheet-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 100%, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/** The line drawing itself on. Paired with `pathLength="1"` on the path, so the dash
+ *  arithmetic is normalised and one keyframe covers a 12-point sparkline and a 161-day
+ *  fitness curve alike — no measuring the path in JavaScript to find its length. */
+@keyframes chart-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/** The skeleton's breath. Opacity only, and slow enough (1.6s) to read as waiting rather
+ *  than as a thing demanding attention — a skeleton is furniture, not a status. */
+@keyframes skeleton-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@utility fade-up {
+  animation: fade-up var(--duration-standard) var(--ease-ios) both;
+}
+
+@utility fade-in {
+  animation: fade-in var(--duration-standard) var(--ease-ios) both;
+}
+
+@utility sheet-rise {
+  animation: sheet-rise var(--duration-sheet) var(--ease-ios) both;
+}
+
+@utility chart-draw {
+  stroke-dasharray: 1;
+  animation: chart-draw var(--duration-sheet) var(--ease-ios) both;
+}
+
+@utility skeleton {
+  background-color: var(--color-fill);
+  animation: skeleton-breathe 1.6s var(--ease-ios) infinite;
+}
+
+/**
+ * The press state, in one class.
+ *
+ * There is no hover on a phone, so the *only* feedback a tap ever gets is what happens
+ * while the finger is down — which is why every target in this app has to carry one and
+ * why it is worth a utility rather than three `active:` classes remembered by hand.
+ *
+ * 0.97 and 85% are deliberately small: the scale has to be felt more than seen, and a
+ * button that visibly shrinks reads as a toy. The transition is on the way *out* of the
+ * press (the release is what you watch), so it runs at the press duration in the iOS
+ * curve rather than snapping back.
+ *
+ * Do not stack this with your own `active:scale-*` / `active:opacity-*` — they are the
+ * same declarations at the same specificity, and which one wins is then a question about
+ * class order rather than about design.
+ */
+@utility tappable {
+  transition-property: transform, opacity, background-color, color, border-color;
+  transition-duration: var(--duration-press);
+  transition-timing-function: var(--ease-ios);
+
+  &:active {
+    transform: scale(0.97);
+    opacity: 0.85;
+  }
+}
+
+/** The two transition speeds, for anything animating a property of its own — a colour, a
+ *  ring's arc, a chevron's rotation. `motion-press` for feedback under a finger,
+ *  `motion-standard` for a state change the eye follows. */
+@utility motion-press {
+  transition-duration: var(--duration-press);
+  transition-timing-function: var(--ease-ios);
+}
+
+@utility motion-standard {
+  transition-duration: var(--duration-standard);
+  transition-timing-function: var(--ease-ios);
 }

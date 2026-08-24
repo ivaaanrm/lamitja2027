@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { BLOCK_START, DAY_MS } from '@/lib/block'
-import { buildWeek, matchDay, weekDays, weekStart } from '@/lib/plan'
+import { buildWeek, effortLabel, matchDay, sessionEffort, weekDays, weekStart } from '@/lib/plan'
 import type { Activity, PlanSession } from '@/lib/db/schema'
+import { PACES } from '@/lib/paces'
+import { cooldown, jogFor, km, reps, steady, warmup } from '@/lib/workout'
 
 const MONDAY = BLOCK_START
 let nextId = 1
@@ -161,5 +163,64 @@ describe('buildWeek', () => {
 
     expect(week.sessions).toEqual([])
     expect(week.extras).toHaveLength(1)
+  })
+})
+
+describe('sessionEffort', () => {
+  it('prefers the session\'s own band over the one its steps imply', () => {
+    // A race is the case that matters: the steps say `race`, but the marker pace the
+    // checkpoint is measured against is the number that was typed on the session.
+    const effort = sessionEffort(
+      session({
+        steps: [warmup(km(3)), steady(km(10), 'race'), cooldown(km(2))],
+        targetPaceLoSKm: 238,
+        targetPaceHiSKm: 248,
+      }),
+    )
+    expect(effort.band).toEqual({ lo: 238, hi: 248 })
+    // No zone: a hand-typed pace is a number, and calling it Z4 would be the app guessing.
+    expect(effort.zone).toBeNull()
+    expect(effortLabel(effort)).toBe('3:58–4:08/km')
+  })
+
+  it('falls back to the band the steps are run at', () => {
+    const effort = sessionEffort(
+      session({
+        steps: [warmup(km(2)), reps(5, { distanceM: 1000 }, 'vo2', jogFor(90)), cooldown(km(2))],
+        targetDistanceM: 10_000,
+      }),
+    )
+    expect(effort.zone).toBe('vo2')
+    expect(effort.band).toEqual(PACES.vo2)
+    expect(effortLabel(effort)).toBe('Z5 · 3:30–3:40/km')
+  })
+
+  it('reads a single bound as a band, so a half-filled edit still says something', () => {
+    const effort = sessionEffort(session({ targetPaceLoSKm: 227, targetDistanceM: 10_000 }))
+    expect(effort.band).toEqual({ lo: 227, hi: 227 })
+    expect(effortLabel(effort)).toBe('3:47/km')
+  })
+
+  it('says by feel when the plan prescribes no band at all — Phase 0, on purpose', () => {
+    const effort = sessionEffort(
+      session({ steps: [steady(km(9), null)], targetDistanceM: 9_000 }),
+    )
+    expect(effort.band).toBeNull()
+    expect(effortLabel(effort)).toBe('A sensaciones')
+  })
+
+  it('estimates a step-less session from its distance at mid-band', () => {
+    const effort = sessionEffort(
+      session({ targetDistanceM: 10_000, targetPaceLoSKm: 285, targetPaceHiSKm: 315 }),
+    )
+    expect(effort.estimateS).toBe(3000)
+  })
+
+  it('leaves a session measured in minutes without an estimate', () => {
+    // Strength carries a prescribed duration, not a derived one — printing it as ≈ 35m
+    // would dress a number that was written down as one the app worked out.
+    const effort = sessionEffort(session({ type: 'strength', targetDurationS: 2100 }))
+    expect(effort.estimateS).toBeNull()
+    expect(effort.band).toBeNull()
   })
 })

@@ -250,6 +250,52 @@ Tailwind classes so a chart is styled like everything else on the page.
 - **Session colours are written out, never composed.** Tailwind resolves classes by scanning
   source, so the accent map in `src/components/ui/index.tsx` spells each class in full —
   `bg-${hue}` is a class that never ships.
+- **The app is set in Inter and Manrope, self-hosted, and in nothing else** — the same
+  pairing Runna sets its own app in, which is the other half of the sample this palette
+  came from. `--font-sans` is **Inter** and is the app: every label, every row, every
+  number in a grid. It is drawn for screens at small sizes, which is nearly all this app
+  is — a taller x-height than the Geist it replaced (54.6% of the em against 53%), wider
+  apertures, and a `1`/`l`/`I` that cannot be confused in `1:19:59` or `11,1 km`.
+  `--font-display` is **Manrope**, and it is spent on exactly two roles: the page heading
+  (`src/layouts/App.astro`, and the `<h2>` a detail or a sheet opens with) and the one hero
+  number a screen is about (`HeroMetric`, the projection on `/progreso`, the metric above
+  an activity's chart, the `1:19:59` on `/login`). Rounder and more geometric, so at 34px
+  it reads as a *figure* rather than as large UI text — and at 11px it would read as
+  neither, which is why `CardTitle`, `Stat` and every chip stay in Inter. Reach for it with
+  the `font-display` class, and pair it with `font-bold`: Manrope was drawn to be set bold
+  at headline sizes, and its variable default instance is 200, not 400. Both are one
+  variable file per family (`public/fonts/inter-latin.woff2` 48 KB,
+  `manrope-latin.woff2` 24 KB), both preloaded from `src/layouts/Base.astro` and declared
+  `@font-face` in `global.css`, and both carry `tnum` so `data-number` means the same thing
+  in either. They replaced a stack that led with `'Avenir Next'` and `'SF Mono'` — both
+  Apple-only, so every label and every hero metric resolved to a different face on Android
+  and Windows. Only the `latin` subset is shipped: `U+0000-00FF` carries every accent
+  Spanish needs (á é í ó ú ñ ü ¿ ¡ ·) and the ranges above it carry the `—` and the `−`
+  that `Delta` renders. Adding a glyph outside that range means adding a subset, not
+  swapping a file. Note `font-display` is the *family* and `text-display` is the *size* —
+  the hero metric wears both.
+- **Type is one ramp, and the ramp is the only place a size comes from.** `caption2`
+  `caption` `footnote` `subhead` `body` `title3` `title2` `title1` `display`, defined once
+  in the `@theme` block. Not `text-sm`, not `text-xs`, not `text-[13px]` — those are what
+  put three different heading sizes on three different screens the last time. Two steps are
+  pinned and must not be "tidied": `body` is 17px because Safari zooms the whole page in on
+  a focused input whose text is under 16px, and `caption2` at 11px is the floor for a label.
+  Density is bought in the *leading*, never in the size.
+- **Numbers are tabular figures, not a monospaced face** (`data-number` in `global.css`).
+  The two get conflated and they are not the same thing: `font-variant-numeric: tabular-nums`
+  equalises the ten digits and leaves everything else proportional, which is all this app
+  ever wanted. A monospace face also puts the comma, the space and the slash on that same
+  wide advance — and the app writes its decimals the Spanish way, so `47,3` came out spaced
+  as `47 , 3` and `3,9 km` carried a double gap before the unit. Every distance, pace and
+  split on every screen has one of those separators in it. `--font-mono` is now a system
+  stack with no consumer; if something ever genuinely needs columns, reach for it knowingly.
+- **The layout is compact on purpose.** The gutter is 12px, cards are `px-3 py-2.5` with
+  `gap-2` between them, and the vertical rhythm inside a card runs 0.5 / 1 / 1.5 / 2 / 2.5 /
+  3 — with `mt-3` as the gap between blocks in a card and `mt-2` / `mt-2.5` between a thing
+  and its caption. Three is the ceiling, not a step to pass through: `mt-4` inside a card
+  is the outer grid's spacing leaking inwards. What is *not* negotiable is the touch
+  target: 44px is the floor, which is why `Button`, `Segmented` and every row control sit at `h-11` /
+  `min-h-11` and the dock's columns at `h-12`. Shave the padding, never the target.
 - **The UI reads everything from `/api/data` in one request** and derives the rest on the
   client. The block is a few tens of KB, so every mutation just re-reads it — there is no
   optimistic copy of the plan that can disagree with the database.

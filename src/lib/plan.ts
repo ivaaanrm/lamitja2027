@@ -1,5 +1,7 @@
 import { BLOCK_START, DAY_MS, WEEK_MS, startOfDay, weekIndex } from './block'
-import { isRun } from './activity'
+import { formatPaceRange, isRun } from './activity'
+import { PACE_ZONE_NUMBER, midOf, zoneTag, type PaceBand, type PaceZone } from './paces'
+import { BY_FEEL, primaryZone, workoutBand, workoutDurationS } from './workout'
 import type { Activity, PlanSession, PlanWeek } from './db/schema'
 
 /**
@@ -49,6 +51,57 @@ export const SESSION_META: Record<SessionType, SessionMeta> = {
   rest: { label: 'Descanso', family: 'other', countsAsVolume: false, isQuality: false, accent: 'zinc' },
   cross: { label: 'Cruzado', family: 'other', countsAsVolume: false, isQuality: false, accent: 'cyan' },
   strength: { label: 'Fuerza', family: 'strength', countsAsVolume: false, isQuality: false, accent: 'teal' },
+}
+
+/**
+ * What a session asks of the legs, resolved once for every screen that says it.
+ *
+ * The pace is the first thing a runner needs and the easiest one to lose: it lives in
+ * three places at once — the session's own `targetPace*` columns, the zone its steps
+ * carry, and nowhere at all — and a card that only reads the first prints a session with
+ * no target on it, which reads as missing data rather than as the deliberate silence of
+ * Phase 0. So it is resolved in one place, in that order, and the absence is a value:
+ * `band: null` means `A sensaciones`, which is what docs/03 §4 actually prescribes for the
+ * rebuild weeks.
+ *
+ * `estimateS` is time on feet and never a prescription — a session measured in minutes
+ * (strength, the bike) carries its own `targetDurationS` and gets no estimate here, or the
+ * two would print as one number and the ≈ would be a lie.
+ */
+export interface SessionEffort {
+  /** The band's zone, when it came from the steps. `null` for a hand-typed pace. */
+  zone: PaceZone | null
+  band: PaceBand | null
+  /** Seconds, derived from the steps or from distance at mid-band. Always shown as ≈. */
+  estimateS: number | null
+}
+
+export function sessionEffort(session: PlanSession): SessionEffort {
+  const steps = session.steps?.length ? session.steps : null
+  // Either bound alone is still a band — the editor lets one be typed without the other.
+  const lo = session.targetPaceLoSKm ?? session.targetPaceHiSKm
+  const hi = session.targetPaceHiSKm ?? session.targetPaceLoSKm
+  const own = lo != null && hi != null ? { lo, hi } : null
+  const band = own ?? (steps ? workoutBand(steps) : null)
+  // The zone names the band, so it is only the steps' to give: a pace typed by hand is a
+  // number, not a zone, and labelling it `Z4` would be the app inferring intent.
+  const zone = own ? null : steps ? primaryZone(steps) : null
+
+  const estimateS = steps
+    ? workoutDurationS(steps)
+    : session.targetDistanceM != null && band != null
+      ? Math.round((session.targetDistanceM / 1000) * midOf(band))
+      : null
+
+  return { zone, band, estimateS }
+}
+
+/** `Z5 · 3:30–3:40/km`, and the plan's own words for a session that prescribes no band. */
+export function effortLabel(effort: SessionEffort): string {
+  if (!effort.band) return BY_FEEL
+  const pace = formatPaceRange(effort.band.lo, effort.band.hi)
+  const tag = effort.zone ? zoneTag(PACE_ZONE_NUMBER[effort.zone]) : null
+  return [tag, pace].filter(Boolean).join(' · ')
 }
 
 /** The hard days. One list, so the calendar, the seed and its guardrails cannot disagree. */

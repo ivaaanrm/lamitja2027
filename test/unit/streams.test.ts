@@ -99,3 +99,50 @@ describe('buildDetail', () => {
     expect(buildDetail({}, { description: 'Rodilla bien.' }).description).toBe('Rodilla bien.')
   })
 })
+
+describe('resample with streams of unequal length', () => {
+  /**
+   * Strava returns each stream at its own native sample count — GPS distance and altitude
+   * at 1 Hz, the strap and `velocity_smooth` often at fewer. Indexing every stream by the
+   * distance stream's index left the tail of the shorter ones `undefined`, so pace and
+   * pulse stopped partway across a plot that altitude ran the full width of.
+   */
+  it('carries a short heart-rate stream all the way to the last bin', () => {
+    const s = streams()
+    // The strap reported 80% as often as the GPS did — same run, fewer samples.
+    s.heartrate = { data: s.heartrate!.data.filter((_, i) => i % 5 !== 0) }
+    const trace = resample(s, 10)
+    expect(trace.at(-1)!.heartrate).not.toBeNull()
+    expect(trace.every((p) => p.heartrate != null)).toBe(true)
+  })
+
+  it('carries a short velocity stream all the way to the last bin', () => {
+    const s = streams()
+    s.velocity_smooth = { data: s.velocity_smooth!.data.slice(0, 500) }
+    const trace = resample(s, 10)
+    expect(trace.at(-1)!.paceSKm).not.toBeNull()
+    expect(trace.every((p) => p.paceSKm != null)).toBe(true)
+  })
+
+  it('still lines a short stream up with the distance it was recorded at', () => {
+    const s = streams()
+    // Half the samples, so sample j stands where sample 2j did.
+    s.heartrate = { data: s.heartrate!.data.filter((_, i) => i % 2 === 0) }
+    const dense = resample(streams(), 10)
+    const sparse = resample(s, 10)
+    for (const [i, point] of sparse.entries()) {
+      expect(Math.abs(point.heartrate! - dense[i]!.heartrate!)).toBeLessThanOrEqual(1)
+    }
+  })
+})
+
+describe('timeInZones with a strap slower than the clock', () => {
+  it('accounts for the whole run, not just the strap stream', () => {
+    const s = streams()
+    const full = Object.values(timeInZones(s)).reduce((a, b) => a + b, 0)
+    // The strap reported every fifth second; the run is exactly as long as it was.
+    s.heartrate = { data: s.heartrate!.data.filter((_, i) => i % 5 === 0) }
+    const sparse = Object.values(timeInZones(s)).reduce((a, b) => a + b, 0)
+    expect(sparse).toBeCloseTo(full, 0)
+  })
+})

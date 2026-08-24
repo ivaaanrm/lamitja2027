@@ -1,5 +1,5 @@
 import { decimal } from './format'
-import { PACES, ZONE_LABEL, midPaceSKm, type PaceZone } from './paces'
+import { PACES, ZONE_LABEL, midPaceSKm, type PaceBand, type PaceZone } from './paces'
 
 /**
  * The prescription itself — what a session actually asks for, as data rather than prose.
@@ -216,6 +216,12 @@ export function primaryZone(steps: Step[]): PaceZone | null {
   return best
 }
 
+/** The band that zone is run at — what a session prescribes when nothing overrides it. */
+export const workoutBand = (steps: Step[]): PaceBand | null => {
+  const zone = primaryZone(steps)
+  return zone ? PACES[zone] : null
+}
+
 // ---------------------------------------------------------------------------
 // Formatting. Kept beside the model so the card, the row and the week summary
 // all say a rep set the same way.
@@ -242,6 +248,23 @@ export const stepAmount = (step: Step): string =>
     : step.durationS != null
       ? formatSeconds(step.durationS)
       : ''
+
+/**
+ * What the step is *for*, in one word.
+ *
+ * `stepHeadline` folds the role into the phrase ("3 km de calentamiento"), which is what a
+ * one-line summary wants. The detail view stacks instead — the amount on its own line, big
+ * enough to read at arm's length, and the role under it beside the pace — so it needs the
+ * word on its own. `steady` is `Continuo` because that is what a block with no repetitions
+ * is called in the club: carrera continua, whatever pace it is run at.
+ */
+export const STEP_ROLE: Record<StepKind, string> = {
+  warmup: 'Calentamiento',
+  rep: 'Serie',
+  steady: 'Continuo',
+  strides: 'Progresiones',
+  cooldown: 'Vuelta a la calma',
+}
 
 /** The step without its pace or recovery — `5 × 1 km`, `3 km de calentamiento`. */
 export function stepHeadline(step: Step): string {
@@ -296,5 +319,15 @@ export const isEffort = (step: Step) =>
 /** The whole session on one line, for the row that has no space to expand. */
 export const formatWorkout = (steps: Step[]) => steps.map(formatStep).join(' · ')
 
-export const zoneLabel = (zone: PaceZone | null) => (zone ? ZONE_LABEL[zone] : 'A sensaciones')
+/**
+ * What the plan says where it prescribes no band at all.
+ *
+ * Phase 0 is written that way on purpose — docs/03 §4, "ignore all of these and run easy
+ * by feel" — so a session with no zone is not a session missing its pace. One constant, so
+ * the card, the breakdown and the detail view all say the absence the same way instead of
+ * each rendering a different kind of nothing.
+ */
+export const BY_FEEL = 'A sensaciones'
+
+export const zoneLabel = (zone: PaceZone | null) => (zone ? ZONE_LABEL[zone] : BY_FEEL)
 export const paceBandLabel = band

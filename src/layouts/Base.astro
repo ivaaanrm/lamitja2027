@@ -22,6 +22,26 @@ const ogImage = new URL('/og.png', Astro.site)
     <title>{title}</title>
     <meta name="description" content={description} />
 
+    <!--
+      iOS's data detectors read a run of digits with separators in it as a phone number and
+      restyle it as a blue underlined link, in the system's colour and outside every token
+      in this app. A training log is nothing but those runs — `3:47`, `1:19:59`, `24/01`,
+      `5 × 1000` — so the detector is turned off rather than fought per screen.
+    -->
+    <meta name="format-detection" content="telephone=no" />
+
+    <!--
+      The two faces the app is set in — Inter for the interface, Manrope for the page
+      heading and the one hero number per screen. Both are preloaded because they are
+      same-origin and discovered late: the stylesheet has to parse before the browser
+      learns they exist, and `font-display: swap` would otherwise flash a fallback through
+      first paint on every cold load — on the largest text on the screen, where the reflow
+      is the most visible. `crossorigin` is required even same-origin: fonts are fetched in
+      CORS mode, and without it the preload is discarded and the file fetched a second time.
+    -->
+    <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin />
+
     <!-- SVG for browsers that take it, .ico for Safari and the bare /favicon.ico request. -->
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon.ico" sizes="32x32" />
@@ -31,6 +51,13 @@ const ogImage = new URL('/og.png', Astro.site)
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="La Mitja" />
+    <!--
+      `--color-surface`, written out. A meta tag cannot read a custom property, so this is
+      the one place in the app besides Strava's orange where a colour is a literal — keep
+      it in step with the token in global.css or Android paints its address bar a shade the
+      page never uses. iOS ignores it entirely: the status bar there is `black-translucent`
+      above, with `body`'s `env(safe-area-inset-top)` holding the content out from under it.
+    -->
     <meta name="theme-color" content="#191b21" />
     <meta name="color-scheme" content="dark" />
 

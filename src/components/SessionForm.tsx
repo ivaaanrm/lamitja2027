@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { formatPace, parsePace } from '@/lib/activity'
 import { cn } from '@/lib/cn'
 import { ApiError, createSession, deleteSession, updateSession } from '@/lib/plan-client'
@@ -49,10 +49,27 @@ const fromSession = (session: PlanSession): Draft => ({
   paceHi: session.targetPaceHiSKm == null ? '' : formatPace(session.targetPaceHiSKm),
 })
 
+/** What the keyboard leaves of the screen: how tall it still is, and how much of the
+ *  bottom edge is covered. Null until the first measurement, and on any browser without
+ *  a `visualViewport`. */
+interface Viewport {
+  height: number
+  inset: number
+}
+
 /**
  * Create/edit sheet for one session. Entered in the units a runner thinks in — kilometres,
  * minutes, `m:ss` per km — and converted to the metres and seconds everything else stores
  * at the boundary, so no display unit ever reaches the database.
+ *
+ * This is the app's only modal, so it is where the sheet-rise energy is spent: the panel
+ * travels its own height up from the bottom edge, the scrim fades in behind it, and the
+ * two are separate elements precisely so the scrim never travels with it.
+ *
+ * The layout is three bands — a pinned grabber and title, a scrolling body, and a pinned
+ * action bar. The bar is pinned rather than sitting at the end of the form because a
+ * sheet whose Guardar button is below the fold is a sheet that looks like it cannot be
+ * saved, and on a phone the fold moves every time the keyboard opens.
  */
 export function SessionForm({
   weekIndex,
@@ -68,10 +85,49 @@ export function SessionForm({
   onClose: () => void
 }) {
   const [draft, setDraft] = useState<Draft>(() =>
-    session ? fromSession(session) : blank(defaultDay ?? weekDays(weekIndex)[0]),
+    session ? fromSession(session) : blank(defaultDay ?? weekDays(weekIndex)[0]!),
   )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // A destructive action one thumb-slip from the primary one needs a second tap, not a
+  // confirm dialog on top of a sheet.
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [viewport, setViewport] = useState<Viewport | null>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  /**
+   * iOS does not shrink the layout viewport when the keyboard comes up: `100vh`, `100dvh`
+   * and a `fixed inset-0` scrim all keep describing the whole screen, so a sheet anchored
+   * to the bottom edge keeps its action bar under the keys. `visualViewport` is the only
+   * surface that reports the covered strip, so the panel is lifted clear of it and capped
+   * to whatever height is left.
+   *
+   * Read in an effect and never in the component body: this island is also rendered during
+   * prerender, inside a Worker where there is no `window` at all (AGENTS gotcha 15).
+   */
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+    const measure = () =>
+      setViewport({
+        height: vv.height,
+        inset: Math.max(0, window.innerHeight - vv.height - vv.offsetTop),
+      })
+    measure()
+    vv.addEventListener('resize', measure)
+    vv.addEventListener('scroll', measure)
+    return () => {
+      vv.removeEventListener('resize', measure)
+      vv.removeEventListener('scroll', measure)
+    }
+  }, [])
+
+  useEffect(() => {
+    // Focus goes to the panel, not to the first field: an autofocused input opens the
+    // keyboard before anyone has decided to type, and the sheet would arrive with half of
+    // itself already covered. It also puts Escape and the tab order inside the dialog.
+    panelRef.current?.focus()
+  }, [])
 
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) =>
     setDraft((current) => ({ ...current, [key]: value }))
@@ -147,119 +203,192 @@ export function SessionForm({
     }
   }
 
+  // With the keyboard down the sheet leaves a strip of scrim above it — that strip is the
+  // tap target that dismisses it. With the keyboard up every remaining pixel is worth more
+  // than the strip, so the cap opens out to the whole visible viewport.
+  const maxHeight = viewport
+    ? Math.round(viewport.height * (viewport.inset > 0 ? 1 : 0.88))
+    : undefined
+
   return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end bg-surface-deep/80 backdrop-blur-sm">
-      <button type="button" aria-label="Cerrar" className="flex-1" onClick={onClose} />
+    <div
+      className="fixed inset-0 z-50"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="session-form-title"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && !busy) onClose()
+      }}
+    >
+      <button
+        type="button"
+        aria-label="Cerrar"
+        onClick={() => !busy && onClose()}
+        className="fade-in absolute inset-0 bg-surface-deep/80 backdrop-blur-sm"
+      />
 
-      <div className="performance-shadow max-h-[88vh] overflow-y-auto rounded-t-3xl border-t border-line bg-surface-raised p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]">
-        <div className="mx-auto max-w-md space-y-4">
-          <span aria-hidden className="mx-auto block h-1 w-10 rounded-full bg-fill-strong" />
-          <h2 className="text-xl font-semibold tracking-tight">{session ? 'Editar sesión' : 'Nueva sesión'}</h2>
-
-          <Field label="Día">
-            <Select value={draft.scheduledOn} onChange={(e) => set('scheduledOn', e.target.value)}>
-              {weekDays(weekIndex).map((day) => (
-                <option key={day} value={day}>
-                  {dayFmt.format(new Date(day))}
-                </option>
-              ))}
-            </Select>
-          </Field>
-
-          <Field label="Tipo">
-            <Select value={draft.type} onChange={(e) => set('type', e.target.value)}>
-              {SESSION_TYPES.map((type) => (
-                <option key={type} value={type}>
-                  {SESSION_META[type].label}
-                </option>
-              ))}
-            </Select>
-          </Field>
-
-          <Field label="Título">
-            <TextInput
-              value={draft.title}
-              placeholder={SESSION_META[draft.type as (typeof SESSION_TYPES)[number]].label}
-              onChange={(e) => set('title', e.target.value)}
-            />
-          </Field>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Distancia (km)">
-              <TextInput
-                inputMode="decimal"
-                value={draft.distanceKm}
-                placeholder="10"
-                onChange={(e) => set('distanceKm', e.target.value)}
-              />
-            </Field>
-            <Field label="Duración (min)">
-              <TextInput
-                inputMode="numeric"
-                value={draft.durationMin}
-                placeholder="45"
-                onChange={(e) => set('durationMin', e.target.value)}
-              />
-            </Field>
-            <Field label="Ritmo desde">
-              <TextInput
-                inputMode="numeric"
-                value={draft.paceLo}
-                placeholder="3:47"
-                onChange={(e) => set('paceLo', e.target.value)}
-              />
-            </Field>
-            <Field label="Ritmo hasta">
-              <TextInput
-                inputMode="numeric"
-                value={draft.paceHi}
-                placeholder="4:05"
-                onChange={(e) => set('paceHi', e.target.value)}
-              />
-            </Field>
+      <div
+        className="absolute inset-x-0 bottom-0 flex justify-center"
+        style={{ bottom: viewport?.inset ?? 0 }}
+      >
+        <div
+          ref={panelRef}
+          tabIndex={-1}
+          aria-busy={busy}
+          style={{ maxHeight }}
+          className="sheet-rise performance-shadow flex max-h-[88dvh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl border-t border-line bg-surface-raised outline-none"
+        >
+          {/* The inset is 20px rather than the 12px a card uses, so the controls sit where
+              a card's contents sit optically: the page gutter is not under a sheet. */}
+          <div className="shrink-0 px-5 pb-2.5 pt-2.5">
+            <span aria-hidden className="mx-auto mb-3 block h-1 w-10 rounded-full bg-fill-strong" />
+            <h2 id="session-form-title" className="font-display text-title3 font-bold tracking-tight">
+              {session ? 'Editar sesión' : 'Nueva sesión'}
+            </h2>
           </div>
 
-          {session?.steps?.length ? (
-            <div className="rounded-2xl border border-line bg-surface-deep/30 p-4">
-              <p className="text-caption2 uppercase tracking-widest text-label-3">Entrenamiento</p>
-              <ol className="mt-2 space-y-1">
-                {session.steps.map((step, i) => (
-                  <li key={i} className="text-xs tabular-nums text-label-2">
-                    {formatStep(step)}
-                  </li>
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 pb-4">
+            <Field label="Día">
+              <Select value={draft.scheduledOn} onChange={(e) => set('scheduledOn', e.target.value)}>
+                {weekDays(weekIndex).map((day) => (
+                  <option key={day} value={day}>
+                    {dayFmt.format(new Date(day))}
+                  </option>
                 ))}
-              </ol>
-              <p className={cn('mt-2 text-caption2', prescriptionEdited ? 'text-amber' : 'text-label-3')}>
-                {prescriptionEdited
-                  ? 'Al guardar, este desglose se sustituye por los valores de arriba.'
-                  : 'Viene del plan. Cambiar aquí una distancia o un ritmo lo sustituye.'}
-              </p>
+              </Select>
+            </Field>
+
+            <Field label="Tipo">
+              <Select value={draft.type} onChange={(e) => set('type', e.target.value)}>
+                {SESSION_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {SESSION_META[type].label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+
+            <Field label="Título">
+              <TextInput
+                value={draft.title}
+                placeholder={SESSION_META[draft.type as (typeof SESSION_TYPES)[number]].label}
+                onChange={(e) => set('title', e.target.value)}
+              />
+            </Field>
+
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Distancia (km)">
+                <TextInput
+                  inputMode="decimal"
+                  value={draft.distanceKm}
+                  placeholder="10"
+                  onChange={(e) => set('distanceKm', e.target.value)}
+                />
+              </Field>
+              <Field label="Duración (min)">
+                <TextInput
+                  inputMode="numeric"
+                  value={draft.durationMin}
+                  placeholder="45"
+                  onChange={(e) => set('durationMin', e.target.value)}
+                />
+              </Field>
             </div>
-          ) : null}
 
-          <Field label="Notas">
-            <TextArea
-              rows={3}
-              value={draft.notes}
-              placeholder="6×1000 a 3:50, 90 s de trote"
-              onChange={(e) => set('notes', e.target.value)}
-            />
-          </Field>
+            {/* One field, two inputs: a pace target is a band, and "Ritmo desde" over one
+                box and "Ritmo hasta" over another asked the reader to reassemble it. Not
+                wrapped in `Field` because that renders a `<label>`, and a label owns
+                exactly one control — each input carries its own name instead, worded the
+                way the validation message below refers to it. */}
+            <div>
+              <span className="text-caption2 uppercase tracking-[0.09em] text-label-3">
+                Ritmo objetivo (min/km)
+              </span>
+              <div className="mt-1 flex items-center gap-2">
+                <TextInput
+                  aria-label="El ritmo más rápido"
+                  inputMode="numeric"
+                  value={draft.paceLo}
+                  placeholder="3:47"
+                  onChange={(e) => set('paceLo', e.target.value)}
+                />
+                <span aria-hidden className="text-footnote text-label-3">
+                  –
+                </span>
+                <TextInput
+                  aria-label="El ritmo más lento"
+                  inputMode="numeric"
+                  value={draft.paceHi}
+                  placeholder="4:05"
+                  onChange={(e) => set('paceHi', e.target.value)}
+                />
+              </div>
+            </div>
 
-          {error ? <p className="text-xs text-red">{error}</p> : null}
-
-          <div className="flex gap-2 pt-1">
-            <Button variant="primary" className="flex-1" disabled={busy} onClick={() => void save()}>
-              {busy ? 'Guardando…' : 'Guardar'}
-            </Button>
-            <Button onClick={onClose} disabled={busy}>
-              Cancelar
-            </Button>
-            {session ? (
-              <Button variant="danger" onClick={() => void remove()} disabled={busy}>
-                Borrar
-              </Button>
+            {session?.steps?.length ? (
+              <div className="rounded-xl border border-line bg-surface-deep/30 px-3 py-2.5">
+                <p className="text-caption2 font-semibold uppercase tracking-[0.12em] text-label-3">
+                  Entrenamiento
+                </p>
+                <ol className="mt-2 space-y-1">
+                  {session.steps.map((step, i) => (
+                    <li key={i} className="text-caption leading-relaxed tabular-nums text-label-2">
+                      {formatStep(step)}
+                    </li>
+                  ))}
+                </ol>
+                <p className={cn('mt-2 text-caption2 leading-relaxed', prescriptionEdited ? 'text-amber' : 'text-label-3')}>
+                  {prescriptionEdited
+                    ? 'Al guardar, este desglose se sustituye por los valores de arriba.'
+                    : 'Viene del plan. Cambiar aquí una distancia o un ritmo lo sustituye.'}
+                </p>
+              </div>
             ) : null}
+
+            {/* Coaching prose only — the repetitions live in the steps above, where they
+                can be counted. */}
+            <Field label="Notas">
+              <TextArea
+                rows={3}
+                value={draft.notes}
+                placeholder="Terreno, cadencia, cuándo abortar."
+                onChange={(e) => set('notes', e.target.value)}
+              />
+            </Field>
+
+            {session ? (
+              <div className="pt-1">
+                <Button
+                  variant="danger"
+                  className="w-full"
+                  disabled={busy}
+                  onClick={() => (confirmingDelete ? void remove() : setConfirmingDelete(true))}
+                >
+                  {confirmingDelete ? 'Confirmar borrado' : 'Borrar sesión'}
+                </Button>
+                {confirmingDelete ? (
+                  <p className="mt-1.5 text-caption leading-relaxed text-label-3">
+                    Se borra del plan. Las salidas de Strava no se tocan.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="shrink-0 border-t border-line px-5 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3">
+            {error ? (
+              <p role="alert" className="mb-2 text-caption leading-relaxed text-red">
+                {error}
+              </p>
+            ) : null}
+            <div className="flex gap-2">
+              <Button className="flex-1" onClick={onClose} disabled={busy}>
+                Cancelar
+              </Button>
+              <Button variant="primary" className="flex-[2]" disabled={busy} onClick={() => void save()}>
+                {busy ? 'Guardando…' : 'Guardar'}
+              </Button>
+            </div>
           </div>
         </div>
       </div>

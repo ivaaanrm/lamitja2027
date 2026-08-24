@@ -2,13 +2,30 @@
 import Base from './Base.astro'
 import Dock from '../components/Dock.astro'
 import type { Tab } from '../lib/nav'
+import type { TransitionDirectionalAnimations } from 'astro'
 
 /**
- * The shell every signed-in page wears: one column sized for a phone, a large title that
+ * The shell every signed-in page wears: one column sized for a phone, a compact title that
  * scrolls away with the content, and the dock.
  *
  * The bottom padding is the dock's own height plus the home indicator, so the last card on
- * a page can be scrolled clear of the bar instead of ending underneath it.
+ * a page can be scrolled clear of the bar instead of ending underneath it. 4.75rem is the
+ * dock measured, not guessed: a 48px column plus the 4px the bar insets it by, top and
+ * bottom, is 3.5rem; the remaining 1.25rem covers the nav's own bottom inset and still
+ * leaves a card visibly clear of a bar it would otherwise be blurred through. Both sides
+ * add `env(safe-area-inset-bottom)` on top, so they move together on a notched phone —
+ * but change `h-12` or `p-1` in `Dock.astro` and this number has to move by hand.
+ *
+ * The column is tuned for density: cards sit `gap-2` apart rather than a full step, and
+ * the heading and its subtitle share one line-box each. The heading is `title2` off the
+ * ramp — it used to be `text-2xl`, a size belonging to no scale, and it cost a third of
+ * the first screen before a single number appeared.
+ *
+ * There is no brand eyebrow above the heading any more. It said "La Mitja 2027" on all
+ * four tabs, directly above a subtitle that on the home screen already says "La Mitja ·
+ * 24 de enero de 2027" — a line of chrome, repeated everywhere, naming the app to the one
+ * person who installed it. iOS puts the title first and the app's name on the home-screen
+ * icon; so does this now, and every screen starts ~16px higher for it.
  */
 interface Props {
   title: string
@@ -17,21 +34,91 @@ interface Props {
   tab: Tab
 }
 const { title, heading, sub, tab } = Astro.props
+
+/**
+ * The tab-to-tab cross-fade, on this app's own two motion tokens.
+ *
+ * It is the most-seen animation in the product — every tap on the dock plays it — and
+ * until now it was Astro's `fade` default: 180ms on `cubic-bezier(0.76, 0, 0.24, 1)`, an
+ * ease-in-out quart. That curve accelerates into the middle of the move and coasts out of
+ * it, which is exactly the web feel the rest of the motion layer was rewritten to get rid
+ * of. `--ease-ios` decelerates from the first frame, so at the same duration the new page
+ * is essentially there in the first hundred milliseconds and merely settles after: calm
+ * and quick, which is what a tab bar owes you.
+ *
+ * There is no travel in it. A slide is what iOS spends on a *hierarchical* push — the
+ * activity detail opening out of the log — and using it for a lateral tab switch is what
+ * makes four peers read as four levels. Apple's own tab bars swap with no animation at
+ * all; a short dissolve is the honest web equivalent.
+ *
+ * `mix-blend-mode: plus-lighter` on both halves is what stops the dissolve dipping through
+ * a dark hole at the midpoint: the two opacities sum to exactly 1 at every instant, so the
+ * page never loses brightness on the way across.
+ *
+ * The durations are `var()` rather than numbers because `::view-transition-*` inherits its
+ * custom properties from the root element, so the tokens in `global.css` reach in here —
+ * and this file gets to obey the same rule every component does about never typing a
+ * millisecond count. Reduced motion is already covered: `ClientRouter` ships a blanket
+ * `::view-transition-group(*) { animation: none !important }` under that media query.
+ */
+const timing = {
+  duration: 'var(--duration-standard)',
+  easing: 'var(--ease-ios)',
+  fillMode: 'both',
+}
+// Both directions are the same dissolve: there is no "back" between four peer tabs, so a
+// browser Back out of /progreso should look exactly like the tap that got you there.
+const pair = {
+  old: { name: 'page-swap-out', ...timing },
+  new: { name: 'page-swap-in', ...timing },
+}
+const pageSwap: TransitionDirectionalAnimations = { forwards: pair, backwards: pair }
 ---
 
 <Base title={title}>
   <main
-    transition:animate="fade"
-    class="mx-auto flex min-h-full max-w-lg flex-col gap-4 px-gutter pt-6 pb-[calc(6.5rem+env(safe-area-inset-bottom))]"
+    transition:name="page"
+    transition:animate={pageSwap}
+    class="mx-auto flex min-h-full max-w-lg flex-col gap-2 px-gutter pt-3 pb-[calc(4.75rem+env(safe-area-inset-bottom))]"
   >
-    <header class="px-1 pb-1">
-      <p class="text-caption2 font-semibold uppercase tracking-[0.16em] text-label-3">
-        La Mitja 2027
-      </p>
-      <h1 class="mt-1 text-2xl font-semibold tracking-[-0.035em] text-label">{heading}</h1>
-      {sub ? <p class="mt-1 text-caption text-label-2">{sub}</p> : null}
+    <header class="px-0.5 pb-0.5">
+      <h1 class="font-display text-title2 font-bold tracking-tight text-label">{heading}</h1>
+      {sub ? <p class="mt-0.5 text-footnote leading-relaxed text-label-2">{sub}</p> : null}
     </header>
     <slot />
   </main>
   <Dock tab={tab} />
 </Base>
+
+<style is:global>
+  /**
+   * The two halves of the page swap above.
+   *
+   * `is:global` because the animation is named from a `::view-transition-old/new` rule
+   * Astro writes into the document head — a scoped `@keyframes` would be renamed and the
+   * rule would point at nothing. Astro's own `astroFadeIn`/`astroFadeOut` would have done
+   * the same job, but they are internals of a package this repo has already been bitten
+   * by across a major version (see AGENTS.md gotcha 1), and they are ten lines.
+   */
+  @keyframes page-swap-in {
+    from {
+      opacity: 0;
+      mix-blend-mode: plus-lighter;
+    }
+    to {
+      opacity: 1;
+      mix-blend-mode: plus-lighter;
+    }
+  }
+
+  @keyframes page-swap-out {
+    from {
+      opacity: 1;
+      mix-blend-mode: plus-lighter;
+    }
+    to {
+      opacity: 0;
+      mix-blend-mode: plus-lighter;
+    }
+  }
+</style>

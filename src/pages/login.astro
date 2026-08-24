@@ -1,57 +1,171 @@
 ---
 import Base from '../layouts/Base.astro'
 export const prerender = true
+
+/**
+ * The one screen without a dock, and the app's first impression.
+ *
+ * It is allowed to breathe where the four tabs may not — this is the only screen in the
+ * product with a single decision on it, so the density rules that make a cockpit out of
+ * `/` would only make this one look unfinished. The generosity is still spent the same
+ * way: inside the card and around the one number, never on the outer grid, which keeps the
+ * page gutter every other screen uses.
+ *
+ * The composition is deliberately the same shape as a `HeroMetric` — an eyebrow, one large
+ * number, a line of context under it — because that is the shape the rest of the app opens
+ * with and a stranger should be able to tell these are the same product. It is written out
+ * here rather than imported: the primitive is a React component, and shipping a runtime to
+ * a page whose whole job is one password field would cost more than the four spans it
+ * saves.
+ *
+ * `1:19:59` is ink, not mint. Mint is state in this app — done, now, ahead, the primary
+ * action — and the goal time is none of those; it is the target. The mint on this screen
+ * is spent once, on the button.
+ */
 ---
 
 <Base title="La Mitja 2027">
-  <main class="mx-auto flex min-h-full max-w-sm flex-col justify-center gap-8 px-4 py-10 pb-[calc(2.5rem+env(safe-area-inset-bottom))]">
-    <header class="px-1">
-      <span class="performance-shadow grid size-16 place-items-center rounded-2xl border border-line bg-surface-raised">
-        <img src="/favicon.svg" alt="" class="size-10" />
+  <main
+    class="mx-auto flex min-h-full max-w-sm flex-col justify-center gap-5 px-gutter py-10 pb-[calc(2.5rem+env(safe-area-inset-bottom))]"
+  >
+    <header class="fade-up">
+      {/* The mark is the La Mitja course profile — the app's own trace motif, and the only
+          decoration on the screen. It carries no information the text below does not, so
+          it is a decorative image with an empty alt. */}
+      <span
+        class="performance-shadow grid size-16 place-items-center rounded-2xl border border-line bg-surface-raised"
+      >
+        <img src="/favicon.svg" alt="" width="40" height="40" class="size-10" />
       </span>
-      <p class="mt-8 text-caption2 font-semibold uppercase tracking-[0.16em] text-label-3">La Mitja · 24 ene 2027</p>
-      <h1 class="mt-2 text-3xl font-semibold tracking-[-0.04em]">Tu bloque hacia<br /><span class="data-number">1:19:59</span></h1>
-      <p class="mt-3 max-w-xs text-subhead leading-relaxed text-label-2">Plan, carga y progreso en un único cuaderno de rendimiento.</p>
+
+      <p class="mt-5 text-caption2 font-semibold uppercase tracking-[0.16em] text-label-3">
+        La Mitja · 24 ene 2027
+      </p>
+      <h1 class="mt-2">
+        <span class="block text-subhead text-label-2">Tu bloque hacia</span>
+        <span class="data-number mt-1 block font-display text-display font-bold leading-none text-label">
+          1:19:59
+        </span>
+      </h1>
+      <p class="mt-3 text-footnote leading-relaxed text-label-2">
+        Plan, carga y progreso en un único cuaderno de rendimiento.
+      </p>
     </header>
 
-    <form id="login" class="performance-shadow space-y-4 rounded-3xl border border-line bg-surface-raised p-5">
+    {/* 30ms behind the header — the stagger the rest of the app reveals lists at, so the
+        first thing anyone sees moves the way everything after it will. */}
+    <form
+      id="login"
+      novalidate
+      class="performance-shadow fade-up rounded-2xl border border-line bg-surface-raised p-4"
+      style="animation-delay: 30ms"
+    >
       <label class="block">
-        <span class="text-caption font-semibold text-label-2">Contraseña</span>
+        <span class="text-caption2 uppercase tracking-[0.09em] text-label-3">Contraseña</span>
+        {/*
+          The same control every form in the app uses (`CONTROL` in ui/index.tsx), one step
+          taller: 48px, matching the dock's columns and the button under it, because this
+          screen has exactly two targets on it and they should be the same size.
+
+          `text-body` is 17px and load-bearing — Safari zooms the whole page in on a focused
+          input whose text is under 16px, and on a screen with no dock to scroll back to,
+          that leaves you sideways with no way back.
+        */}
         <input
+          id="password"
           type="password"
           name="password"
           autocomplete="current-password"
-          placeholder="Tu contraseña"
+          enterkeyhint="go"
           required
-          class="mt-2 h-12 w-full rounded-2xl border border-line bg-surface-deep/35 px-4 text-body outline-none transition-colors placeholder:text-label-3 focus:border-line-strong focus:bg-fill"
+          aria-describedby="error"
+          class="motion-standard mt-1.5 h-12 w-full rounded-xl border border-line bg-surface-deep/35 px-3 text-body text-label outline-none transition-colors focus:border-line-strong focus:bg-fill aria-[invalid=true]:border-red"
         />
       </label>
+
+      {/* Under the field it belongs to, above the button — so the fix is next to the thing
+          that needs fixing, and the target the thumb is already over does not move. */}
+      <p id="error" role="alert" class="mt-2 hidden text-footnote leading-relaxed text-red"></p>
+
       <button
+        id="submit"
         type="submit"
-        class="h-12 w-full rounded-2xl bg-mint text-body font-semibold text-surface transition-[transform,opacity] active:scale-[0.98] active:opacity-80"
+        class="tappable mt-3 flex h-12 w-full items-center justify-center rounded-xl bg-mint text-body font-semibold text-surface disabled:opacity-40"
       >
         Entrar al bloque
       </button>
-      <p id="error" role="alert" class="hidden text-footnote text-red"></p>
     </form>
   </main>
 </Base>
 
 <script>
+  /**
+   * The whole screen is one request, so the button is the only place to report it.
+   *
+   * Three states, and every one of them says something in Spanish: idle, `Entrando…` while
+   * the request is out, and a sentence under the field when it comes back wrong. The
+   * version this replaces had none of the second and only one of the third — an unhandled
+   * rejection on a dropped connection left the form looking exactly like a form that had
+   * never been submitted.
+   */
   const form = document.querySelector<HTMLFormElement>('#login')!
+  const input = document.querySelector<HTMLInputElement>('#password')!
+  const button = document.querySelector<HTMLButtonElement>('#submit')!
   const error = document.querySelector<HTMLParagraphElement>('#error')!
+  const idle = button.textContent
+
+  function fail(message: string) {
+    error.textContent = message
+    error.classList.remove('hidden')
+    // Pairs the red rule on the field with the sentence, so the state is never carried by
+    // colour on its own, and puts the caret back where the correction has to happen.
+    input.setAttribute('aria-invalid', 'true')
+    input.focus()
+    input.select()
+  }
+
+  function clearError() {
+    error.classList.add('hidden')
+    input.removeAttribute('aria-invalid')
+  }
+
+  // Typing is the fix, so it is also what dismisses the message.
+  input.addEventListener('input', clearError)
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault()
-    error.classList.add('hidden')
+    clearError()
 
-    const response = await fetch('/api/login', { method: 'POST', body: new FormData(form) })
-    if (response.ok) {
-      location.href = '/'
+    // `novalidate` on the form: the browser's own bubble is unstyleable and phrases this
+    // in its own words, and an empty field posted straight through would come back as
+    // "contraseña incorrecta", which is the wrong thing to tell someone who typed nothing.
+    if (!input.value) {
+      fail('Escribe tu contraseña para entrar.')
       return
     }
 
-    error.textContent = 'Contraseña incorrecta'
-    error.classList.remove('hidden')
+    button.disabled = true
+    button.textContent = 'Entrando…'
+    form.setAttribute('aria-busy', 'true')
+
+    try {
+      const response = await fetch('/api/login', { method: 'POST', body: new FormData(form) })
+      if (response.ok) {
+        // A document load rather than a client-side navigation: the session cookie has
+        // just been set, and every island behind `/` reads it on mount. The button is
+        // deliberately left saying `Entrando…` — the page is already on its way out, and
+        // flicking it back to its idle label first would read as the attempt failing.
+        location.href = '/'
+        return
+      }
+      fail('Contraseña incorrecta.')
+    } catch {
+      // fetch only rejects on a transport failure, so this is "no hay red", never a 401.
+      fail('No se ha podido conectar. Vuelve a intentarlo.')
+    }
+
+    button.disabled = false
+    button.textContent = idle
+    form.removeAttribute('aria-busy')
   })
 </script>

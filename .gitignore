@@ -31,3 +31,5 @@ pnpm-debug.log*
 
 # wrangler local state
 .wrangler/
+
+.claude/*

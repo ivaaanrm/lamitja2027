@@ -2,50 +2,128 @@ import { useMemo, useState } from 'react'
 import { formatDuration, formatKm, formatPace, isRun, paceSKm } from '@/lib/activity'
 import { BLOCK_START, DAY_MS, startOfDay, startOfWeek } from '@/lib/block'
 import { BASELINE } from '@/lib/baseline'
-import { activityLoad, percentDelta, summarise, weeklyTotals } from '@/lib/analytics'
+import { percentDelta, summarise, weeklyTotals } from '@/lib/analytics'
 import { cn } from '@/lib/cn'
 import type { Activity } from '@/lib/db/schema'
 import { decimal } from '@/lib/format'
-import { ZONE_NAME, hrZone } from '@/lib/paces'
 import { SESSION_META, weekDays, type SessionType, type WeekPlan } from '@/lib/plan'
+import { ChartLegend } from './charts'
 import { useBlock } from './useBlock'
-import { ACCENT, Card, CardTitle, Chip, Delta, Segmented, Stat, ZONE_ACCENT } from './ui'
+import {
+  ACCENT,
+  Button,
+  CHEVRON_RIGHT,
+  Card,
+  CardTitle,
+  Delta,
+  EmptyState,
+  ErrorCard,
+  HeroMetric,
+  Icon,
+  Segmented,
+  Skeleton,
+  Stat,
+  StatStrip,
+  TextLink,
+} from './ui'
 
 /**
  * El registro: qué se ha hecho, semana a semana y salida a salida.
  *
- * The grid is the page's centre of gravity. Seven dots a row, sized by distance and
- * coloured by the session they answered, is a training block read as a texture — the
- * rhythm of hard days, the shape of a down week and a gap where a week went missing are
- * all visible before a single number is. The list underneath is for the one run you then
- * want to look at.
+ * Three tempos, in this order, and the order is the whole composition:
  *
- * Only weeks that have started are drawn. This is the log, not the plan; an empty row for
- * December is the planner's job, and `/plan` already does it.
+ *   1. **One number.** Kilometres over the chosen window, against the same window of
+ *      2025-26. It is the first thing on the screen because "how much have I run" is the
+ *      question this tab is opened with, and the segmented control sits *under* it — the
+ *      hero is the answer, the control is how you re-ask it.
+ *   2. **A texture.** Seven dots a row, sized by distance and coloured by the session they
+ *      answered, is a training block read as a shape: the rhythm of hard days, a down
+ *      week, a gap where a week went missing, all visible before a single number is.
+ *   3. **A list.** The one run you then want to look at, grouped by month and staggered in
+ *      as it arrives. Rows, not cards — a hundred cards is a hundred boxes doing one box's
+ *      work.
+ *
+ * That top-to-bottom gearing (one metric → one picture → many rows) is what keeps this tab
+ * from resolving into the same stack of cards as `/` and `/progreso`.
+ *
+ * Only weeks that have started are drawn on the grid. This is the log, not the plan; an
+ * empty row for December is the planner's job, and `/plan` already does it.
  */
 export function TrainingLog() {
-  const { data, now, error, weeks, currentWeek } = useBlock()
+  const { data, now, error, reload, weeks, currentWeek } = useBlock()
 
-  if (error && !data) {
-    return (
-      <Card>
-        <p className="text-sm text-red">{error}</p>
-      </Card>
-    )
-  }
-  if (!data) {
-    return (
-      <Card>
-        <p className="text-sm text-label-3">Cargando…</p>
-      </Card>
-    )
-  }
+  if (error && !data)
+    return <ErrorCard title="Sin datos del bloque" message={error} onRetry={() => void reload()} />
+  if (!data) return <LogSkeleton />
 
   return (
     <>
       <SummaryCard activities={data.activities} now={now} />
       <GridCard weeks={weeks} activities={data.activities} currentWeek={currentWeek} now={now} />
       <ActivityListCard activities={data.activities} weeks={weeks} />
+    </>
+  )
+}
+
+/**
+ * The screen, in outline, while `/api/data` is in flight.
+ *
+ * Shaped rather than generic: the hero block, the control and the three stats are where
+ * they will be, and the list is five rows of the real row height, so nothing jumps when
+ * the payload lands. `LoadingCard` was the obvious reach and it is the wrong shape here —
+ * it draws a title, a hero and three lines of prose, and this screen's first card has a
+ * segmented control and a stat strip in it.
+ *
+ * No `fade-up` on these: the skeleton already breathes, and the real cards fade up as they
+ * replace it. Two reveals over the same pixels inside half a second is a flicker, not a
+ * transition.
+ */
+function LogSkeleton() {
+  return (
+    <>
+      <Card aria-busy="true" aria-label="Cargando el registro">
+        <Skeleton className="h-2.5 w-24" />
+        <Skeleton className="mt-2 h-8 w-32" />
+        <Skeleton className="mt-2.5 h-3 w-48" />
+        <Skeleton className="mt-3 h-11 w-full rounded-xl" />
+        <div className="mt-3 grid grid-cols-3 gap-2.5">
+          {[0, 1, 2].map((i) => (
+            <div key={i}>
+              <Skeleton className="h-2.5 w-14" />
+              <Skeleton className="mt-1.5 h-4 w-12" />
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      <Card aria-hidden>
+        <Skeleton className="h-2.5 w-28" />
+        <div className="mt-3 space-y-3">
+          {[0, 1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-6 w-full" />
+          ))}
+        </div>
+      </Card>
+
+      <Card aria-hidden>
+        <Skeleton className="h-2.5 w-20" />
+        <Skeleton className="mt-2 h-11 w-full rounded-xl" />
+        <div className="mt-2">
+          {[0, 1, 2, 3, 4].map((i) => (
+            <div key={i} className="flex min-h-16 items-center gap-2 border-t border-line py-2.5">
+              <Skeleton className="h-8 w-[3px] rounded-full" />
+              <div className="min-w-0 flex-1">
+                <Skeleton className="h-3 w-2/3" />
+                <Skeleton className="mt-1.5 h-2.5 w-1/3" />
+              </div>
+              <div className="w-[4.5rem]">
+                <Skeleton className="ml-auto h-3 w-14" />
+                <Skeleton className="mt-1.5 ml-auto h-2.5 w-10" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
     </>
   )
 }
@@ -62,6 +140,13 @@ const RANGES: { value: Range; label: string }[] = [
   { value: 'block', label: 'Bloque' },
 ]
 
+/** The window said in full, above the number. The control below says it in three words. */
+const RANGE_LABEL: Record<Range, string> = {
+  week: 'Esta semana',
+  month: 'Últimos 28 días',
+  block: 'Bloque completo',
+}
+
 /** Where each range opens. All three end today, so the comparison window is the same. */
 function rangeStart(range: Range, today: number): number {
   if (range === 'week') return Math.max(BLOCK_START, startOfWeek(today))
@@ -69,6 +154,15 @@ function rangeStart(range: Range, today: number): number {
   return BLOCK_START
 }
 
+/**
+ * The screen's one hero: kilometres over the window, and what they were last season.
+ *
+ * This was a 2x2 grid of four equal numbers, which is four numbers and no answer. Distance
+ * is the one the tab is about, so it is the hero; mean pace became the hint under `Tiempo`
+ * rather than a column of its own, because a pace *is* time over distance and reads as
+ * that number's context. Three columns is what is left, and three columns at 375px leave
+ * every hint enough width to say what its number is measured against.
+ */
 function SummaryCard({ activities, now }: { activities: Activity[]; now: number }) {
   const [range, setRange] = useState<Range>('week')
   const today = startOfDay(now)
@@ -85,38 +179,52 @@ function SummaryCard({ activities, now }: { activities: Activity[]; now: number 
 
   const km = season.totals.distanceM / 1000
   const lastKm = last.totals.distanceM / 1000
+  const ran = season.totals.runs > 0
+
+  // One sentence, and it changes with what there is to say. A hero number with no context
+  // line is trivia; "0,0 km" with no explanation is a bug wearing a number's clothes.
+  const context = ran
+    ? lastKm > 0
+      ? `Frente a ${decimal(lastKm)} km en la misma ventana de 2025-26.`
+      : 'En 2025-26 el bloque todavía no había empezado a estas alturas.'
+    : lastKm > 0
+      ? `Sin salidas todavía; la temporada pasada llevaba ${decimal(lastKm)} km.`
+      : 'Todavía sin salidas en esta ventana.'
 
   return (
-    <Card>
-      <Segmented options={RANGES} value={range} onChange={setRange} />
+    <Card className="fade-up">
+      <HeroMetric
+        eyebrow={RANGE_LABEL[range]}
+        value={decimal(km)}
+        unit="km"
+        context={context}
+        // The delta and the sentence are one reading: the arrow-free sign says which way,
+        // the sentence says against what. Lifted a step off `caption` so it holds its own
+        // beside a 34px number without becoming a second focal point.
+        trailing={
+          lastKm > 0 ? <Delta value={percentDelta(km, lastKm)} className="text-subhead" /> : undefined
+        }
+      />
 
-      <dl className="mt-5 grid grid-cols-2 gap-y-5">
-        <Stat
-          label="Kilómetros"
-          value={decimal(km)}
-          hint={lastKm > 0 ? `${decimal(lastKm)} la temporada pasada` : 'sin referencia'}
-        />
+      <Segmented options={RANGES} value={range} onChange={setRange} className="mt-3" />
+
+      <StatStrip className="mt-3">
         <Stat
           label="Salidas"
           value={season.totals.runs}
           hint={`${season.consistency.daysRun} de ${season.consistency.days} días`}
         />
-        <Stat label="Tiempo" value={formatDuration(season.totals.movingS)} hint="en movimiento" />
         <Stat
-          label="Desnivel"
-          value={`${decimal(season.totals.elevationM, 0)} m`}
+          label="Tiempo"
+          value={formatDuration(season.totals.movingS)}
           hint={
-            season.totals.meanPaceSKm ? `${formatPace(season.totals.meanPaceSKm)}/km de media` : '—'
+            season.totals.meanPaceSKm
+              ? `${formatPace(season.totals.meanPaceSKm)}/km de media`
+              : 'en movimiento'
           }
         />
-      </dl>
-
-      {lastKm > 0 ? (
-        <p className="mt-5 flex items-center gap-2 text-xs text-label-3">
-          <Delta value={percentDelta(km, lastKm)} />
-          <span>frente a la temporada pasada en la misma ventana.</span>
-        </p>
-      ) : null}
+        <Stat label="Desnivel" value={`${decimal(season.totals.elevationM, 0)} m`} hint="de subida" />
+      </StatStrip>
     </Card>
   )
 }
@@ -186,27 +294,28 @@ function GridCard({
   const hasUnplanned = drawn.has(null)
 
   return (
-    <Card>
+    <Card className="fade-up">
       <CardTitle
         action={
-          <a href="/plan" className="-my-2 inline-flex min-h-11 items-center px-2 text-xs text-label-2 underline underline-offset-4">
+          <TextLink href="/plan" inset>
             Ver plan
-          </a>
+          </TextLink>
         }
       >
         Semana a semana
       </CardTitle>
 
-      {/* Same column structure as a row — spacer, seven cells, spacer — so the letters sit
-          over the dots rather than drifting by the width of two gaps. */}
-      <div className="flex items-center gap-1 text-caption2 text-label-4">
+      {/* Same column structure as a row — spacer, seven cells, total — so the letters sit
+          over the dots rather than drifting by the width of two gaps, and `km` names the
+          column it heads instead of being explained in a paragraph underneath. */}
+      <div className="flex items-center gap-1 text-caption2 text-label-3">
         <span className="w-6 shrink-0" />
         {WEEKDAYS.map((day, i) => (
           <span key={i} className="flex-1 text-center">
             {day}
           </span>
         ))}
-        <span className="w-[3.25rem] shrink-0" />
+        <span className="w-[3.25rem] shrink-0 pl-1 text-right">km</span>
       </div>
 
       <ol className="mt-1">
@@ -215,16 +324,28 @@ function GridCard({
           const lastKm = lastWeekly[week.weekIndex]
             ? lastWeekly[week.weekIndex]!.distanceM / 1000
             : null
+          const isCurrent = week.weekIndex === currentWeek
 
           return (
             <li
               key={week.weekIndex}
+              // The week being run is marked twice over: the mint wash, and its label in
+              // mint at a heavier weight. Colour alone would leave the row unmarked for
+              // anyone who cannot separate the two grounds.
+              aria-current={isCurrent ? 'true' : undefined}
               className={cn(
                 'flex items-center gap-1 border-t border-line py-1.5',
-                week.weekIndex === currentWeek && 'bg-mint/[0.07]',
+                isCurrent && 'bg-mint/[0.07]',
               )}
             >
-              <span className="data-number w-6 shrink-0 text-caption2 text-label-4">
+              <span
+                className={cn(
+                  'data-number w-6 shrink-0 text-caption2',
+                  // `label-3`, not `label-4`: a week number is data — it is how a row is
+                  // named — and `label-4` is the one step that misses AA.
+                  isCurrent ? 'font-semibold text-mint' : 'text-label-3',
+                )}
+              >
                 S{week.weekIndex + 1}
               </span>
 
@@ -235,14 +356,17 @@ function GridCard({
               <span className="w-[3.25rem] shrink-0 pl-1 text-right">
                 <span
                   className={cn(
-                    'data-number block text-xs',
+                    'data-number block text-caption',
                     km > 0 ? 'text-label' : 'text-label-4',
                   )}
                 >
                   {km > 0 ? decimal(km) : '–'}
                 </span>
+                {/* Last season is data, not chrome, so it reads at `label-3` — the quiet
+                    step that still clears AA — one size down rather than one shade too
+                    faint to be read at all. */}
                 {lastKm != null ? (
-                  <span className="data-number block text-caption2 text-label-4">
+                  <span className="data-number block text-caption2 text-label-3">
                     {decimal(lastKm)}
                   </span>
                 ) : null}
@@ -253,27 +377,36 @@ function GridCard({
       </ol>
 
       {/* Only the kinds actually on the grid, so the key never explains a colour that is
-          not there — and shrinks to nothing in the first week of a block. */}
-      <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-caption2 text-label-3">
-        {kinds.map((type) => (
-          <span key={type} className="flex items-center gap-1.5">
-            <span className={cn('size-2 rounded-full', ACCENT[type].rail)} />
-            {SESSION_META[type].label}
-          </span>
-        ))}
-        {hasUnplanned ? (
-          <span className="flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-label-2" />
-            Sin planificar
-          </span>
-        ) : null}
-      </div>
+          not there. On an empty grid it explains nothing at all, and a key with no entries
+          over a caption describing dots that are not there is the emptiest kind of empty
+          state — so the whole footer becomes one sentence instead. */}
+      {kinds.length > 0 || hasUnplanned ? (
+        <>
+          <ChartLegend
+            className="mt-2"
+            items={[
+              ...kinds.map((type) => ({
+                label: SESSION_META[type].label,
+                className: ACCENT[type].rail,
+                shape: 'dot' as const,
+              })),
+              ...(hasUnplanned
+                ? [{ label: 'Sin planificar', className: 'bg-label-2', shape: 'dot' as const }]
+                : []),
+            ]}
+          />
 
-      <p className="mt-3 text-caption2 leading-relaxed text-label-3">
-        Cada punto es un día, con el área proporcional a los kilómetros y el color de la sesión
-        que cumplió. El número gris de la derecha es la misma semana de 2025-26, a la misma
-        distancia del día de carrera.
-      </p>
+          <p className="mt-2 text-caption2 leading-relaxed text-label-3">
+            El área de cada punto son sus kilómetros. Debajo del total, en gris, la misma
+            semana de 2025-26 a la misma distancia del día de carrera.
+          </p>
+        </>
+      ) : (
+        <EmptyState className="mt-1">
+          Aún no hay ningún día que dibujar. Cada salida aparecerá aquí como un punto del
+          tamaño de sus kilómetros, con el color de la sesión que cumplió.
+        </EmptyState>
+      )}
     </Card>
   )
 }
@@ -284,8 +417,26 @@ function Dot({ cell, peak }: { cell: DayCell; peak: number }) {
 
   return (
     <span
-      className="flex flex-1 items-center justify-center"
+      // Today is marked on the cell rather than on the dot, so the mark survives a day
+      // that was actually run — the old ring only ever showed on an empty square, which
+      // is precisely the day you are least likely to be looking for.
+      className={cn(
+        'flex flex-1 items-center justify-center',
+        cell.isToday && 'rounded-md bg-ink/[0.07]',
+      )}
       style={{ height: DOT_MAX }}
+      // The kilometres are drawn as area and nothing else, so the reading has to be in the
+      // accessibility tree as well: `title` is a desktop bonus, and a phone has no hover to
+      // put one behind. Days with nothing on them stay silent — seven "sin salida" a week
+      // is noise, not information.
+      role={cell.distanceM > 0 ? 'img' : undefined}
+      aria-label={
+        cell.distanceM > 0
+          ? `${dayFmt.format(new Date(cell.date))}: ${decimal(cell.distanceM / 1000)} km${
+              cell.type ? ` · ${SESSION_META[cell.type].label}` : ''
+            }`
+          : undefined
+      }
       title={
         cell.distanceM > 0
           ? `${decimal(cell.distanceM / 1000)} km`
@@ -296,18 +447,14 @@ function Dot({ cell, peak }: { cell: DayCell; peak: number }) {
     >
       {size > 0 ? (
         <span
-          className={cn(
-            'rounded-full',
-            cell.type ? ACCENT[cell.type].rail : 'bg-label-2',
-          )}
+          className={cn('rounded-full', cell.type ? ACCENT[cell.type].rail : 'bg-label-2')}
           style={{ width: size, height: size }}
         />
       ) : (
+        // Hollow, not filled: an empty today is a day still to run, and a solid dot the
+        // size of a short one would read as a run that already happened.
         <span
-          className={cn(
-            'rounded-full',
-            cell.isToday ? 'size-2 ring-1 ring-label-3' : 'size-1 bg-fill',
-          )}
+          className={cn('rounded-full', cell.isToday ? 'size-2 ring-1 ring-label-3' : 'size-1 bg-fill')}
         />
       )}
     </span>
@@ -326,120 +473,195 @@ const FILTERS: { value: Filter; label: string }[] = [
   { value: 'other', label: 'Otros' },
 ]
 
-const monthFmt = new Intl.DateTimeFormat('es-ES', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+/** Why the list is empty, per filter — the sentence, not the shrug. */
+const EMPTY_COPY: Record<Filter, string> = {
+  all: 'Todavía no hay ninguna actividad dentro del bloque. Strava se sincroniza cada noche y cada salida aparece aquí en cuanto lo hace.',
+  run: 'Todavía no hay ninguna carrera dentro del bloque.',
+  other: 'Nada fuera de correr todavía: la fuerza, la bici y el cruzado aparecen en esta vista.',
+}
+
+const monthFmt = new Intl.DateTimeFormat('es-ES', {
+  month: 'long',
+  year: 'numeric',
+  timeZone: 'UTC',
+})
+// The month is the group heading, so the row only has to say which day of it this was.
 const dayFmt = new Intl.DateTimeFormat('es-ES', {
   weekday: 'short',
   day: 'numeric',
-  month: 'short',
   timeZone: 'UTC',
 })
+
+interface MonthGroup {
+  label: string
+  items: Activity[]
+  distanceM: number
+}
 
 function ActivityListCard({ activities, weeks }: { activities: Activity[]; weeks: WeekPlan[] }) {
   const [filter, setFilter] = useState<Filter>('all')
 
-  /** Which prescribed session each activity answered — the plan, read backwards. */
+  /**
+   * Which prescribed session each activity answered — the plan, read backwards.
+   *
+   * The type is all a row needs: it names the session ("Series") and picks the rail's
+   * hue, while the activity's own Strava name is already the row's title.
+   */
   const answered = useMemo(() => {
-    const map = new Map<number, { title: string; type: SessionType }>()
+    const map = new Map<number, SessionType>()
     for (const week of weeks) {
       for (const match of week.sessions) {
-        if (match.activity) {
-          map.set(match.activity.id, { title: match.session.title, type: match.session.type })
-        }
+        if (match.activity) map.set(match.activity.id, match.session.type)
       }
     }
     return map
   }, [weeks])
 
-  const shown = useMemo(
-    () =>
-      activities
-        .filter((a) =>
-          filter === 'all' ? true : filter === 'run' ? isRun(a.sportType) : !isRun(a.sportType),
-        )
-        .sort((a, b) => b.startedOn - a.startedOn),
-    [activities, filter],
-  )
+  // Grouped as the list walks backwards through the calendar, so a month heading is a
+  // real heading over a real list rather than a paragraph smuggled into the first row.
+  const groups = useMemo(() => {
+    const shown = activities
+      .filter((a) =>
+        filter === 'all' ? true : filter === 'run' ? isRun(a.sportType) : !isRun(a.sportType),
+      )
+      .sort((a, b) => b.startedOn - a.startedOn)
 
-  // One heading per month, emitted as the list walks backwards through it.
-  let month: string | null = null
+    const out: MonthGroup[] = []
+    for (const activity of shown) {
+      const label = monthFmt.format(new Date(activity.startedOn))
+      const open = out.at(-1)
+      if (open && open.label === label) {
+        open.items.push(activity)
+        open.distanceM += activity.distanceM
+      } else {
+        out.push({ label, items: [activity], distanceM: activity.distanceM })
+      }
+    }
+    return out
+  }, [activities, filter])
+
+  const count = groups.reduce((sum, group) => sum + group.items.length, 0)
+
+  // The stagger counts rows, not groups, so the reveal cascades down the screen once
+  // rather than restarting at every month. Capped at the eighth: a ninth row waiting a
+  // third of a second to exist is a loading screen, not a reveal.
+  let revealed = 0
 
   return (
     <Card>
-      <CardTitle>Actividades</CardTitle>
+      <CardTitle
+        action={
+          count > 0 ? (
+            <span className="data-number text-caption2 text-label-3">{count}</span>
+          ) : undefined
+        }
+      >
+        Actividades
+      </CardTitle>
       <Segmented options={FILTERS} value={filter} onChange={setFilter} />
 
-      {shown.length === 0 ? (
-        <p className="mt-5 text-sm text-label-3">Nada todavía en esta vista.</p>
+      {count === 0 ? (
+        <EmptyState
+          className="mt-3"
+          action={
+            filter === 'all' ? undefined : <Button onClick={() => setFilter('all')}>Ver todo</Button>
+          }
+        >
+          {EMPTY_COPY[filter]}
+        </EmptyState>
       ) : (
-        <ul className="mt-2">
-          {shown.map((activity) => {
-            const heading = monthFmt.format(new Date(activity.startedOn))
-            const isNewMonth = heading !== month
-            month = heading
-
-            return (
-              <li key={activity.id}>
-                {isNewMonth ? (
-                  <p className="mt-4 mb-1 text-caption2 font-medium uppercase tracking-widest text-label-3 first:mt-0">
-                    {heading}
-                  </p>
-                ) : null}
-                <ActivityRow activity={activity} answered={answered.get(activity.id) ?? null} />
-              </li>
-            )
-          })}
-        </ul>
+        groups.map((group) => (
+          <div key={group.label} className="mt-3 first:mt-2">
+            <div className="flex items-baseline justify-between gap-2 px-0.5">
+              <h3 className="text-caption2 font-medium uppercase tracking-[0.12em] text-label-3">
+                {group.label}
+              </h3>
+              {/* Only when it means something: a month of strength work totals 0 km, and
+                  a zero there would read as a month that went unrun. */}
+              {group.distanceM > 0 ? (
+                <span className="data-number text-caption2 text-label-3">
+                  {formatKm(group.distanceM)} km
+                </span>
+              ) : null}
+            </div>
+            <ul>
+              {group.items.map((activity) => {
+                const delay = Math.min(revealed++, 7) * 30
+                return (
+                  <li
+                    key={activity.id}
+                    className="fade-up"
+                    style={{ animationDelay: `${delay}ms` }}
+                  >
+                    <ActivityRow activity={activity} answered={answered.get(activity.id) ?? null} />
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        ))
       )}
     </Card>
   )
 }
 
+/**
+ * One row of the log, and the entry point to `/actividad`.
+ *
+ * A row, emphatically not a card: at a hundred and fifty activities a card apiece is a
+ * hundred and fifty boxes doing one box's work. The rhythm comes from a hairline and a
+ * 64px floor instead, which is also comfortably past the 44px a thumb needs.
+ *
+ * The right-hand numbers sit in a fixed-width column so they line up down the whole list —
+ * the difference between a list you scan and a list you read. Which number leads depends
+ * on what the activity actually measured: a strength session has no distance, and `0,0 km`
+ * is a number that says nothing.
+ */
 function ActivityRow({
   activity,
   answered,
 }: {
   activity: Activity
-  answered: { title: string; type: SessionType } | null
+  /** The type of the prescribed session this answered, if it answered one. */
+  answered: SessionType | null
 }) {
   const run = isRun(activity.sportType)
+  const measured = activity.distanceM > 0
+  const primary = measured ? `${formatKm(activity.distanceM)} km` : formatDuration(activity.movingS)
+  const secondary = !measured
+    ? null
+    : run
+      ? `${formatPace(paceSKm(activity.distanceM, activity.movingS))}/km`
+      : formatDuration(activity.movingS)
 
   return (
     <a
       href={`/actividad?id=${activity.id}`}
-      className="flex min-h-16 items-center gap-3 border-t border-line py-2.5 transition-opacity active:opacity-60"
+      className="tappable flex min-h-16 items-center gap-2 border-t border-line py-2.5"
     >
       <span
         aria-hidden
         className={cn(
           'h-8 w-[3px] shrink-0 rounded-full',
-          answered ? ACCENT[answered.type].rail : 'bg-fill',
+          answered ? ACCENT[answered].rail : 'bg-fill-strong',
         )}
       />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm">{activity.name}</span>
-        <span className="block text-xs text-label-3">
+        <span className="block truncate text-footnote text-label">{activity.name}</span>
+        {/* The rail's colour is repeated as a word here, so the session type is never
+            carried by the hue alone. */}
+        <span className="block truncate text-caption text-label-3">
           {dayFmt.format(new Date(activity.startedOn))}
-          {answered ? ` · ${SESSION_META[answered.type].label}` : ''}
+          {answered ? ` · ${SESSION_META[answered].label}` : ''}
         </span>
       </span>
-      <span className="shrink-0 text-right">
-        <span className="data-number block text-sm">{formatKm(activity.distanceM)} km</span>
-        <span className="data-number block text-xs text-label-3">
-          {run ? `${formatPace(paceSKm(activity.distanceM, activity.movingS))}/km` : formatDuration(activity.movingS)}
-        </span>
+      <span className="w-[4.5rem] shrink-0 text-right">
+        <span className="data-number block text-footnote font-semibold text-label">{primary}</span>
+        {secondary ? (
+          <span className="data-number block text-caption text-label-3">{secondary}</span>
+        ) : null}
       </span>
-      <svg
-        aria-hidden
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className="size-4 shrink-0 text-label-4"
-      >
-        <path d="m9 6 6 6-6 6" />
-      </svg>
+      <Icon path={CHEVRON_RIGHT} className="text-label-4" />
     </a>
   )
 }
