@@ -158,7 +158,14 @@ Tailwind classes so a chart is styled like everything else on the page.
 5. **The handler export is named**: `import { handle } from '@astrojs/cloudflare/handler'`.
    There is no default export with a `.fetch` property.
 6. **Deploy uses the generated config**: `wrangler deploy -c dist/server/wrangler.json`.
-   A bare `wrangler deploy` resolves `assets.directory` wrongly.
+   A bare `wrangler deploy` reads the root config instead, whose `main` is the *source*
+   entrypoint — wrangler's own esbuild cannot resolve Astro's virtual modules
+   (`virtual:astro:app`, `astro:assets`, `virtual:astro-cloudflare:config`) and the deploy
+   fails outright; even past that it resolves `assets.directory` wrongly. CI is Cloudflare
+   Workers Builds, whose commands live in the dashboard rather than in the repo — build
+   `pnpm test && pnpm build`, deploy and version both `-c dist/server/wrangler.json`. A
+   dashboard left on the default bare `npx wrangler deploy` with no build command is the
+   one way this bites in CI while `pnpm deploy` passes locally.
 7. **D1 allows at most 100 bound parameters per query** — far tighter than SQLite's 999.
    Batch inserts derive rows-per-statement from the column count (`src/lib/sync.ts`) so
    adding a column cannot silently push a statement over the limit.
