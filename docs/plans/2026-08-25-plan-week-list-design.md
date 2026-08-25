@@ -33,6 +33,9 @@ The week anchor leaves `env(safe-area-inset-top)` plus the 12 px page gutter abo
 header. The body's safe-area padding only protects content at the top of the document and
 scrolls away with it; putting the inset into `scroll-margin-top` keeps every programmatic
 week focus below the iPhone status area in both browser and installed-PWA modes.
+The scroll runs after the new disclosure finishes opening, when the closing week can no
+longer move the target's document position; scrolling from the click handler would aim at
+transient geometry and can miss the final header position on iOS.
 
 The loading state uses the same subtle phase surface and divider-based rows so the page does
 not briefly render individual card shapes before the data arrives. All existing data flow,
