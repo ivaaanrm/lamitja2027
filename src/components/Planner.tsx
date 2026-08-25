@@ -112,10 +112,12 @@ function groupPhases(weekly: WeekMetrics[]): PhaseGroup[] {
 function CollapsiblePanel({
   id,
   open,
+  onOpened,
   children,
 }: {
   id: string
   open: boolean
+  onOpened?: () => void
   children: ReactNode
 }) {
   const [present, setPresent] = useState(open)
@@ -143,12 +145,10 @@ function CollapsiblePanel({
         expanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
       )}
       onTransitionEnd={(event) => {
-        if (
-          event.target === event.currentTarget &&
-          event.propertyName === 'grid-template-rows' &&
-          !open
-        )
-          setPresent(false)
+        if (event.target !== event.currentTarget || event.propertyName !== 'grid-template-rows')
+          return
+        if (open) onOpened?.()
+        else setPresent(false)
       }}
     >
       {present ? (
@@ -209,13 +209,9 @@ export function Planner() {
   const today = startOfDay(now)
   const phases = groupPhases(weekly)
 
-  function toggleWeek(weekIndex: number) {
-    const opening = weekIndex !== expanded
-    setOpen(opening ? weekIndex : -1)
-    if (!opening) return
-
-    // Wait until React has closed the previous row and laid this one out. Scrolling before
-    // that reflow lands at the old position whenever the previously open week sat above it.
+  function scrollToWeek(weekIndex: number) {
+    // The disclosure's transition has settled before this callback. One final frame lets
+    // the browser commit that geometry before `scrollIntoView` reads the target position.
     requestAnimationFrame(() => {
       document.getElementById(`semana-${weekIndex}`)?.scrollIntoView({
         block: 'start',
@@ -224,6 +220,11 @@ export function Planner() {
           : 'smooth',
       })
     })
+  }
+
+  function toggleWeek(weekIndex: number) {
+    const opening = weekIndex !== expanded
+    setOpen(opening ? weekIndex : -1)
   }
 
   return (
@@ -261,6 +262,7 @@ export function Planner() {
                     }
                     isOpen={week.weekIndex === expanded}
                     onOpen={() => toggleWeek(week.weekIndex)}
+                    onOpened={() => scrollToWeek(week.weekIndex)}
                     onReload={reload}
                     onToggle={toggle}
                     onEdit={(session) => setEditing({ weekIndex: week.weekIndex, session })}
@@ -368,6 +370,7 @@ function WeekRow({
   isOpen,
   today,
   onOpen,
+  onOpened,
   onReload,
   onToggle,
   onEdit,
@@ -383,6 +386,7 @@ function WeekRow({
   /** UTC midnight of the current local day. */
   today: number
   onOpen: () => void
+  onOpened: () => void
   onReload: () => Promise<void>
   onToggle: (match: MatchedSession) => void
   onEdit: (session: PlanSession) => void
@@ -404,9 +408,10 @@ function WeekRow({
   return (
     <section
       id={`semana-${week.weekIndex}`}
-      // The scroll margin is for the jump above: landing flush against the top of the
-      // viewport reads as clipped, a gutter short of it reads as scrolled to.
-      className="fade-up scroll-mt-3 overflow-hidden"
+      // Body padding protects only the document's first paint and scrolls away. Every
+      // programmatic week focus needs its own notch inset, plus the normal page gutter so
+      // the row reads as deliberately placed rather than merely not clipped.
+      className="fade-up scroll-mt-[calc(env(safe-area-inset-top)+var(--spacing-gutter))] overflow-hidden"
       style={{ animationDelay: `${Math.min(index, 7) * 30}ms` }}
     >
       <button
@@ -472,7 +477,11 @@ function WeekRow({
           the header from what unfolds under it. */}
       {showBar ? <ProgressBar value={km} target={targetKm} className="h-1 rounded-none" /> : null}
 
-      <CollapsiblePanel id={`contenido-semana-${week.weekIndex}`} open={isOpen}>
+      <CollapsiblePanel
+        id={`contenido-semana-${week.weekIndex}`}
+        open={isOpen}
+        onOpened={onOpened}
+      >
         <div className={cn('px-3 pb-3 pt-2.5', !showBar && 'border-t border-line')}>
           {hasContent ? (
             <>
