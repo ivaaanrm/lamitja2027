@@ -303,15 +303,16 @@
 }
 
 /**
- * The motion layer: two energies, and everything else is press feedback.
+ * The motion layer: two entrance energies, one disclosure, and press feedback.
  *
  * The rule this replaces said "nothing here animates to convey meaning". That was true of
  * a set of screens with no reveal on them, and it is the wrong target: the calm in a
  * native training app does not come from stillness, it comes from every element moving in
- * the same two ways. So there are exactly two named energies, both cheap (transform and
- * opacity only — never a width, a height or a top, which would put layout on the
- * compositor's critical path), and both landing on their resting state so
- * `prefers-reduced-motion` can collapse them to nothing without leaving a hole.
+ * the same few ways. There are exactly two named entrance energies, both cheap (transform
+ * and opacity only), and both land on their resting state so `prefers-reduced-motion` can
+ * collapse them to nothing without leaving a hole. `/plan` adds the one layout transition:
+ * a single disclosure panel moving between 0fr and 1fr, because a collapsible cannot show
+ * its closing state after its content has already left the DOM.
  *
  *   `fade-up`    — a card, a stat strip or a list row arriving. 12px of travel, no more:
  *                  past about 16px the eye reads it as a slide rather than as a settle.
@@ -462,7 +463,7 @@
  * class order rather than about design.
  */
 @utility tappable {
-  transition-property: transform, opacity, background-color, color, border-color;
+  transition-property: transform, opacity, background-color, color, border-color, box-shadow;
   transition-duration: var(--duration-press);
   transition-timing-function: var(--ease-ios);
 

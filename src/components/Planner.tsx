@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { TOTAL_WEEKS, startOfDay } from '@/lib/block'
 import { cn } from '@/lib/cn'
 import { decimal } from '@/lib/format'
@@ -85,6 +85,81 @@ function prescribedM(week: WeekPlan, metrics: WeekMetrics): number {
 /** Where a week sits relative to today — which decides what its row is allowed to claim. */
 type WeekState = 'past' | 'current' | 'future'
 
+interface PhaseGroup {
+  phase: string | null
+  from: number
+  to: number
+}
+
+/** Consecutive weeks with the same phase become one visual block. */
+function groupPhases(weekly: WeekMetrics[]): PhaseGroup[] {
+  return weekly.reduce<PhaseGroup[]>((groups, metrics, index) => {
+    const current = groups[groups.length - 1]
+    if (current?.phase === metrics.phase) current.to = index
+    else groups.push({ phase: metrics.phase, from: index, to: index })
+    return groups
+  }, [])
+}
+
+/**
+ * Keeps a panel in the DOM just long enough to animate closed, then removes it.
+ *
+ * A permanently mounted accordion would make the browser build every session card in all
+ * 23 weeks on every visit. Conditional rendering alone avoids that work but can only pop
+ * closed, because there is nothing left to animate. This small presence layer gets both:
+ * intrinsic-height motion through a 0fr/1fr grid, and no hidden plan tree after it settles.
+ */
+function CollapsiblePanel({
+  id,
+  open,
+  children,
+}: {
+  id: string
+  open: boolean
+  children: ReactNode
+}) {
+  const [present, setPresent] = useState(open)
+  const [expanded, setExpanded] = useState(open)
+
+  useEffect(() => {
+    if (open) setPresent(true)
+    else setExpanded(false)
+  }, [open])
+
+  // The closed frame has to paint once after mounting; otherwise the browser sees a new
+  // element already at 1fr and has no previous value to animate from.
+  useEffect(() => {
+    if (!present || !open || expanded) return
+    const frame = requestAnimationFrame(() => setExpanded(true))
+    return () => cancelAnimationFrame(frame)
+  }, [present, open, expanded])
+
+  return (
+    <div
+      id={id}
+      aria-hidden={!open}
+      className={cn(
+        'motion-standard grid transition-[grid-template-rows,opacity]',
+        expanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
+      )}
+      onTransitionEnd={(event) => {
+        if (
+          event.target === event.currentTarget &&
+          event.propertyName === 'grid-template-rows' &&
+          !open
+        )
+          setPresent(false)
+      }}
+    >
+      {present ? (
+        <div inert={!open} className="min-h-0 overflow-hidden">
+          {children}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export function Planner() {
   const { data, error, now, reload, weeks, progress, currentWeek } = useBlock()
   const [open, setOpen] = useState<number | null>(null)
@@ -106,7 +181,8 @@ export function Planner() {
    * restored a scroll offset — Astro's `ClientRouter` does that on a back navigation, and
    * yanking the page away from where someone left it is worse than opening at the top.
    * `document` is read here rather than in the body because this island is also rendered
-   * during prerender, in a Worker (AGENTS gotcha 15); `Card` forwards the `id` it needs.
+   * during prerender, in a Worker (AGENTS gotcha 15); the week section owns the `id` it
+   * needs.
    */
   useEffect(() => {
     if (jumped || !data || open !== null) return
@@ -131,6 +207,7 @@ export function Planner() {
 
   const weekly = progress.weekly
   const today = startOfDay(now)
+  const phases = groupPhases(weekly)
 
   function toggleWeek(weekIndex: number) {
     const opening = weekIndex !== expanded
@@ -140,7 +217,12 @@ export function Planner() {
     // Wait until React has closed the previous row and laid this one out. Scrolling before
     // that reflow lands at the old position whenever the previously open week sat above it.
     requestAnimationFrame(() => {
-      document.getElementById(`semana-${weekIndex}`)?.scrollIntoView({ block: 'start' })
+      document.getElementById(`semana-${weekIndex}`)?.scrollIntoView({
+        block: 'start',
+        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+          ? 'auto'
+          : 'smooth',
+      })
     })
   }
 
@@ -149,39 +231,47 @@ export function Planner() {
       <BlockHeader week={weeks[currentWeek]!} metrics={weekly[currentWeek]!} />
 
       <div className="flex flex-col gap-2">
-        {weeks.map((week, i) => {
-          const metrics = weekly[i]!
-          // A phase name repeated down seven consecutive rows is six rows of noise; said
-          // once, over the block it labels, it is the map of the whole 23 weeks.
-          const openingPhase = metrics.phase && metrics.phase !== weekly[i - 1]?.phase
-          return (
-            <Fragment key={week.weekIndex}>
-              {openingPhase ? (
-                <PhaseHeading phase={metrics.phase!} from={i} weekly={weekly} />
-              ) : null}
-              <WeekRow
-                week={week}
-                metrics={metrics}
-                index={i}
-                today={today}
-                state={
-                  week.weekIndex === currentWeek
-                    ? 'current'
-                    : week.weekIndex < currentWeek
-                      ? 'past'
-                      : 'future'
-                }
-                isOpen={week.weekIndex === expanded}
-                onOpen={() => toggleWeek(week.weekIndex)}
-                onReload={reload}
-                onToggle={toggle}
-                onEdit={(session) => setEditing({ weekIndex: week.weekIndex, session })}
-                onAdd={(day) => setEditing({ weekIndex: week.weekIndex, day })}
-                onError={setActionError}
-              />
-            </Fragment>
-          )
-        })}
+        {phases.map(({ phase, from, to }) => (
+          <section
+            key={`${from}-${phase ?? 'sin-fase'}`}
+            aria-labelledby={phase ? `fase-${from}` : undefined}
+            className="overflow-hidden rounded-2xl bg-fill"
+          >
+            {/* A phase name repeated down seven consecutive rows is six rows of noise; said
+                once, inside the surface it owns, it is the map of the whole 23 weeks. */}
+            {phase ? <PhaseHeading id={`fase-${from}`} phase={phase} from={from} to={to} /> : null}
+
+            <div className="divide-y divide-line">
+              {weeks.slice(from, to + 1).map((week, offset) => {
+                const i = from + offset
+                const metrics = weekly[i]!
+                return (
+                  <WeekRow
+                    key={week.weekIndex}
+                    week={week}
+                    metrics={metrics}
+                    index={i}
+                    today={today}
+                    state={
+                      week.weekIndex === currentWeek
+                        ? 'current'
+                        : week.weekIndex < currentWeek
+                          ? 'past'
+                          : 'future'
+                    }
+                    isOpen={week.weekIndex === expanded}
+                    onOpen={() => toggleWeek(week.weekIndex)}
+                    onReload={reload}
+                    onToggle={toggle}
+                    onEdit={(session) => setEditing({ weekIndex: week.weekIndex, session })}
+                    onAdd={(day) => setEditing({ weekIndex: week.weekIndex, day })}
+                    onError={setActionError}
+                  />
+                )
+              })}
+            </div>
+          </section>
+        ))}
       </div>
 
       {actionError ? (
@@ -246,19 +336,21 @@ function BlockHeader({ week, metrics }: { week: WeekPlan; metrics: WeekMetrics }
 
 /** The block's own structure, printed where it changes: `BASE Y VOLUMEN · S1–S6`. */
 function PhaseHeading({
+  id,
   phase,
   from,
-  weekly,
+  to,
 }: {
+  id: string
   phase: string
   from: number
-  weekly: WeekMetrics[]
+  to: number
 }) {
-  let to = from
-  while (to + 1 < weekly.length && weekly[to + 1]!.phase === phase) to++
-
   return (
-    <h2 className="mt-1.5 px-1 text-caption2 font-semibold uppercase tracking-[0.12em] text-label-2 first:mt-0">
+    <h2
+      id={id}
+      className="px-3 pb-1 pt-2.5 text-caption2 font-semibold uppercase tracking-[0.12em] text-label-2"
+    >
       {phase}
       <span className="data-number font-normal text-label-3">
         {' · '}
@@ -310,29 +402,30 @@ function WeekRow({
   const addDay = (week.days.find((day) => day.sessions.length === 0) ?? week.days[0]!).date
 
   return (
-    <Card
+    <section
       id={`semana-${week.weekIndex}`}
       // The scroll margin is for the jump above: landing flush against the top of the
       // viewport reads as clipped, a gutter short of it reads as scrolled to.
-      className={cn(
-        'fade-up scroll-mt-3 overflow-hidden p-0',
-        state === 'current' && 'border-mint/40',
-      )}
+      className="fade-up scroll-mt-3 overflow-hidden"
       style={{ animationDelay: `${Math.min(index, 7) * 30}ms` }}
     >
       <button
         type="button"
         onClick={onOpen}
         aria-expanded={isOpen}
-        className="tappable flex min-h-14 w-full items-center gap-2.5 px-3 py-2.5 text-left"
+        aria-controls={`contenido-semana-${week.weekIndex}`}
+        className={cn(
+          'tappable flex min-h-14 w-full items-center gap-2.5 px-3 py-2.5 text-left focus-visible:bg-fill-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-mint',
+          isOpen && 'bg-fill',
+        )}
       >
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5">
             <span className="data-number text-footnote font-semibold text-label">
               S{week.weekIndex + 1}
             </span>
-            {/* The mint border alone would leave "which week is now" carried by colour and
-                nothing else, and it is gone the moment another week is opened. */}
+            {/* State is written as well as coloured, so "which week is now" never depends
+                on a decorative container or colour perception alone. */}
             {state === 'current' ? (
               <span className="text-caption2 font-semibold uppercase tracking-[0.12em] text-mint">
                 Ahora
@@ -374,12 +467,12 @@ function WeekRow({
         <Chevron open={isOpen} />
       </button>
 
-      {/* Full-bleed along the card's bottom edge rather than inset above it: at 23 rows an
-          inset bar costs a whole extra line of padding per week, and read as an edge it
-          also doubles as the rule between the header and what unfolds under it. */}
+      {/* Full-width on the list edge rather than inset above it: at 23 rows an inset bar
+          costs a whole extra line of padding per week, and read as a rule it also separates
+          the header from what unfolds under it. */}
       {showBar ? <ProgressBar value={km} target={targetKm} className="h-1 rounded-none" /> : null}
 
-      {isOpen ? (
+      <CollapsiblePanel id={`contenido-semana-${week.weekIndex}`} open={isOpen}>
         <div className={cn('px-3 pb-3 pt-2.5', !showBar && 'border-t border-line')}>
           {hasContent ? (
             <>
@@ -433,8 +526,8 @@ function WeekRow({
 
           <WeekFields week={week} onReload={onReload} onError={onError} />
         </div>
-      ) : null}
-    </Card>
+      </CollapsiblePanel>
+    </section>
   )
 }
 
@@ -600,37 +693,42 @@ function WeekFields({
 }
 
 /**
- * The shape of the screen that is coming: the header card, then week rows.
+ * The shape of the screen that is coming: the header card, then a phase list.
  *
  * Not `LoadingCard` repeated — a week row is two short columns and a hairline, not a
  * title-plus-hero-plus-rows, and a skeleton that guesses the wrong shape makes the list
  * visibly rearrange itself the moment the payload lands.
  *
  * No `fade-up` and no stagger on any of them: the skeleton already breathes, and the real
- * cards fade up as they replace it. Two reveals over the same pixels inside half a second
- * is a flicker, not a transition. Only the header card announces the wait; the rows behind
- * it are `aria-hidden`, because six "Cargando" regions is six announcements of one fetch.
+ * rows fade up as they replace it. Two reveals over the same pixels inside half a second is
+ * a flicker, not a transition. Only the header card announces the wait; the rows behind it
+ * are `aria-hidden`, because six "Cargando" regions is six announcements of one fetch.
  */
 function PlannerSkeleton() {
   return (
     <>
       <LoadingCard rows={1} />
-      <div className="flex flex-col gap-2">
-        {Array.from({ length: 6 }, (_, i) => (
-          <Card key={i} aria-hidden>
-            <div className="flex items-start justify-between gap-3">
-              <div className="space-y-1.5">
-                <Skeleton className="h-3 w-8" />
-                <Skeleton className="h-2.5 w-20" />
+      <div aria-hidden className="overflow-hidden rounded-2xl bg-fill">
+        <div className="px-3 pb-1 pt-2.5">
+          <Skeleton className="h-2.5 w-28" />
+        </div>
+        <div className="divide-y divide-line">
+          {Array.from({ length: 6 }, (_, i) => (
+            <div key={i} className="min-h-14 px-3 py-2.5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-1.5">
+                  <Skeleton className="h-3 w-8" />
+                  <Skeleton className="h-2.5 w-20" />
+                </div>
+                <div className="flex flex-col items-end space-y-1.5">
+                  <Skeleton className="h-3 w-20" />
+                  <Skeleton className="h-2.5 w-16" />
+                </div>
               </div>
-              <div className="flex flex-col items-end space-y-1.5">
-                <Skeleton className="h-3 w-20" />
-                <Skeleton className="h-2.5 w-16" />
-              </div>
+              <Skeleton className="mt-2.5 h-1 w-full" />
             </div>
-            <Skeleton className="mt-2.5 h-1 w-full" />
-          </Card>
-        ))}
+          ))}
+        </div>
       </div>
     </>
   )
