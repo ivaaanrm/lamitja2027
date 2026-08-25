@@ -29,6 +29,11 @@ the panel is inert and hidden from assistive technology. The disclosure header t
 to a visible mint focus treatment, and navigating to a newly opened week scrolls smoothly
 unless the athlete has requested reduced motion.
 
+The week anchor leaves `env(safe-area-inset-top)` plus the 12 px page gutter above its
+header. The body's safe-area padding only protects content at the top of the document and
+scrolls away with it; putting the inset into `scroll-margin-top` keeps every programmatic
+week focus below the iPhone status area in both browser and installed-PWA modes.
+
 The loading state uses the same subtle phase surface and divider-based rows so the page does
 not briefly render individual card shapes before the data arrives. All existing data flow,
 one-open-week state, automatic jump to the current week, edit actions and accessibility
