@@ -21,6 +21,14 @@ the same list item. The progress bar remains the rule between the summary and ex
 content for started weeks; otherwise a standard line separates those regions. Phase labels
 sit inside their shared surfaces and continue to break the block into scannable groups.
 
+The disclosure panel animates its intrinsic height and opacity on both opening and closing,
+using the app's standard duration and iOS easing. Closed content remains mounted only until
+the closing transition finishes, then leaves the DOM; this preserves a real closing motion
+without paying to render every session in all 23 weeks. During that short closing interval
+the panel is inert and hidden from assistive technology. The disclosure header transitions
+to a visible mint focus treatment, and navigating to a newly opened week scrolls smoothly
+unless the athlete has requested reduced motion.
+
 The loading state uses the same subtle phase surface and divider-based rows so the page does
 not briefly render individual card shapes before the data arrives. All existing data flow,
 one-open-week state, automatic jump to the current week, edit actions and accessibility
@@ -32,3 +40,5 @@ attributes remain unchanged.
 - Confirm that week rows retain disclosure semantics and minimum touch sizes.
 - Confirm that no `Card` surface is rendered around individual weeks or week skeletons, and
   that each phase has exactly one shared background.
+- Confirm that opening, closing, focus and scroll transitions collapse under
+  `prefers-reduced-motion`.
