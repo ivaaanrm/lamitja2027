@@ -247,7 +247,11 @@ export function SessionForm({
             </h2>
           </div>
 
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 pb-4">
+          {/* `overscroll-contain` is what stops the drag from leaking: without it, flicking
+              this list once it has hit its end scrolls the plan *behind* the sheet, so
+              closing the sheet lands you somewhere else in a 23-week list than where you
+              opened it. */}
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-5 pb-4">
             <Field label="Día">
               <Select value={draft.scheduledOn} onChange={(e) => set('scheduledOn', e.target.value)}>
                 {weekDays(weekIndex).map((day) => (

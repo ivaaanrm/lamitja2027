@@ -226,6 +226,31 @@
     color: var(--color-ink);
   }
 
+  /**
+   * One focus ring, in the app's own colour, on everything that can take focus.
+   *
+   * The phone is what this app is drawn for and a phone has no focus ring at all — but
+   * the same app is read at a desk with a keyboard, and there it was wearing three
+   * different indicators: the form controls draw their own (`outline-none` plus a border
+   * and a fill that change on `:focus`), one row in `/plan` had a hand-written mint ring,
+   * and every other button, link and tab fell through to whatever the browser draws by
+   * default. Safari's is a blue halo in a palette with no blue in it; Chrome's is a
+   * black-and-white double ring that disappears into a near-black ground.
+   *
+   * `:focus-visible` and not `:focus`, which is the whole reason this is safe to put on
+   * `*`: the ring appears for a keyboard and never for a thumb, so nothing on the phone
+   * changes. The controls keep their own treatment — they say `outline-none` explicitly
+   * and that still wins — and this covers everything that never had one.
+   *
+   * `outline-offset` is what keeps the ring off the shape it surrounds; without it a
+   * 2px outline sits on the border of a `rounded-xl` button and reads as a thicker edge
+   * rather than as focus.
+   */
+  :focus-visible {
+    outline: 2px solid var(--color-mint);
+    outline-offset: 2px;
+  }
+
   /* The blanket kill switch for the motion layer above.
      Every animation in this app is written to end on its resting state with
      `animation-fill-mode: both`, so collapsing the duration to nothing lands

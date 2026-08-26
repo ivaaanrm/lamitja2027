@@ -368,40 +368,87 @@ export function Delta({
   )
 }
 
-/** An iOS segmented control: one row of mutually exclusive filters, thumb-sized. */
+/**
+ * An iOS segmented control: one row of mutually exclusive filters, thumb-sized.
+ *
+ * A `radiogroup`, not a `tablist`. It read as tabs before, and that is a promise the
+ * control cannot keep: a tab owns a `tabpanel`, points at it with `aria-controls`, and is
+ * reached with the arrow keys from a single tab stop — so a reader announcing "pestaña 2
+ * de 3" sent someone looking for a panel that does not exist, on a control that is
+ * filtering the card it sits inside. Radios are what this actually is: one choice out of a
+ * few, changing what is already on screen.
+ *
+ * Which brings the roving tabindex with it, because that is how a radio group is operated
+ * everywhere: one tab stop for the whole group, the arrows move between the options *and*
+ * select as they go. Nine lines, and without them the group would claim a role whose
+ * keyboard contract it does not honour — which is the same bug over again in a different
+ * word.
+ *
+ * Nothing about the phone changes: the targets are still `h-11`, still 44px, still
+ * selected by tapping them.
+ */
 export function Segmented<T extends string>({
   options,
   value,
   onChange,
   className,
+  /** Spanish, and worth writing whenever the card's title does not already say it. */
+  label,
 }: {
   options: { value: T; label: string }[]
   value: T
   onChange: (value: T) => void
   className?: string
+  label?: string
 }) {
   return (
     <div
-      role="tablist"
+      role="radiogroup"
+      aria-label={label}
       className={cn('flex gap-0.5 rounded-lg bg-surface-deep/55 p-0.5', className)}
     >
-      {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          role="tab"
-          aria-selected={option.value === value}
-          onClick={() => onChange(option.value)}
-          className={cn(
-            'motion-standard h-11 flex-1 rounded-[0.375rem] text-footnote font-medium transition-colors',
-            option.value === value
-              ? 'bg-surface-raised text-label shadow-sm'
-              : 'text-label-3 active:bg-fill active:text-label-2',
-          )}
-        >
-          {option.label}
-        </button>
-      ))}
+      {options.map((option, i) => {
+        const selected = option.value === value
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            // The roving stop: the group is one tab stop, and it lands on the current
+            // choice rather than always on the first.
+            tabIndex={selected ? 0 : -1}
+            onClick={() => onChange(option.value)}
+            onKeyDown={(event) => {
+              const step =
+                event.key === 'ArrowRight' || event.key === 'ArrowDown'
+                  ? 1
+                  : event.key === 'ArrowLeft' || event.key === 'ArrowUp'
+                    ? -1
+                    : 0
+              if (step === 0) return
+              event.preventDefault()
+
+              const at = (i + step + options.length) % options.length
+              const next = options[at]
+              if (!next) return
+              onChange(next.value)
+              // Focus follows selection, which is the half of the contract the role
+              // promises. The buttons are the group's own children, so this needs no refs.
+              const sibling = event.currentTarget.parentElement?.children[at]
+              if (sibling instanceof HTMLElement) sibling.focus()
+            }}
+            className={cn(
+              'motion-standard h-11 flex-1 rounded-[0.375rem] text-footnote font-medium transition-colors',
+              selected
+                ? 'bg-surface-raised text-label shadow-sm'
+                : 'text-label-3 active:bg-fill active:text-label-2',
+            )}
+          >
+            {option.label}
+          </button>
+        )
+      })}
     </div>
   )
 }

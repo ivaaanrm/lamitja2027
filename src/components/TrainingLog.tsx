@@ -9,6 +9,7 @@ import { decimal } from '@/lib/format'
 import { SESSION_META, weekDays, type SessionType, type WeekPlan } from '@/lib/plan'
 import { ChartLegend } from './charts'
 import { useBlock } from './useBlock'
+import { island } from './Island'
 import {
   ACCENT,
   Button,
@@ -49,7 +50,7 @@ import {
  * Only weeks that have started are drawn on the grid. This is the log, not the plan; an
  * empty row for December is the planner's job, and `/plan` already does it.
  */
-export function TrainingLog() {
+function TrainingLogScreen() {
   const { data, now, error, reload, weeks, currentWeek } = useBlock()
 
   if (error && !data)
@@ -206,7 +207,7 @@ function SummaryCard({ activities, now }: { activities: Activity[]; now: number 
         }
       />
 
-      <Segmented options={RANGES} value={range} onChange={setRange} className="mt-3" />
+      <Segmented options={RANGES} value={range} onChange={setRange} className="mt-3" label="Ventana" />
 
       <StatStrip className="mt-3">
         <Stat
@@ -558,7 +559,7 @@ function ActivityListCard({ activities, weeks }: { activities: Activity[]; weeks
       >
         Actividades
       </CardTitle>
-      <Segmented options={FILTERS} value={filter} onChange={setFilter} />
+      <Segmented options={FILTERS} value={filter} onChange={setFilter} label="Tipo de actividad" />
 
       {count === 0 ? (
         <EmptyState
@@ -665,3 +666,9 @@ function ActivityRow({
     </a>
   )
 }
+
+/**
+ * The screen as the page mounts it: wrapped so a render that throws leaves a card with a
+ * way out on it rather than an empty column under the heading. See `Island.tsx`.
+ */
+export const TrainingLog = island(TrainingLogScreen)

@@ -1,11 +1,12 @@
 ---
 import App from '../layouts/App.astro'
 import { TrainingLog } from '../components/TrainingLog'
+import { APP_NAME } from '../lib/config'
 export const prerender = true
 ---
 
 <App
-  title="Registro · La Mitja 2027"
+  title={`Registro · ${APP_NAME}`}
   heading="Registro"
   sub="Todo lo corrido dentro del bloque"
   tab="log"

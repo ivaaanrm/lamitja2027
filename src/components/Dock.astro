@@ -33,6 +33,13 @@ import { TABS, type Tab } from '../lib/nav'
  * drawn a quarter-step heavier, its label is semibold, and it is the one link with
  * `aria-current="page"`.
  *
+ * These four links are the only ones in the app that prefetch by viewport, which is why
+ * each carries `data-astro-prefetch` by hand. The bar is always on screen, so viewport
+ * here means "on load": the four tab shells are in hand before a thumb moves. Everywhere
+ * else the default is `tap` — every other link in the app points at one of two prerendered
+ * shells behind a query string, and prefetching *those* by viewport queued one download of
+ * the same document per row of the log. See `astro.config.mjs`.
+ *
  * One known consequence, so nobody spends an afternoon "fixing" it: for the length of the
  * transition the pill paints *over* the glyphs rather than behind them, because a captured
  * element is composited above the group it was lifted out of and nothing in the pseudo-tree
@@ -70,6 +77,7 @@ const ICONS: Record<Tab, string> = {
             <a
               href={entry.href}
               aria-current={active ? 'page' : undefined}
+              data-astro-prefetch="viewport"
               class:list={[
                 // `isolate` + `-z-10` keeps the pill behind the glyph without needing the
                 // glyph and the label to be positioned as well: the link becomes its own

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { BLOCK_START, DAY_MS, RACE_DATE, TOTAL_WEEKS, WEEK_MS } from '@/lib/block'
 import { SESSION_META, isQuality } from '@/lib/plan'
-import { buildPlan, hardShare, isDownWeek, phaseFor, weeklyVolumeM } from '@/lib/seed'
+import { buildPlan, hardShare, isDownWeek, phaseFor, resolvePhases, weeklyVolumeM } from '@/lib/seed'
 import { hardDistanceM, workoutDistanceM } from '@/lib/workout'
 import type { NewPlanSession } from '@/lib/db/schema'
 
@@ -35,6 +35,52 @@ describe('block shape', () => {
     expect(phaseFor(13)).toBe('umbral')
     expect(phaseFor(18)).toBe('específico')
     expect(phaseFor(22)).toBe('puesta a punto')
+  })
+
+  it('resolves the phase shares to exactly docs/03 §2 at 23 weeks', () => {
+    // The phases are shares of the block now, so that a fork of another length gets the
+    // same proportions rather than a taper it never reaches. At this block's own length
+    // the shares must land back on the week numbers the plan was written with — this is
+    // the assertion that says the rewrite changed nothing.
+    expect(resolvePhases(23).map((p) => [p.phase, p.from, p.to])).toEqual([
+      ['reconstrucción', 0, 6],
+      ['base', 7, 12],
+      ['umbral', 13, 17],
+      ['específico', 18, 20],
+      ['puesta a punto', 21, 22],
+    ])
+  })
+
+  it('keeps the phases well-formed at any block length', () => {
+    for (const totalWeeks of [5, 6, 8, 12, 16, 20, 23, 26, 40]) {
+      const spans = resolvePhases(totalWeeks)
+      const at = `${totalWeeks} weeks`
+      expect(spans, at).toHaveLength(5)
+      expect(spans[0]!.from, at).toBe(0)
+      expect(spans.at(-1)!.to, at).toBe(totalWeeks - 1)
+      for (const [i, span] of spans.entries()) {
+        // At least one week each, and no gaps or overlaps between them.
+        expect(span.to, `${span.phase} at ${at}`).toBeGreaterThanOrEqual(span.from)
+        if (i > 0) expect(span.from, `${span.phase} at ${at}`).toBe(spans[i - 1]!.to + 1)
+      }
+      // The order of the phases is the plan's argument; it never reshuffles.
+      expect(spans.map((p) => p.phase), at).toEqual([
+        'reconstrucción',
+        'base',
+        'umbral',
+        'específico',
+        'puesta a punto',
+      ])
+    }
+  })
+
+  it('drops the front of the plan rather than breaking on a block too short to hold it', () => {
+    // Under five weeks there is no room for five phases. What a compressed block keeps is
+    // the end of it — `config.ts` will not accept fewer than four weeks in any case.
+    const spans = resolvePhases(4)
+    expect(spans.map((p) => p.phase)).toEqual(['base', 'umbral', 'específico', 'puesta a punto'])
+    expect(spans[0]!.from).toBe(0)
+    expect(spans.at(-1)!.to).toBe(3)
   })
 
   it('never opens a phase on a cutback week', () => {

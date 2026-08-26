@@ -23,6 +23,7 @@ import {
   type Step,
 } from '@/lib/workout'
 import { useBlock } from './useBlock'
+import { island } from './Island'
 import {
   ACCENT,
   ARROW_OUT,
@@ -66,7 +67,7 @@ import {
  * the way back are in the query string and read in an effect, because the island is also
  * rendered at build time in a Worker with no `location` (AGENTS gotcha 15).
  */
-export function SessionDetail() {
+function SessionDetailScreen() {
   const { data, weeks, error, reload } = useBlock()
   // `undefined` is "the query string has not been read yet" and `null` is "there is no id
   // in it" — collapsing the two would flash the dead-end card on every first paint.
@@ -496,3 +497,9 @@ function ScreenSkeleton() {
     </>
   )
 }
+
+/**
+ * The screen as the page mounts it: wrapped so a render that throws leaves a card with a
+ * way out on it rather than an empty column under the heading. See `Island.tsx`.
+ */
+export const SessionDetail = island(SessionDetailScreen)

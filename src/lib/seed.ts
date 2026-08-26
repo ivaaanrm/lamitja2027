@@ -1,4 +1,5 @@
-import { BLOCK_START, DAY_MS, HALF_MARATHON_M, TOTAL_WEEKS, WEEK_MS } from './block'
+import { BLOCK_START, DAY_MS, RACE_DISTANCE_M, TOTAL_WEEKS, WEEK_MS } from './block'
+import { RACE_NAME } from './config'
 import type { NewPlanSession, NewPlanWeek } from './db/schema'
 import { SESSION_META, type SessionType } from './plan'
 import { PACES, type PaceBand, type PaceZone } from './paces'
@@ -36,26 +37,103 @@ import {
  * Session ids are derived from week and weekday, so re-seeding after a tweak updates
  * rows in place. Any session edited by hand is overwritten — this is "reset to the
  * plan", not "merge with the plan".
+ *
+ * ## This file is the example block
+ *
+ * It is one athlete's twenty-three weeks, and it is the part of the repository a fork
+ * *replaces* rather than configures. `config.ts` moves the race, the dates and the goal;
+ * the paces below follow the goal on their own (`paces.ts`), and the phase shares and
+ * volume ramp resolve against whatever length the block turns out to be. What cannot
+ * follow is `WEEKS`: twenty-three hand-written skeletons, in Spanish, around one
+ * athlete's four-run week, two dorsals on real dates and a knee protocol. A fork writes
+ * its own — either by editing this file, which is the honest way to keep a plan in
+ * version control, or by having an agent author one through the MCP server on
+ * `POST /api/mcp`, which writes the same rows without going through `buildPlan` at all.
+ * `slotsFor` below is what says so out loud when the two lengths disagree.
  */
 
-/** Phase spans by 0-based week index, with the volume ramp endpoints. docs/03 §2. */
-const PHASES = [
-  // docs/03 was written for a 24 Aug start (22 weeks). The block actually began a week
-  // earlier, on Mon 17 Aug, so it is 23 weeks — the extra week goes to rebuild, which is
-  // both the phase already underway and the one where more patience is free.
-  //
-  // The endpoints are lower than docs/03 §2 because the week is four runs, not six: the
-  // same kilometres over four days would put 17 km on the average run at the peak. What
-  // the athlete loses in frequency comes back as length — a 13–17 km medium-long run on
-  // Wednesday from the threshold phase on, and a long run that reaches 22 km.
-  { phase: 'reconstrucción', from: 0, to: 6, startKm: 22, endKm: 36, focus: 'Todo suave, en llano y a sensaciones. Cuatro carreras, cadencia y fuerza de cadera desde el primer día.' },
-  { phase: 'base', from: 7, to: 12, startKm: 38, endKm: 50, focus: 'Una sesión de calidad por semana y la tirada larga creciendo. Dentro caben dos dorsales: el Tast y la Behobia.' },
-  { phase: 'umbral', from: 13, to: 17, startKm: 53, endKm: 62, focus: 'Dos sesiones de calidad por semana: series largas y tempo. La media larga del miércoles sostiene el volumen.' },
-  { phase: 'específico', from: 18, to: 20, startKm: 60, endKm: 48, focus: 'Todo a 3:47/km, con las piernas cansadas y cuesta abajo.' },
-  { phase: 'puesta a punto', from: 21, to: 22, startKm: 38, endKm: 28, focus: 'Menos volumen, más chispa.' },
+/**
+ * The five phases, as *shares of the block* rather than as week numbers, with the volume
+ * ramp endpoints. docs/03 §2.
+ *
+ * Week numbers were the obvious shape while there was one block; they are the wrong one
+ * the moment the block's length comes out of `config.ts`, because a sixteen-week fork
+ * would inherit a rebuild that runs to week 6 and a taper pinned to weeks 21–22 that it
+ * never reaches. A share resolves against `TOTAL_WEEKS` and keeps the *proportions*,
+ * which is what the phase structure actually claims: roughly a third rebuilding, a
+ * quarter on base, a fifth at threshold, then race-specific and taper.
+ *
+ * The denominators are this block's own week counts — 7 + 6 + 5 + 3 + 2 = 23 — so at 23
+ * weeks the resolution below reproduces exactly the boundaries docs/03 §2 was written
+ * with (0–6, 7–12, 13–17, 18–20, 21–22). `test/unit/seed.test.ts` pins that.
+ *
+ * docs/03 was written for a 24 Aug start (22 weeks). The block actually began a week
+ * earlier, on Mon 17 Aug, so it is 23 weeks — the extra week goes to rebuild, which is
+ * both the phase already underway and the one where more patience is free.
+ *
+ * The endpoints are lower than docs/03 §2 because the week is four runs, not six: the
+ * same kilometres over four days would put 17 km on the average run at the peak. What
+ * the athlete loses in frequency comes back as length — a 13–17 km medium-long run on
+ * Wednesday from the threshold phase on, and a long run that reaches 22 km. They are
+ * kilometres, not shares: a ramp is a load an athlete can carry, and a load does not
+ * scale with the calendar the way a proportion does.
+ */
+const PHASE_SHAPE = [
+  { phase: 'reconstrucción', share: 7 / 23, startKm: 22, endKm: 36, focus: 'Todo suave, en llano y a sensaciones. Cuatro carreras, cadencia y fuerza de cadera desde el primer día.' },
+  { phase: 'base', share: 6 / 23, startKm: 38, endKm: 50, focus: 'Una sesión de calidad por semana y la tirada larga creciendo. Dentro caben dos dorsales: el Tast y la Behobia.' },
+  { phase: 'umbral', share: 5 / 23, startKm: 53, endKm: 62, focus: 'Dos sesiones de calidad por semana: series largas y tempo. La media larga del miércoles sostiene el volumen.' },
+  { phase: 'específico', share: 3 / 23, startKm: 60, endKm: 48, focus: 'Todo a 3:47/km, con las piernas cansadas y cuesta abajo.' },
+  { phase: 'puesta a punto', share: 2 / 23, startKm: 38, endKm: 28, focus: 'Menos volumen, más chispa.' },
 ] as const
 
-export type Phase = (typeof PHASES)[number]['phase']
+export type Phase = (typeof PHASE_SHAPE)[number]['phase']
+
+/** A phase with its span resolved onto a block of a given length. */
+type PhaseSpan = (typeof PHASE_SHAPE)[number] & { from: number; to: number }
+
+/**
+ * The shares laid onto a block of `totalWeeks`, as spans of 0-based week indices.
+ *
+ * Rounding is applied to the *cumulative* share and not to each phase's own length,
+ * because rounding five lengths independently loses or gains a week and the block has to
+ * end on race week exactly. Cumulative rounding cannot drift: each boundary is computed
+ * from the start of the block, so the errors do not accumulate, and the last phase is
+ * pinned to the final week outright.
+ *
+ * Two clamps keep the result well-formed at lengths the shares were never drawn for. No
+ * phase may reach past `totalWeeks - 1 - (phases still to come)`, which reserves a week
+ * for each of them, and no phase may end before it begins — so every phase gets at least
+ * one week, in order, with no gaps and no overlaps. A block shorter than the five phases
+ * cannot hold them all: the leading ones are dropped, because what a compressed block
+ * keeps is the end of it. `config.ts` will not accept fewer than four weeks in any case.
+ *
+ * Exported so the resolution can be tested at lengths this repository is not training
+ * for — a proportion nobody has checked at 16 weeks is a proportion, not a guarantee.
+ */
+export function resolvePhases(totalWeeks: number): PhaseSpan[] {
+  const shape = PHASE_SHAPE.slice(Math.max(0, PHASE_SHAPE.length - totalWeeks))
+  const spans: PhaseSpan[] = []
+  let from = 0
+  let cumulative = 0
+
+  shape.forEach((phase, i) => {
+    cumulative += phase.share
+    const stillToCome = shape.length - 1 - i
+    const to =
+      stillToCome === 0
+        ? totalWeeks - 1
+        : Math.min(
+            Math.max(Math.round(cumulative * totalWeeks) - 1, from),
+            totalWeeks - 1 - stillToCome,
+          )
+    spans.push({ ...phase, from, to })
+    from = to + 1
+  })
+
+  return spans
+}
+
+const PHASES = resolvePhases(TOTAL_WEEKS)
 
 /**
  * Cutback weeks. docs/03 §2 lists W4/8/12/16/20 against its own 22-week numbering; every
@@ -68,6 +146,12 @@ export type Phase = (typeof PHASES)[number]['phase']
  * 10K: with four runs a week, a race week's two fixed sessions leave only two flexible
  * runs, and at 57 km those two would have to be 20 km each. A tune-up race belongs in a
  * cutback week anyway.
+ *
+ * These are week *indices*, not shares, and deliberately: a cutback lands on a specific
+ * week for a specific reason — the phase it closes, the race it carries — and spreading
+ * them proportionally would move them off both. They belong to the example block, like
+ * `WEEKS` below, and a fork rewrites them with it. Indices past the end of a shorter
+ * block are simply never asked about.
  */
 const DOWN_WEEKS = new Set([3, 8, 12, 15, 20])
 const DOWN_WEEK_FACTOR = 0.75
@@ -696,19 +780,47 @@ const WEEKS: Slot[][] = [
     {
       day: 6,
       type: 'race',
-      title: 'La Mitja de Granollers',
+      // The one session title that is not written out: it is the race in `config.ts`,
+      // which is the name on the bib and on every screen that counts down to it.
+      title: RACE_NAME,
       notes:
         'El sub-1:20 son 3:47/km. Los primeros 10 km suben +140 m: mantén la franja de ritmo y deja que la segunda mitad lo devuelva entre −1 y −1,8 %. Cadencia 85+ en la bajada — la misma que se ensayó en la Behobia.',
       pace: PACES.race,
       steps: [
         warmup(km(1.5)),
         strides(4, 20, 'Tres o cuatro, justo antes de la salida.'),
-        steady(HALF_MARATHON_M, 'race', '21,1 km a ritmo objetivo.'),
+        steady(RACE_DISTANCE_M, 'race', '21,1 km a ritmo objetivo.'),
       ],
     },
   ],
 ]
 const WEEKDAY = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+
+/**
+ * The week's skeleton, or a refusal.
+ *
+ * `WEEKS` is hand-written and this long, so it is the one thing in the file that cannot
+ * stretch to a block of another length. A fifteen-week fork would silently be handed
+ * this block's first fifteen weeks — all rebuild and base, no taper, no race, and a
+ * ramp that stops climbing at 50 km — and a twenty-six-week one would read past the end.
+ * The first is worse than the second, because it looks like a plan. So the length has to
+ * match exactly, and the mismatch is said out loud at the point of use rather than left
+ * to be noticed in week fifteen.
+ */
+function slotsFor(week: number): Slot[] {
+  if (WEEKS.length !== TOTAL_WEEKS) {
+    throw new Error(
+      `The example block in seed.ts is ${WEEKS.length} weeks and this block is ` +
+        `${TOTAL_WEEKS}, so seeding it would ` +
+        `${WEEKS.length > TOTAL_WEEKS ? 'cut the plan off before its taper' : 'run past the last week written'}. ` +
+        `Rewrite WEEKS for your own block, or author the plan through the MCP server on ` +
+        `POST /api/mcp instead of seeding it.`,
+    )
+  }
+  const slots = WEEKS[week]
+  if (!slots) throw new Error(`Week ${week} is outside the ${TOTAL_WEEKS}-week block`)
+  return slots
+}
 
 /** Round to the nearest 100 m — the precision a prescribed easy run deserves. */
 const round100 = (metres: number) => Math.round(metres / 100) * 100
@@ -773,7 +885,7 @@ export function buildPlan(now: number): PlanSeed {
   const volumeByWeek = new Array<number>(TOTAL_WEEKS).fill(0)
 
   for (let week = 0; week < TOTAL_WEEKS; week++) {
-    const slots = WEEKS[week]!
+    const slots = slotsFor(week)
     const weekStart = BLOCK_START + week * WEEK_MS
     const sizes = sizeEasyRuns(slots, weeklyVolumeM(week))
     // dayOrder disambiguates a double day — the run comes before the strength session.
@@ -830,7 +942,7 @@ export function buildPlan(now: number): PlanSeed {
  * distance of the sessions that contain them.
  */
 export function hardShare(week: number): number {
-  const slots = WEEKS[week]!
+  const slots = slotsFor(week)
   const sizes = sizeEasyRuns(slots, weeklyVolumeM(week))
   let hard = 0
   let total = 0

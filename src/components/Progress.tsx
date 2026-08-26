@@ -30,6 +30,7 @@ import { GOAL_PACE_S_KM } from '@/lib/metrics'
 import { ZONE_NAME } from '@/lib/paces'
 import { BarRow, ChartLegend, ChartScale, LineChart, Sparkline, StackedBar } from './charts'
 import { useBlock } from './useBlock'
+import { island } from './Island'
 import {
   Card,
   CardTitle,
@@ -68,7 +69,7 @@ import {
  * hero's trailing slot, at the size that reading is worth, and the volume card it used to
  * push down is the same card: hero, weekly bars, stat strip.
  */
-export function Progress() {
+function ProgressScreen() {
   const { data, now, error, reload, progress, currentWeek } = useBlock()
 
   const view = useMemo(() => (data ? build(data.activities, now) : null), [data, now])
@@ -122,6 +123,13 @@ function build(activities: Activity[], now: number) {
     last,
     /** True until the block reaches the week last season's build opened in. */
     tooEarly: last.totals.runs === 0,
+    /**
+     * No previous season at all — a fork that put no CSVs in `docs/data/`. Distinct from
+     * `tooEarly`, which is a season that exists and has not opened yet: with nothing to
+     * compare against there is no week to name, and every line that names one is
+     * describing a build nobody ever ran.
+     */
+    noBaseline: BASELINE.length === 0,
     fitness,
     // Padded to the full axis: this season stops at today, last season runs to the race.
     fitnessLine: pad(
@@ -274,20 +282,24 @@ function VolumeCard({
         value={decimal(km, 0)}
         unit="km en el bloque"
         context={
-          <>
-            {view.tooEarly ? (
-              <>
-                La temporada pasada aún no había empezado a correr, su bloque abre en la semana{' '}
-                {BASELINE_FIRST_WEEK + 1}
-              </>
-            ) : (
-              <>
-                <Delta value={percentDelta(km, lastKm)} className="text-footnote" /> frente a los{' '}
-                {decimal(lastKm, 0)} km de la temporada pasada en este mismo punto
-              </>
-            )}
-            <span className="text-label-3"> · faltan {daysToRace(view.today)} días</span>
-          </>
+          view.noBaseline ? (
+            <>Faltan {daysToRace(view.today)} días</>
+          ) : (
+            <>
+              {view.tooEarly ? (
+                <>
+                  La temporada pasada aún no había empezado a correr, su bloque abre en la semana{' '}
+                  {BASELINE_FIRST_WEEK + 1}
+                </>
+              ) : (
+                <>
+                  <Delta value={percentDelta(km, lastKm)} className="text-footnote" /> frente a los{' '}
+                  {decimal(lastKm, 0)} km de la temporada pasada en este mismo punto
+                </>
+              )}
+              <span className="text-label-3"> · faltan {daysToRace(view.today)} días</span>
+            </>
+          )
         }
         trailing={
           <Sparkline
@@ -741,4 +753,8 @@ function HeadToHead({ view }: { view: View }) {
   )
 }
 
-
+/**
+ * The screen as the page mounts it: wrapped so a render that throws leaves a card with a
+ * way out on it rather than an empty column under the heading. See `Island.tsx`.
+ */
+export const Progress = island(ProgressScreen)
