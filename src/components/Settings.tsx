@@ -421,7 +421,7 @@ export function Settings() {
     }
     const goalTimeS = parseClock(goalTime)
     if (goalTimeS == null || goalTimeS <= 0) {
-      setBlockError('El objetivo tiene que ir en formato 1:19:59.')
+      setBlockError('El objetivo tiene que ir en formato 1:30:00.')
       document.getElementById('stg-goal-time')?.focus()
       return
     }
@@ -588,7 +588,7 @@ export function Settings() {
                 <TextInput
                   id="stg-goal-time"
                   inputMode="numeric"
-                  placeholder="1:19:59"
+                  placeholder="1:30:00"
                   value={goalTime}
                   onChange={(e) => {
                     setGoalTime(e.target.value)

@@ -1,16 +1,7 @@
 ---
 import Base from '../layouts/Base.astro'
-import { APP_NAME, APP_SHORT_NAME, GOAL_TIME_S, RACE_DATE } from '../lib/config'
-import { formatClock } from '../lib/activity'
+import { APP_DESCRIPTION, APP_NAME } from '../lib/config'
 export const prerender = true
-
-// Dates are UTC midnight of the local day; formatting in another zone slides them.
-const raceDay = new Intl.DateTimeFormat('es-ES', {
-  day: 'numeric',
-  month: 'short',
-  year: 'numeric',
-  timeZone: 'UTC',
-}).format(new Date(RACE_DATE))
 
 /**
  * The one screen without a dock, and the app's first impression.
@@ -28,18 +19,21 @@ const raceDay = new Intl.DateTimeFormat('es-ES', {
  * a page whose whole job is two fields and a button would cost more than the four spans it
  * saves.
  *
- * The goal time is ink, not mint. Mint is state in this app — done, now, ahead, the
- * primary action — and the goal is none of those; it is the target. The mint on this
- * screen is spent once, on the button, which is also why the invitation link under the
- * form is quiet: signing in is what this screen is for, and creating an account is the
- * other door.
+ * The hero slot holds the app's *name*, not a number, and that is the one thing on this
+ * screen that changed when the deployment stopped being one person's. It used to print the
+ * owner's goal time under "Tu bloque hacia" — which was true while there was one athlete
+ * and is somebody else's target the moment a friend signs in. Nobody is authenticated here,
+ * so there is no block to read and no honest number to show: every athlete's goal, race and
+ * dates live on their own `blocks` row, and `/bienvenida` is where they first say them.
  *
- * Every word of identity here comes from `config.ts` — the name, the short name in the
- * eyebrow, race day, the hero itself — and that is the *deployment's* block, not the
- * signed-in athlete's. It is the only screen where that is the right reading: nobody is
- * signed in yet. An athlete arriving on an invitation has no goal of their own to show
- * here; `/alta` opens on the invitation instead, and their own numbers are the first thing
- * `/bienvenida` asks for.
+ * So the composition keeps its shape — eyebrow, one large line, a line of context — and
+ * fills it from `config.ts`: `APP_NAME` and `APP_DESCRIPTION`, which are what the whole
+ * *deployment* is called rather than what anybody is training for. Set them in `.env`.
+ *
+ * Ink, not mint. Mint is state in this app — done, now, ahead, the primary action — and a
+ * wordmark is none of those. The mint on this screen is spent once, on the button, which is
+ * also why the invitation link under the form is quiet: signing in is what this screen is
+ * for, and creating an account is the other door.
  */
 ---
 
@@ -59,17 +53,10 @@ const raceDay = new Intl.DateTimeFormat('es-ES', {
       </span>
 
       <p class="mt-5 text-caption2 font-semibold uppercase tracking-[0.16em] text-label-3">
-        {APP_SHORT_NAME} · {raceDay}
+        Cuaderno de entrenamiento
       </p>
-      <h1 class="mt-2">
-        <span class="block text-subhead text-label-2">Tu bloque hacia</span>
-        <span class="data-number mt-1 block font-display text-display font-bold leading-none text-label">
-          {formatClock(GOAL_TIME_S)}
-        </span>
-      </h1>
-      <p class="mt-3 text-footnote leading-relaxed text-label-2">
-        Plan, carga y progreso en un único cuaderno de rendimiento.
-      </p>
+      <h1 class="mt-2 font-display text-display font-bold leading-none text-label">{APP_NAME}</h1>
+      <p class="mt-3 text-footnote leading-relaxed text-label-2">{APP_DESCRIPTION}</p>
     </header>
 
     {/* 30ms behind the header — the stagger the rest of the app reveals lists at, so the

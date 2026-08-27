@@ -1,5 +1,6 @@
 ---
 import { Onboarding } from '../components/Onboarding'
+import { APP_NAME } from '../lib/config'
 import Base from '../layouts/Base.astro'
 export const prerender = true
 
@@ -16,7 +17,7 @@ export const prerender = true
  */
 ---
 
-<Base title="Bienvenido · La Mitja">
+<Base title={`Bienvenido · ${APP_NAME}`}>
   <main class="mx-auto flex min-h-full max-w-lg flex-col gap-2 px-gutter pt-10 pb-[calc(2rem+env(safe-area-inset-bottom))]">
     <header class="px-0.5 pb-2">
       <p class="text-caption2 font-semibold uppercase tracking-[0.16em] text-label-3">

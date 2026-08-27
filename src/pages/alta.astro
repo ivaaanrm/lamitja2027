@@ -1,5 +1,6 @@
 ---
 import { Register } from '../components/Register'
+import { APP_NAME } from '../lib/config'
 import Base from '../layouts/Base.astro'
 export const prerender = true
 
@@ -22,7 +23,7 @@ export const prerender = true
  */
 ---
 
-<Base title="Crear cuenta · La Mitja">
+<Base title={`Crear cuenta · ${APP_NAME}`}>
   <main
     class="mx-auto flex min-h-full max-w-sm flex-col justify-center gap-5 px-gutter py-10 pb-[calc(2.5rem+env(safe-area-inset-bottom))]"
   >

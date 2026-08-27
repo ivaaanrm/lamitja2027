@@ -62,10 +62,9 @@ const WEEK_MS = 7 * 86_400_000
  * and they are exported so a test can assert that without going near `import.meta.env`.
  */
 export const DEFAULTS = {
-  appName: 'La Mitja 2027',
-  appShortName: 'La Mitja',
-  appDescription:
-    'Entrenamiento hacia una media maratón por debajo de 1:20 en La Mitja, el 24 de enero de 2027.',
+  appName: 'StrideAI',
+  appShortName: 'StrideAI',
+  appDescription: 'Plan, carga y progreso hacia tu próxima carrera, en un único cuaderno.',
   raceName: 'La Mitja de Granollers',
   raceDate: '2027-01-24',
   raceDistanceM: 21_097.5,

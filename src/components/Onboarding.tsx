@@ -70,7 +70,7 @@ export function Onboarding() {
     if (data?.block) location.href = '/plan'
   }, [data])
 
-  const [raceName, setRaceName] = useState('La Mitja')
+  const [raceName, setRaceName] = useState('')
   const [raceDate, setRaceDate] = useState('')
   const [goalTime, setGoalTime] = useState('')
   const [blockStart, setBlockStart] = useState(() => toDateInput(startOfWeek(Date.now())))
@@ -100,7 +100,7 @@ export function Onboarding() {
 
     const goalTimeS = parseClock(goalTime)
     if (goalTimeS == null || goalTimeS <= 0) {
-      return fail('El objetivo tiene que ir en formato 1:19:59.', 'goal-time')
+      return fail('El objetivo tiene que ir en formato 1:30:00.', 'goal-time')
     }
 
     const startsOnRaw = fromDateInput(blockStart)
@@ -193,7 +193,7 @@ export function Onboarding() {
           <TextInput
             id="ob-goal-time"
             inputMode="numeric"
-            placeholder="1:19:59"
+            placeholder="1:30:00"
             value={goalTime}
             onChange={(e) => {
               setGoalTime(e.target.value)

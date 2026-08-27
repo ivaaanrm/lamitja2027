@@ -1,5 +1,4 @@
 import type { APIRoute } from 'astro'
-import { DEFAULT_BLOCK, totalWeeks } from '@/lib/block'
 import { APP_DESCRIPTION, APP_NAME, APP_SHORT_NAME } from '@/lib/config'
 
 /**
@@ -49,7 +48,9 @@ export const GET: APIRoute = () =>
           {
             name: 'Plan',
             short_name: 'Plan',
-            description: `Las ${totalWeeks(DEFAULT_BLOCK)} semanas del bloque`,
+            // Not the default block's week count: this file is prerendered once and
+            // installed by every athlete, whose blocks are different lengths.
+            description: 'Tu plan, semana a semana',
             url: '/plan',
             icons: [{ src: '/icon-192.png', sizes: '192x192', type: 'image/png' }],
           },

@@ -363,9 +363,9 @@ login screen, `404`, the meta description, the Open Graph card and
 
 | Variable | Means | Format | Default |
 |---|---|---|---|
-| `PUBLIC_APP_NAME` | What the app calls itself: the `<title>` of every page and the name of the installed app. Distinct from the race — the event is *La Mitja de Granollers*, the app is *La Mitja 2027*. | free text | `La Mitja 2027` |
-| `PUBLIC_APP_SHORT_NAME` | The home-screen label. iOS truncates around twelve characters, so keep it short. | free text | `La Mitja` |
-| `PUBLIC_APP_DESCRIPTION` | One sentence, read three times: meta description, Open Graph card, manifest. | free text, Spanish | *Entrenamiento hacia una media…* |
+| `PUBLIC_APP_NAME` | What the app calls itself: the `<title>` of every page and the name of the installed app. Distinct from the race, and on a shared deployment that is the point — every athlete races something else, so the shared name must be the app's. | free text | `StrideAI` |
+| `PUBLIC_APP_SHORT_NAME` | The home-screen label. iOS truncates around twelve characters, so keep it short. | free text | `StrideAI` |
+| `PUBLIC_APP_DESCRIPTION` | One sentence, read three times: meta description, Open Graph card, manifest. | free text, Spanish | *Plan, carga y progreso hacia…* |
 
 **The block** — the values the training maths is computed from.
 
