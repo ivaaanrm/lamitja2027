@@ -45,7 +45,7 @@
  * new worker.
  */
 
-const VERSION = 'v1'
+const VERSION = 'v2'
 
 const CORE = `lm-core-${VERSION}`
 const PAGES = `lm-pages-${VERSION}`
@@ -174,7 +174,9 @@ async function page(event, url) {
   try {
     const preloaded = await event.preloadResponse
     const response = preloaded || (await fetch(event.request))
-    if (response.ok) event.waitUntil(cache.put(key, response.clone()))
+    // `redirected` for the same reason `/api/data` checks it: a portal or a sign-in hop
+    // ends in somebody else's 200, and storing that would pin their page to this route.
+    if (response.ok && !response.redirected) event.waitUntil(cache.put(key, response.clone()))
     return response
   } catch {
     const hit = await cache.match(key)
@@ -198,12 +200,42 @@ async function asset(event, request) {
   if (hit) return hit
 
   const response = await fetch(request)
-  if (response.ok) {
+  if (response.ok && !response.redirected) {
     event.waitUntil(
       cache.put(request, response.clone()).then(() => trim(cache)),
     )
   }
   return response
+}
+
+/**
+ * Is this the block, or something standing in front of it?
+ *
+ * `response.ok` is not the question. A captive portal — hotel, airport, the station this
+ * app is opened at — answers *every* request with `200` and its own login page, and an
+ * identity provider in front of the origin does the same after a session expires. Both
+ * are a 200 with an HTML body, and caching either one under `/api/data` would put a login
+ * page where the training block goes and then serve it, offline, for as long as the cache
+ * survived.
+ *
+ * Two signals, and both are needed. `redirected` catches the interception that announces
+ * itself with a 302 (`fetch` follows it and the `ok` at the end is the portal's, not
+ * ours). The content type catches the one that does not bother — a portal that simply
+ * answers in place with `200 text/html`.
+ */
+function isBlockPayload(response) {
+  if (response.redirected) return false
+  return (response.headers.get('content-type') ?? '').includes('application/json')
+}
+
+/** The stored block, marked as what it is. `null` when this phone has never held one. */
+async function lastKnownBlock(cache) {
+  const hit = await cache.match(DATA_KEY)
+  if (!hit) return null
+
+  const headers = new Headers(hit.headers)
+  headers.set('x-lm-stale', '1')
+  return new Response(hit.body, { status: 200, statusText: 'OK', headers })
 }
 
 /**
@@ -213,27 +245,35 @@ async function asset(event, request) {
  * between "you have run 42 km this week" and "you had run 42 km the last time this phone
  * had signal" is the difference between a number and a lie. `src/lib/net.ts` reads it and
  * the app says so on screen.
+ *
+ * A portal's login page takes the same route as a dead connection, which is what it
+ * actually is: the radio is up, the internet is not. Serving the last block with
+ * `x-lm-stale` on it is both the honest answer and the useful one.
  */
 async function blockData(event) {
   const cache = await caches.open(DATA)
 
   try {
     const response = await fetch(event.request)
-    if (response.ok) {
+
+    if (response.ok && isBlockPayload(response)) {
       event.waitUntil(cache.put(DATA_KEY, response.clone()))
-    } else if (response.status === 401) {
+      return response
+    }
+    if (response.status === 401) {
       // Signed out — on this device or on every device, by rotating the password. Either
       // way this copy of the block stops being something this phone may read.
       event.waitUntil(caches.delete(DATA))
+      return response
     }
+    // A 200 that is not the block is an interception; anything else is a real error the
+    // app should see and say. Neither is ever written to the cache.
+    if (response.ok) return (await lastKnownBlock(cache)) ?? response
     return response
   } catch (cause) {
-    const hit = await cache.match(DATA_KEY)
+    const hit = await lastKnownBlock(cache)
     if (!hit) throw cause
-
-    const headers = new Headers(hit.headers)
-    headers.set('x-lm-stale', '1')
-    return new Response(hit.body, { status: 200, statusText: 'OK', headers })
+    return hit
   }
 }
 

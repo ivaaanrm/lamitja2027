@@ -3,6 +3,7 @@ import { env } from 'cloudflare:workers'
 import { createDb } from '@/lib/db/client'
 import { handleMcp } from '@/lib/mcp/protocol'
 import { createToolRegistry } from '@/lib/mcp/tools'
+import { withinLimit } from '@/lib/ratelimit'
 
 export const prerender = false
 
@@ -20,4 +21,7 @@ export const prerender = false
  * what the tools actually do is `tools.ts`. This file is the wiring and nothing else.
  */
 export const ALL: APIRoute = ({ request }) =>
-  handleMcp(request, createToolRegistry(createDb(env.DB), env.APP_PASSWORD))
+  handleMcp(request, {
+    ...createToolRegistry(createDb(env.DB), env.APP_PASSWORD),
+    withinLimit: (candidate) => withinLimit('MCP_RATE_LIMIT', candidate),
+  })

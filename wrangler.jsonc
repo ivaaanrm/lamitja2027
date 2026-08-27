@@ -37,6 +37,22 @@
   // — `wrangler kv namespace create CACHE`, and see docs/setup.md.
   "kv_namespaces": [{ "binding": "CACHE", "id": "ddbcc843b1204d3cb0df5d8581af8d53" }],
 
+  // Two speed bumps, in front of the two endpoints that take a credential. See
+  // `src/lib/ratelimit.ts` for what they are and are not — in short, per-location and
+  // eventually consistent, so the real defence is still a long `APP_PASSWORD`.
+  //
+  // A WAF rate-limiting rule would be the obvious alternative and is not available here:
+  // those are configured per zone, and `workers.dev` is not a zone you own. `period` may
+  // only be 10 or 60.
+  "ratelimits": [
+    // A person signs in once per device per year. Eight a minute is generous for the
+    // fat-fingered and ruinous for a script.
+    { "name": "LOGIN_RATE_LIMIT", "namespace_id": "1001", "simple": { "limit": 8, "period": 60 } },
+    // Higher, because a legitimate caller here is an agent: writing a block through
+    // `create_sessions` and reading it back is tens of calls in a burst, not one.
+    { "name": "MCP_RATE_LIMIT", "namespace_id": "1002", "simple": { "limit": 60, "period": 60 } }
+  ],
+
   "triggers": {
     // Nightly safety net; the webhook handles the common case.
     "crons": ["0 3 * * *"]

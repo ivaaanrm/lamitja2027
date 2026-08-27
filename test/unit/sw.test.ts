@@ -163,7 +163,7 @@ describe('service worker · install and activate', () => {
   it('precaches the files whose URLs carry no hash', async () => {
     await sw.install()
 
-    const core = await sw.caches.open('lm-core-v1')
+    const core = await sw.caches.open('lm-core-v2')
     expect([...core.store.keys()].sort()).toEqual([
       'https://app.test/favicon.svg',
       'https://app.test/fonts/inter-latin.woff2',
@@ -183,7 +183,7 @@ describe('service worker · install and activate', () => {
     )
 
     await expect(sw.install()).resolves.toBeUndefined()
-    const core = await sw.caches.open('lm-core-v1')
+    const core = await sw.caches.open('lm-core-v2')
     expect(core.store.size).toBe(4)
   })
 
@@ -231,7 +231,7 @@ describe('service worker · app shells', () => {
     // `/actividad` is a single prerendered document addressed by a query the server never
     // reads. Keyed per URL, a hundred and fifty runs in the log would be a hundred and
     // fifty copies of one file.
-    const pages = await sw.caches.open('lm-pages-v1')
+    const pages = await sw.caches.open('lm-pages-v2')
     expect([...pages.store.keys()]).toEqual(['https://app.test/actividad'])
   })
 
@@ -355,14 +355,73 @@ describe('service worker · the block payload', () => {
 
     // Rotating `APP_PASSWORD` is how this app signs devices out; a device that has been
     // signed out may not keep reading the block from its own cache.
-    expect(await sw.caches.keys()).not.toContain('lm-data-v1')
+    expect(await sw.caches.keys()).not.toContain('lm-data-v2')
   })
 
   it('never caches an error page as the block', async () => {
     sw.fetch.mockResolvedValueOnce(new Response('boom', { status: 500 }))
     await sw.request('/api/data')
 
-    expect((await sw.caches.open('lm-data-v1')).store.size).toBe(0)
+    expect((await sw.caches.open('lm-data-v2')).store.size).toBe(0)
+  })
+
+  /**
+   * The captive portal, which is the failure this app is most likely to meet: a hotel, an
+   * airport, the station car park. It answers every request with `200` and its own login
+   * page, so `response.ok` is true and the body is HTML — and the version of this worker
+   * that trusted `ok` alone stored that page under `/api/data` and served it back as the
+   * training block.
+   */
+  it('never caches a captive portal as the block', async () => {
+    sw.fetch.mockResolvedValueOnce(json({ activities: [{ id: 1 }] }))
+    await sw.request('/api/data')
+
+    sw.fetch.mockResolvedValueOnce(
+      new Response('<html>Hotel WiFi</html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      }),
+    )
+    const answer = await sw.request('/api/data')
+
+    // The stored block is untouched…
+    const stored = await (await sw.caches.open('lm-data-v2')).match('/api/data')
+    expect(await stored!.json()).toEqual({ activities: [{ id: 1 }] })
+    // …and what came back is that block, marked stale — a portal is a dead connection
+    // wearing a 200, so it takes the same route as one.
+    expect(answer!.headers.get('x-lm-stale')).toBe('1')
+    expect(await answer!.json()).toEqual({ activities: [{ id: 1 }] })
+  })
+
+  it('never caches a sign-in hop as the block', async () => {
+    sw.fetch.mockResolvedValueOnce(json({ activities: [{ id: 7 }] }))
+    await sw.request('/api/data')
+
+    // What `fetch` hands back after following a 302 to an identity provider: somebody
+    // else's 200, with `redirected` as the only thing that still says so.
+    const hop = json({ not: 'the block' })
+    Object.defineProperty(hop, 'redirected', { value: true })
+    sw.fetch.mockResolvedValueOnce(hop)
+
+    const answer = await sw.request('/api/data')
+    const stored = await (await sw.caches.open('lm-data-v2')).match('/api/data')
+    expect(await stored!.json()).toEqual({ activities: [{ id: 7 }] })
+    expect(answer!.headers.get('x-lm-stale')).toBe('1')
+  })
+
+  it('passes an interception straight through when it has no block to fall back on', async () => {
+    sw.fetch.mockResolvedValueOnce(
+      new Response('<html>Hotel WiFi</html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      }),
+    )
+    const answer = await sw.request('/api/data')
+
+    // Nothing to serve and nothing invented: the app sees the portal and reports it.
+    expect(answer!.status).toBe(200)
+    expect(await answer!.text()).toContain('Hotel WiFi')
+    expect((await sw.caches.open('lm-data-v2')).store.size).toBe(0)
   })
 })
 

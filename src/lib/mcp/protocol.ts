@@ -108,6 +108,14 @@ export interface ToolRegistry {
   instructions: string
   /** The one credential the whole deployment has — `APP_PASSWORD`, as a bearer token. */
   secret: string
+  /**
+   * `false` when this caller has asked too often and should be turned away unread.
+   *
+   * Injected for the same reason `secret` is: the binding behind it lives in
+   * `cloudflare:workers`, and this module has to run in Node under vitest. Omitted
+   * entirely — by a test, or by a fork with no limiter configured — means no limiting.
+   */
+  withinLimit?: (request: Request) => Promise<boolean>
   list(): ToolDefinition[]
   call(name: string, args: Record<string, unknown>): Promise<ToolResult>
 }
@@ -236,6 +244,19 @@ export async function handleMcp(request: Request, tools: ToolRegistry): Promise<
 
   const foreign = checkOrigin(request)
   if (foreign) return foreign
+
+  // Ahead of the bearer check, never behind it. A limiter a correct token can skip is a
+  // limiter that throttles the status code and not the guessing — see
+  // `src/lib/ratelimit.ts`. The ceiling is set for an agent writing a whole block in a
+  // burst, so a legitimate caller does not meet it.
+  if (tools.withinLimit && !(await tools.withinLimit(request))) {
+    return fail(
+      null,
+      RPC.UNAUTHORIZED,
+      'Too many requests. Wait a minute and try again.',
+      429,
+    )
+  }
 
   const denied = authenticate(request, tools.secret)
   if (denied) return denied

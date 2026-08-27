@@ -172,6 +172,26 @@ is exchanged once for a signed, year-long cookie that works on desktop and iPhon
 Rotating `APP_PASSWORD` signs every device out. `src/middleware.ts` gates `/api/*` closed
 by default, with an explicit public list.
 
+One password behind a public URL is one password behind a *known* URL, so the two
+endpoints that take a credential sit behind Cloudflare's `ratelimit` binding
+(`src/lib/ratelimit.ts`, declared in `wrangler.jsonc`): `/api/login` at 8 a minute, and
+`/api/mcp` at 60 — higher because a legitimate caller there is an agent writing a whole
+block in a burst, not a person signing in. Three things about it are load-bearing.
+
+*It is consulted before the credential, never after.* Counting only failures reads like
+the kinder design and protects nothing: if a correct guess skips the limiter, every guess
+is still checked and the only thing throttled is the status code the guesser gets back.
+The cost is that a legitimate sign-in also counts, which at eight a minute nobody meets.
+
+*It fails open.* A missing binding — local `wrangler dev`, or a fork that dropped it —
+means no limiting rather than no app. An app that will not let its owner in because a
+rate limiter is unavailable has turned a hardening measure into an outage.
+
+*It is a speed bump, not a lock.* The binding is per-Cloudflare-location and eventually
+consistent, so a spread-out attacker gets a multiple of those numbers. The actual defence
+is the entropy of `APP_PASSWORD`. And note a WAF rate-limiting rule is **not** an option
+here: those are configured per zone, and `workers.dev` is not a zone you own.
+
 **The plan is also an MCP server** (`src/lib/mcp/`, `POST /api/mcp`). Typing twenty-three
 weeks of sessions into a form is the one thing this app is bad at and the one thing an
 agent is good at, so the same data the UI reads is offered as eleven tools: five reads —

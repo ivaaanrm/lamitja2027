@@ -629,3 +629,79 @@ describe('write validation happens before the database does', () => {
     expect(text).toContain('weekIndex')
   })
 })
+
+/**
+ * The speed bump in front of the bearer check.
+ *
+ * The endpoint is one token, the URL is in a public repository, and until this existed a
+ * guesser was limited by nothing but their own bandwidth. What matters here is the
+ * *order*: the limiter is consulted before the credential, because one consulted after it
+ * throttles the status code and not the guessing.
+ */
+describe('mcp · rate limiting', () => {
+  const limited = (): ToolRegistry => ({ ...stubRegistry(), withinLimit: async () => false })
+
+  it('turns away a caller over the limit, with 429 rather than 401', async () => {
+    const response = await handleMcp(post({ jsonrpc: '2.0', id: 1, method: 'tools/list' }), limited())
+    expect(response.status).toBe(429)
+  })
+
+  it('refuses the correct token too, which is what makes it a limit at all', async () => {
+    // The whole point. If a valid bearer walked past the limiter, an attacker's guesses
+    // would still every one of them be checked, and the throttle would protect nothing
+    // but the status code they got back.
+    const response = await handleMcp(
+      post({ jsonrpc: '2.0', id: 1, method: 'tools/list' }, { auth: SECRET }),
+      limited(),
+    )
+    expect(response.status).toBe(429)
+  })
+
+  it('refuses a wrong token with 429, not 401', async () => {
+    const response = await handleMcp(
+      post({ jsonrpc: '2.0', id: 1, method: 'tools/list' }, { auth: 'guess' }),
+      limited(),
+    )
+    expect(response.status).toBe(429)
+  })
+
+  it('turns the request away before parsing its body', async () => {
+    // Malformed JSON would be `-32700` at 400 if the body were read first. Getting 429
+    // proves the limiter ran ahead of it — a request being refused costs no parsing.
+    const response = await handleMcp(post('{ not json', { auth: SECRET }), limited())
+    expect(response.status).toBe(429)
+  })
+
+  it('lets everything through when no limiter is configured', async () => {
+    // A fork that dropped the binding, or local `wrangler dev`. No limiting beats no app:
+    // the credential check behind it is still there either way.
+    const { serverInfo, instructions, secret, list, call } = stubRegistry()
+    const response = await handleMcp(post({ jsonrpc: '2.0', id: 1, method: 'tools/list' }), {
+      serverInfo,
+      instructions,
+      secret,
+      list,
+      call,
+    })
+    expect(response.status).toBe(200)
+  })
+
+  it('is checked after the origin, so a cross-origin caller cannot spend the budget', async () => {
+    let consulted = false
+    const registry: ToolRegistry = {
+      ...stubRegistry(),
+      withinLimit: async () => {
+        consulted = true
+        return true
+      },
+    }
+    const response = await handleMcp(
+      post({ jsonrpc: '2.0', id: 1, method: 'tools/list' }, {
+        headers: { origin: 'https://evil.example' },
+      }),
+      registry,
+    )
+    expect(response.status).toBe(403)
+    expect(consulted).toBe(false)
+  })
+})

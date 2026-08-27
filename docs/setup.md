@@ -189,6 +189,40 @@ Nothing else is a secret. The Strava **client id** is public and belongs in
 `wrangler.jsonc`, and so is everything in `.env` — a race date and a goal time are printed
 on the start list.
 
+### Before you make the repository public
+
+Publishing the repository publishes the URL of a password-protected app holding your
+training history, together with the source that explains exactly how the door works. Two
+things follow.
+
+**Make `APP_PASSWORD` long and random.** You type it once per device per year, so length
+costs you nothing and costs an attacker everything:
+
+```bash
+openssl rand -base64 24 | wrangler secret put APP_PASSWORD
+```
+
+**The rate limits are already there, and they are only a speed bump.** `/api/login` is
+capped at 8 requests a minute per IP and `/api/mcp` at 60, through Cloudflare's
+`ratelimit` binding declared in `wrangler.jsonc`. They are per-Cloudflare-location and
+eventually consistent, so a distributed attacker gets a multiple of those figures — which
+is why the password above matters more than the limits do. Delete the `ratelimits` block
+and the app still runs, unthrottled: `src/lib/ratelimit.ts` fails open on purpose.
+
+A WAF rate-limiting rule would be the obvious alternative and is not available on a
+`workers.dev` host: WAF rules are configured per zone, and that is Cloudflare's zone, not
+yours. On a custom domain you can add one.
+
+Optional, and a genuine step up: put [Cloudflare Access](https://developers.cloudflare.com/workers/configuration/cloudflare-access/)
+in front of the Worker (**Workers & Pages** → your Worker → **Access**). Sign-in then
+happens at the edge against your identity provider, with MFA, before the Worker runs. Two
+caveats if you do: `/api/strava/webhook` needs a **Bypass** policy, because Strava's
+servers cannot authenticate; and `/api/mcp` needs a **Service Auth** policy plus a
+[service token](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/),
+whose `CF-Access-Client-Id` and `CF-Access-Client-Secret` go alongside the bearer header
+in `claude mcp add`. Access is a deployment choice, not something this app depends on — a
+fork with no Zero Trust configured is still protected by the password.
+
 ### 4. Migrate, then deploy
 
 ```bash
