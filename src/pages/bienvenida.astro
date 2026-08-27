@@ -1,0 +1,36 @@
+---
+import { Onboarding } from '../components/Onboarding'
+import Base from '../layouts/Base.astro'
+export const prerender = true
+
+/**
+ * First run after `/alta` or `/api/bootstrap`: the one screen every athlete but nobody
+ * revisiting the app sees. It is not one of the four tabs and it is not `App.astro` — that
+ * shell always renders the dock, and a dock with none of its four tabs lit would be
+ * claiming a destination this page is not. `Base` plus a hand-rolled header matches the
+ * shell's own look (the same `title2` heading, the same gutter and column width `App.astro`
+ * uses) without a dock that has nowhere true to point yet.
+ *
+ * No back link, unlike `/ajustes`: an athlete lands here straight from
+ * registration or bootstrap, with nothing behind it to go back to.
+ */
+---
+
+<Base title="Bienvenido · La Mitja">
+  <main class="mx-auto flex min-h-full max-w-lg flex-col gap-2 px-gutter pt-10 pb-[calc(2rem+env(safe-area-inset-bottom))]">
+    <header class="px-0.5 pb-2">
+      <p class="text-caption2 font-semibold uppercase tracking-[0.16em] text-label-3">
+        Antes de empezar
+      </p>
+      <h1 class="mt-2 font-display text-title2 font-bold tracking-tight text-label">
+        Tu carrera y tu bloque
+      </h1>
+      <p class="mt-3 text-footnote leading-relaxed text-label-2">
+        Con esto calculamos tus ritmos y sabemos cuántas semanas quedan. Luego eliges los
+        días que entrenas y el plan se genera solo.
+      </p>
+    </header>
+
+    <Onboarding client:load />
+  </main>
+</Base>

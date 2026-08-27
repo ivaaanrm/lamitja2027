@@ -31,7 +31,12 @@ function toSpm(rpm: number | null | undefined): number | null {
   return rpm == null ? null : Math.round(rpm * 2)
 }
 
-export function toRow(activity: StravaActivity): NewActivity {
+/**
+ * Strava's summary, narrowed to the columns the table keeps. The owner is deliberately
+ * absent: this file maps one athlete's JSON to one row and has no idea whose sync asked
+ * for it, so `sync.ts` stamps `userId` at the call site where the athlete is known.
+ */
+export function toRow(activity: StravaActivity): Omit<NewActivity, 'userId'> {
   return {
     id: activity.id,
     name: activity.name,

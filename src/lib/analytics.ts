@@ -1,7 +1,7 @@
-import { DAY_MS, WEEK_MS, startOfDay, weekIndex } from './block'
+import { DAY_MS, WEEK_MS, goalPaceSKm, startOfDay, weekIndex, type BlockConfig } from './block'
 import { isRun, paceSKm } from './activity'
 import { totals, type Totals } from './metrics'
-import { PACES, hrZone, type Zone } from './paces'
+import { PACES, hrZone, paceBands, type Zone } from './paces'
 import type { Activity } from './db/schema'
 
 /**
@@ -15,19 +15,32 @@ import type { Activity } from './db/schema'
  *
  * Nothing is stored. Two seasons is ~250 rows; the whole page recomputes in under a
  * millisecond, and a rollup table would be a second copy of the truth to keep honest.
+ *
+ * What is athlete-specific here is what a *judgement* is made against: whether a run was
+ * an effort, and which zone a heart rate falls in. Those take the block and the athlete's
+ * maximum heart rate. The load model below deliberately does not — see its own note.
  */
 
 // ---------------------------------------------------------------------------
 // Training load
 // ---------------------------------------------------------------------------
 
-/** 5:15/km — the middle of the easy band, and the anchor the load fallback is scaled to. */
+/**
+ * 5:15/km — the middle of the easy band, and the anchor the load fallback is scaled to.
+ *
+ * It stays the owner's band for every athlete on purpose: `LOAD_K` and `LOAD_EXPONENT`
+ * below were solved *with this anchor held fixed*, so re-anchoring it per athlete would
+ * silently invalidate the fit rather than transfer it. The curve it feeds is an
+ * exponential average of itself — relative, self-consistent within one athlete's season,
+ * and never quoted as a number — so a constant scale factor between athletes costs
+ * nothing the app reads.
+ */
 const EASY_MID_S_KM = (PACES.easy.lo + PACES.easy.hi) / 2
 
 /**
  * Strava's Relative Effort is heart-rate derived, so it cannot be recovered from distance
  * and time. These two constants are a least-squares fit of `k · minutes · (easy/pace)^n`
- * over the 100 runs in `docs/data` that carry one: it lands within ~33% on average, which
+ * over the 100 runs in `docs/personal/data` that carry one: it lands within ~33% on average, which
  * is close enough to keep a 42-day average pointing the right way and nowhere near close
  * enough to quote as a number.
  *
@@ -180,10 +193,14 @@ export function cumulativeByDay(
  * The distinction matters for the baseline: week 1 of this block has no counterpart in a
  * 20-week season, and drawing that as a zero would invent a week off that never happened.
  */
-export function weeklyTotals(activities: Activity[], totalWeeks: number): (Totals | null)[] {
+export function weeklyTotals(
+  block: BlockConfig,
+  activities: Activity[],
+  totalWeeks: number,
+): (Totals | null)[] {
   const byWeek = new Map<number, Activity[]>()
   for (const activity of activities) {
-    const week = weekIndex(activity.startedOn)
+    const week = weekIndex(block, activity.startedOn)
     const bucket = byWeek.get(week)
     if (bucket) bucket.push(activity)
     else byWeek.set(week, [activity])
@@ -222,19 +239,31 @@ export interface BestEffort {
 }
 
 /**
+ * The pace an effort has to beat: the slow end of *this* athlete's steady band.
+ *
+ * Held against the owner's 4:35/km it would be a different test for everyone else —
+ * nobody chasing a 1:45 half ever runs a training kilometre that fast, so no run of
+ * theirs would qualify and their bests would all read as empty.
+ */
+const steadyCeiling = (block: BlockConfig) => paceBands(goalPaceSKm(block)).steady.hi
+
+function isEffort(activity: Activity, hrMax: number, ceilingSKm: number): boolean {
+  if (!isRun(activity.sportType) || activity.distanceM <= 0 || activity.movingS <= 0) return false
+  if (activity.averageHeartrate != null && hrZone(activity.averageHeartrate, hrMax) >= 4) return true
+  return paceSKm(activity.distanceM, activity.movingS) <= ceilingSKm
+}
+
+/**
  * Whether a run was an effort at all, rather than a long enough easy run.
  *
  * Without this the 10 km best would be won by whichever easy run happened to be ten
  * kilometres long — a number that says nothing, and drags the race projection down with
  * it. A run counts when the strap puts it in Z4 or above, or when it was run faster than
- * steady; either alone is enough, because the seasons in `docs/data` carry no heart rate
+ * steady; either alone is enough, because the seasons in `docs/personal/data` carry no heart rate
  * and a dropout-riddled strap should not be able to disqualify a genuinely fast run.
  */
-export function isEffortRun(activity: Activity): boolean {
-  if (!isRun(activity.sportType) || activity.distanceM <= 0 || activity.movingS <= 0) return false
-  if (activity.averageHeartrate != null && hrZone(activity.averageHeartrate) >= 4) return true
-  return paceSKm(activity.distanceM, activity.movingS) <= PACES.steady.hi
-}
+export const isEffortRun = (block: BlockConfig, activity: Activity, hrMax: number) =>
+  isEffort(activity, hrMax, steadyCeiling(block))
 
 /**
  * Bests from whole runs, not from splits.
@@ -244,8 +273,13 @@ export function isEffortRun(activity: Activity): boolean {
  * more". That is a slightly harder test than a 10 km split off the front of a long run,
  * and it is the same test in both seasons, which is what the comparison needs.
  */
-export function bestEfforts(activities: Activity[]): BestEffort[] {
-  const runs = activities.filter(isEffortRun)
+export function bestEfforts(
+  block: BlockConfig,
+  activities: Activity[],
+  hrMax: number,
+): BestEffort[] {
+  const ceiling = steadyCeiling(block)
+  const runs = activities.filter((a) => isEffort(a, hrMax, ceiling))
 
   return BENCHMARKS.map(({ distanceM, label }) => {
     let best: Activity | null = null
@@ -273,24 +307,28 @@ export const riegel = (timeS: number, fromM: number, toM: number, exponent = 1.0
   timeS * Math.pow(toM / fromM, exponent)
 
 export interface Projection {
-  /** Projected half-marathon time, seconds. */
+  /** Projected time over the race the block is built around, seconds. */
   timeS: number
   /** The effort it was projected from. */
   from: BestEffort
 }
 
 /**
- * The fastest half this season's running says is in there.
+ * The fastest race this season's running says is in there, over `distanceM`.
  *
  * Every benchmark is projected and the best one wins, with the effort it came from kept
  * beside it — a 5K projection and a 15K projection are very different promises, and which
  * one is talking is half the information.
+ *
+ * The distance is passed rather than assumed: `block.raceDistanceM` is what the screen is
+ * asking about, and defaulting it to the half would answer a question nobody asked for
+ * every athlete whose dorsal is a 10K.
  */
-export function projectHalf(efforts: BestEffort[], halfM = 21_097.5): Projection | null {
+export function projectHalf(efforts: BestEffort[], distanceM: number): Projection | null {
   let best: Projection | null = null
   for (const effort of efforts) {
     if (effort.timeS == null) continue
-    const timeS = riegel(effort.timeS, effort.distanceM, halfM)
+    const timeS = riegel(effort.timeS, effort.distanceM, distanceM)
     if (!best || timeS < best.timeS) best = { timeS, from: effort }
   }
   return best
@@ -316,11 +354,11 @@ export interface ZoneShare {
  * would file the hardest session of the week under easy running. Runs without a strap are
  * left out entirely rather than guessed at — `zoneCoverage` says how much that cost.
  */
-export function zoneShares(activities: Activity[]): ZoneShare[] {
+export function zoneShares(activities: Activity[], hrMax: number): ZoneShare[] {
   const byZone = new Map<Zone, ZoneShare>()
   for (const activity of activities) {
     if (!isRun(activity.sportType) || activity.averageHeartrate == null) continue
-    const zone = hrZone(activity.averageHeartrate)
+    const zone = hrZone(activity.averageHeartrate, hrMax)
     const bucket = byZone.get(zone) ?? { zone, movingS: 0, distanceM: 0, runs: 0 }
     bucket.movingS += activity.movingS
     bucket.distanceM += activity.distanceM

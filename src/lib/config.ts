@@ -66,7 +66,6 @@ export const DEFAULTS = {
   appShortName: 'La Mitja',
   appDescription:
     'Entrenamiento hacia una media maratón por debajo de 1:20 en La Mitja, el 24 de enero de 2027.',
-  goalLabel: 'Media sub-1:20',
   raceName: 'La Mitja de Granollers',
   raceDate: '2027-01-24',
   raceDistanceM: 21_097.5,
@@ -237,20 +236,6 @@ export const APP_DESCRIPTION = text(
   'PUBLIC_APP_DESCRIPTION',
   import.meta.env.PUBLIC_APP_DESCRIPTION,
   DEFAULTS.appDescription,
-)
-
-/**
- * The objective, said the way a runner says it — the heading on `/`.
- *
- * Not derived from `GOAL_TIME_S` and `RACE_DISTANCE_M`, though it looks like it could be:
- * turning 4799 s over 21 097,5 m into *"Media sub-1:20"* needs the Spanish name of the
- * distance, a rounding convention and a decision about whether *sub-1:20* or *1:19* is the
- * thing being chased. That is a sentence, and a sentence is better written than generated.
- */
-export const GOAL_LABEL = text(
-  'PUBLIC_GOAL_LABEL',
-  import.meta.env.PUBLIC_GOAL_LABEL,
-  DEFAULTS.goalLabel,
 )
 
 /** The race, as it is printed on the bib. Ends up as the title of the final session. */

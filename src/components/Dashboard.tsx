@@ -1,16 +1,16 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { formatDuration, formatKm, formatPace, isRun, paceSKm } from '@/lib/activity'
-import { BLOCK_START, RACE_DISTANCE_M, TOTAL_WEEKS, daysToRace, startOfDay } from '@/lib/block'
+import { daysToRace, goalPaceSKm, startOfDay, totalWeeks, type BlockConfig } from '@/lib/block'
 import { cn } from '@/lib/cn'
 import type { Activity } from '@/lib/db/schema'
 import { decimal } from '@/lib/format'
-import { GOAL_PACE_S_KM, type BlockProgress, type WeekMetrics } from '@/lib/metrics'
-import { hrZone, zoneTag } from '@/lib/paces'
+import type { BlockProgress, WeekMetrics } from '@/lib/metrics'
+import { DEFAULT_HR_MAX, hrZone, paceBands, zoneTag } from '@/lib/paces'
 import type { MatchedSession, WeekPlan } from '@/lib/plan'
 import { setDone } from '@/lib/plan-client'
 import { ThisWeek } from './ThisWeek'
 import { WeekCalendar } from './WeekCalendar'
-import { useBlock } from './useBlock'
+import { NoBlockCard, useBlock } from './useBlock'
 import { island } from './Island'
 import {
   CHEVRON_RIGHT,
@@ -68,10 +68,33 @@ const syncFmt = new Intl.DateTimeFormat('es-ES', {
   minute: '2-digit',
 })
 
+/**
+ * What `/api/strava/callback` bounced back with.
+ *
+ * The browser arrives there from Strava's own domain with no island waiting on a response,
+ * so the callback redirects to `/?strava=…` and this is the only place the outcome is ever
+ * said. `ok` is deliberately absent: a connect that worked is announced by the activities
+ * showing up, and a green banner on top of them would be the app congratulating itself.
+ */
+const STRAVA_OUTCOME: Record<string, string> = {
+  error: 'Strava no ha podido completar la conexión. Inténtalo otra vez.',
+  bad_state: 'El enlace de conexión ha caducado. Vuelve a empezar desde aquí.',
+  scope: 'Falta el permiso para leer las actividades privadas. Acéptalo en Strava o los kilómetros saldrán incompletos.',
+  taken: 'Esa cuenta de Strava ya está conectada a otro atleta.',
+}
+
 function DashboardScreen() {
   const { data, error, now, reload, weeks, progress, currentWeek } = useBlock()
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [stravaNotice, setStravaNotice] = useState<string | null>(null)
+
+  // Read in an effect and never in the body: this island is also rendered during the
+  // prerender pass, inside a Worker where there is no `location` (AGENTS gotcha 15).
+  useEffect(() => {
+    const outcome = new URLSearchParams(location.search).get('strava') ?? ''
+    setStravaNotice(STRAVA_OUTCOME[outcome] ?? null)
+  }, [])
 
   async function sync() {
     setBusy(true)
@@ -101,11 +124,20 @@ function DashboardScreen() {
     return <ErrorCard title="Sin datos del bloque" message={error} onRetry={() => void reload()} />
 
   if (!data || !progress) return <DashboardSkeleton />
+  // No dates yet — `/bienvenida` is the only thing that fixes it, and every number on
+  // this screen is counted from them.
+  if (!data.block) return <NoBlockCard />
+
 
   if (!data.stravaConnected) {
     return (
       <Card className="fade-up">
         <CardTitle>Strava</CardTitle>
+        {stravaNotice ? (
+          <p role="alert" className="mb-2 text-footnote leading-relaxed text-red">
+            {stravaNotice}
+          </p>
+        ) : null}
         <EmptyState
           action={
             // Strava's own orange is the one hex in the repo: their brand guidelines own
@@ -125,6 +157,10 @@ function DashboardScreen() {
     )
   }
 
+  const block = data.block
+  const hrMax = data.user.hrMax ?? DEFAULT_HR_MAX
+  // A zone is a share of *this* athlete's goal pace — see the same line in `Planner`.
+  const bands = paceBands(goalPaceSKm(block))
   const week = weeks[currentWeek]
   const metrics = progress.weekly[currentWeek]
   // One clock for the whole screen: `useBlock` pins `now` at mount, so "today" cannot
@@ -140,11 +176,20 @@ function DashboardScreen() {
 
   return (
     <>
-      <RaceCountdown now={now} />
-      <WeekHero metrics={metrics} week={week} today={today} notStarted={now < BLOCK_START} />
-      <ThisWeek week={week} today={today} onToggle={toggle} />
-      <RecentRuns runs={recent} busy={busy} onSync={() => void sync()} />
-      <RaceCard progress={progress} now={now} />
+      {/* Above everything, because it answers the tap that landed here. Only ever drawn
+          for a connect that went wrong — a connect that worked is said by the kilometres. */}
+      {stravaNotice ? (
+        <Card className="fade-up">
+          <p role="alert" className="text-footnote leading-relaxed text-red">
+            {stravaNotice}
+          </p>
+        </Card>
+      ) : null}
+      <RaceCountdown block={block} now={now} />
+      <WeekHero block={block} metrics={metrics} week={week} today={today} notStarted={now < block.startsOn} />
+      <ThisWeek week={week} today={today} hrMax={hrMax} bands={bands} onToggle={toggle} />
+      <RecentRuns runs={recent} hrMax={hrMax} busy={busy} onSync={() => void sync()} />
+      <RaceCard block={block} progress={progress} now={now} />
 
       <footer className="pt-0.5 text-center">
         <p className="text-caption text-label-4">
@@ -185,8 +230,8 @@ function DashboardScreen() {
  * Rendered from the island rather than from `App.astro`, which is prerendered — a
  * countdown baked at build time is a number that is wrong the next morning.
  */
-function RaceCountdown({ now }: { now: number }) {
-  const days = daysToRace(now)
+function RaceCountdown({ block, now }: { block: BlockConfig; now: number }) {
+  const days = daysToRace(block, now)
   const weeks = Math.floor(days / 7)
 
   return (
@@ -221,11 +266,13 @@ function RaceCountdown({ now }: { now: number }) {
  * so the overshoot is said in words underneath instead.
  */
 function WeekHero({
+  block,
   metrics,
   week,
   today,
   notStarted,
 }: {
+  block: BlockConfig
   metrics: WeekMetrics
   week: WeekPlan | undefined
   /** UTC midnight of the current local day. */
@@ -245,8 +292,8 @@ function WeekHero({
       <HeroMetric
         eyebrow={
           notStarted
-            ? `El bloque abre el ${dayFmt.format(new Date(BLOCK_START))}`
-            : `Semana ${metrics.weekIndex + 1} de ${TOTAL_WEEKS}${qualifier ? ` · ${qualifier}` : ''}`
+            ? `El bloque abre el ${dayFmt.format(new Date(block.startsOn))}`
+            : `Semana ${metrics.weekIndex + 1} de ${totalWeeks(block)}${qualifier ? ` · ${qualifier}` : ''}`
         }
         value={decimal(km)}
         unit="km"
@@ -310,10 +357,12 @@ function weekContext(km: number, targetKm: number | null, notStarted: boolean): 
  */
 function RecentRuns({
   runs,
+  hrMax,
   busy,
   onSync,
 }: {
   runs: Activity[]
+  hrMax: number
   busy: boolean
   onSync: () => void
 }) {
@@ -350,7 +399,7 @@ function RecentRuns({
                   <p className="mt-0.5 text-caption text-label-3">
                     {dayFmt.format(new Date(run.startedOn))}
                     {/* The zone, never the bpm — see the same call in `SessionCard`. */}
-                    {run.averageHeartrate ? ` · ${zoneTag(hrZone(run.averageHeartrate))}` : ''}
+                    {run.averageHeartrate ? ` · ${zoneTag(hrZone(run.averageHeartrate, hrMax))}` : ''}
                     {run.cadenceSpm ? ` · ${run.cadenceSpm} pasos/min` : ''}
                   </p>
                 </div>
@@ -382,15 +431,23 @@ function RecentRuns({
  * gone rather than how much of it there has been: the hero above already owns volume, and
  * the sentence beside the ring owns whether it is keeping up with the plan.
  */
-function RaceCard({ progress, now }: { progress: BlockProgress; now: number }) {
-  const { block } = progress
-  const days = daysToRace(now)
-  const doneKm = block.distanceM / 1000
+function RaceCard({
+  block,
+  progress,
+  now,
+}: {
+  block: BlockConfig
+  progress: BlockProgress
+  now: number
+}) {
+  const days = daysToRace(block, now)
+  const doneKm = progress.block.distanceM / 1000
   const plannedToDateKm =
     progress.plannedToDateM == null ? null : progress.plannedToDateM / 1000
   // Rounded before it is judged: half a kilometre behind is not "por debajo", it is noise.
   const shortfallKm =
     plannedToDateKm == null ? null : Math.max(0, Math.round(plannedToDateKm - doneKm))
+  const weeks = totalWeeks(block)
 
   return (
     <Card className="fade-up">
@@ -399,11 +456,11 @@ function RaceCard({ progress, now }: { progress: BlockProgress; now: number }) {
       <div className="flex items-center gap-3">
         <ProgressRing
           value={progress.weeksElapsed}
-          target={TOTAL_WEEKS}
+          target={weeks}
           size={64}
           label={days}
           sublabel="días"
-          ariaLabel={`Faltan ${days} días para la carrera; ${progress.weeksElapsed} de ${TOTAL_WEEKS} semanas del bloque`}
+          ariaLabel={`Faltan ${days} días para la carrera; ${progress.weeksElapsed} de ${weeks} semanas del bloque`}
         />
         <div className="min-w-0 flex-1">
           {/* The verdict carries its own words, so the hue is never the only thing saying
@@ -416,7 +473,7 @@ function RaceCard({ progress, now }: { progress: BlockProgress; now: number }) {
             )}
           >
             {shortfallKm == null
-              ? `${progress.weeksElapsed} de ${TOTAL_WEEKS} semanas`
+              ? `${progress.weeksElapsed} de ${weeks} semanas`
               : shortfallKm === 0
                 ? 'Según lo previsto'
                 : `${decimal(shortfallKm, 0)} km por debajo`}
@@ -432,17 +489,17 @@ function RaceCard({ progress, now }: { progress: BlockProgress; now: number }) {
       <StatStrip className="mt-3">
         <Stat
           label="Ritmo medio"
-          value={block.meanPaceSKm ? `${formatPace(block.meanPaceSKm)}/km` : '—'}
-          hint={`objetivo ${formatPace(GOAL_PACE_S_KM)}`}
+          value={progress.block.meanPaceSKm ? `${formatPace(progress.block.meanPaceSKm)}/km` : '—'}
+          hint={`objetivo ${formatPace(goalPaceSKm(block))}`}
         />
         <Stat
           label="Más larga"
-          value={block.longestM ? `${formatKm(block.longestM)} km` : '—'}
-          hint={`de ${decimal(RACE_DISTANCE_M / 1000)} km`}
+          value={progress.block.longestM ? `${formatKm(progress.block.longestM)} km` : '—'}
+          hint={`de ${decimal(block.raceDistanceM / 1000)} km`}
         />
         <Stat
           label="Cadencia"
-          value={block.meanCadenceSpm ? Math.round(block.meanCadenceSpm) : '—'}
+          value={progress.block.meanCadenceSpm ? Math.round(progress.block.meanCadenceSpm) : '—'}
           hint="objetivo 170 pasos/min"
         />
       </StatStrip>

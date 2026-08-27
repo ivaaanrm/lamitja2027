@@ -1,7 +1,8 @@
-import { BLOCK_START, DAY_MS, WEEK_MS, startOfDay, weekIndex } from './block'
+import { startOfDay, totalWeeks, weekDays, weekIndex, weekStart, type BlockConfig } from './block'
 import { formatPaceRange, isRun } from './activity'
-import { PACE_ZONE_NUMBER, midOf, zoneTag, type PaceBand, type PaceZone } from './paces'
-import { BY_FEEL, primaryZone, workoutBand, workoutDurationS } from './workout'
+import { PACE_ZONE_NUMBER, PACES, midOf, zoneTag, type PaceBand, type PaceZone } from './paces'
+import { BY_FEEL, primaryZone, workoutBand, workoutDurationS, type Bands } from './workout'
+import { SESSION_TYPES, type SessionType } from './session-types'
 import type { Activity, PlanSession, PlanWeek } from './db/schema'
 
 /**
@@ -9,23 +10,16 @@ import type { Activity, PlanSession, PlanWeek } from './db/schema'
  * takes the data it needs, which is what keeps "was this session done?" reproducible:
  * the answer is a function of the rows, not of when it was asked.
  *
+ * The athlete's block is one of those things: a week index means nothing without the
+ * Monday it counts from, so every entry point that needs one takes a `BlockConfig` in its
+ * *first* slot — never trailing, where the wrong athlete's window could be passed quietly.
+ *
  * This module is imported by the browser as well as the Worker, so it pulls in neither
  * drizzle nor zod — the session vocabulary lives here and `db/schema.ts` imports it,
  * rather than the other way round.
  */
 
-export const SESSION_TYPES = [
-  'easy',
-  'long',
-  'tempo',
-  'interval',
-  'fartlek',
-  'race',
-  'rest',
-  'cross',
-  'strength',
-] as const
-export type SessionType = (typeof SESSION_TYPES)[number]
+export { SESSION_TYPES, type SessionType }
 
 /** What a session type is measured in, and which activities can satisfy it. */
 export type SportFamily = 'run' | 'strength' | 'other'
@@ -76,19 +70,25 @@ export interface SessionEffort {
   estimateS: number | null
 }
 
-export function sessionEffort(session: PlanSession): SessionEffort {
+/**
+ * `bands` is the athlete's own six, from `paceBands(goalPaceSKm(block))`. It defaults to
+ * the owner's table so a caller that has no block to hand — a test, the seed — reads what
+ * it always did; every screen passes the signed-in athlete's, because a zone is a share of
+ * *their* goal pace and Ivan's seconds mean nothing under someone else's target.
+ */
+export function sessionEffort(session: PlanSession, bands: Bands = PACES): SessionEffort {
   const steps = session.steps?.length ? session.steps : null
   // Either bound alone is still a band — the editor lets one be typed without the other.
   const lo = session.targetPaceLoSKm ?? session.targetPaceHiSKm
   const hi = session.targetPaceHiSKm ?? session.targetPaceLoSKm
   const own = lo != null && hi != null ? { lo, hi } : null
-  const band = own ?? (steps ? workoutBand(steps) : null)
+  const band = own ?? (steps ? workoutBand(steps, bands) : null)
   // The zone names the band, so it is only the steps' to give: a pace typed by hand is a
   // number, not a zone, and labelling it `Z4` would be the app inferring intent.
-  const zone = own ? null : steps ? primaryZone(steps) : null
+  const zone = own ? null : steps ? primaryZone(steps, bands) : null
 
   const estimateS = steps
-    ? workoutDurationS(steps)
+    ? workoutDurationS(steps, bands)
     : session.targetDistanceM != null && band != null
       ? Math.round((session.targetDistanceM / 1000) * midOf(band))
       : null
@@ -114,13 +114,6 @@ export function sportFamily(sportType: string): SportFamily {
   if (STRENGTH_SPORTS.has(sportType)) return 'strength'
   return 'other'
 }
-
-/** Monday 00:00 of week `i`, epoch ms. The inverse of `weekIndex`. */
-export const weekStart = (i: number) => BLOCK_START + i * WEEK_MS
-
-/** The seven local midnights of week `i`, Monday first. */
-export const weekDays = (i: number) =>
-  Array.from({ length: 7 }, (_, day) => weekStart(i) + day * DAY_MS)
 
 /** A session paired with whatever actually happened, if anything. */
 export interface MatchedSession {
@@ -218,16 +211,17 @@ function groupByDay<T>(items: T[], dateOf: (item: T) => number): Map<number, T[]
 
 /** The full picture for one week: prescribed, done, and done-but-unprescribed. */
 export function buildWeek(
+  block: BlockConfig,
   index: number,
   weeks: PlanWeek[],
   sessions: PlanSession[],
   activities: Activity[],
 ): WeekPlan {
-  const startsOn = weekStart(index)
+  const startsOn = weekStart(block, index)
   const sessionsByDay = groupByDay(sessions, (s) => s.scheduledOn)
   const activitiesByDay = groupByDay(activities, (a) => a.startedOn)
 
-  const days = weekDays(index).map((date) =>
+  const days = weekDays(block, index).map((date) =>
     matchDay(date, sessionsByDay.get(date) ?? [], activitiesByDay.get(date) ?? []),
   )
 
@@ -241,25 +235,35 @@ export function buildWeek(
   }
 }
 
-/** Every week of the block, in order — the planner view. */
+/**
+ * Every week of the block, in order — the planner view.
+ *
+ * The week count is derived from the block rather than passed in: two arguments that have
+ * to agree are one argument too many, and the one that was passed is the one that would
+ * be wrong.
+ */
 export function buildBlock(
-  totalWeeks: number,
+  block: BlockConfig,
   weeks: PlanWeek[],
   sessions: PlanSession[],
   activities: Activity[],
 ): WeekPlan[] {
-  const sessionsByWeek = groupByWeek(sessions, (s) => s.scheduledOn)
-  const activitiesByWeek = groupByWeek(activities, (a) => a.startedOn)
+  const sessionsByWeek = groupByWeek(block, sessions, (s) => s.scheduledOn)
+  const activitiesByWeek = groupByWeek(block, activities, (a) => a.startedOn)
 
-  return Array.from({ length: totalWeeks }, (_, i) =>
-    buildWeek(i, weeks, sessionsByWeek.get(i) ?? [], activitiesByWeek.get(i) ?? []),
+  return Array.from({ length: totalWeeks(block) }, (_, i) =>
+    buildWeek(block, i, weeks, sessionsByWeek.get(i) ?? [], activitiesByWeek.get(i) ?? []),
   )
 }
 
-function groupByWeek<T>(items: T[], dateOf: (item: T) => number): Map<number, T[]> {
+function groupByWeek<T>(
+  block: BlockConfig,
+  items: T[],
+  dateOf: (item: T) => number,
+): Map<number, T[]> {
   const byWeek = new Map<number, T[]>()
   for (const item of items) {
-    const i = weekIndex(dateOf(item))
+    const i = weekIndex(block, dateOf(item))
     const bucket = byWeek.get(i)
     if (bucket) bucket.push(item)
     else byWeek.set(i, [item])

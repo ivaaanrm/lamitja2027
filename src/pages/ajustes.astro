@@ -1,0 +1,28 @@
+---
+import { Settings } from '../components/Settings'
+import Base from '../layouts/Base.astro'
+export const prerender = true
+
+/**
+ * Reached from the initials in `App.astro`'s header on every tab, never from the dock —
+ * `nav.ts` stays four entries, so there is no tab to light here either. `Base` plus this
+ * same hand-rolled header keeps the shell's look (heading size, column, gutter) without a
+ * dock claiming a destination it is not.
+ */
+---
+
+<Base title="Ajustes · La Mitja">
+  <main class="mx-auto flex min-h-full max-w-lg flex-col gap-2 px-gutter pt-3 pb-[calc(2rem+env(safe-area-inset-bottom))]">
+    <header class="px-0.5 pb-0.5">
+      <a
+        href="/"
+        class="tappable -ml-1 inline-flex min-h-11 w-fit items-center gap-1 px-1 text-caption font-medium text-label-2"
+      >
+        <span aria-hidden="true">←</span> Volver
+      </a>
+      <h1 class="mt-1 font-display text-title2 font-bold tracking-tight text-label">Ajustes</h1>
+    </header>
+
+    <Settings client:load />
+  </main>
+</Base>

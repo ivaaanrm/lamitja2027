@@ -1,15 +1,7 @@
 import { useMemo } from 'react'
 import { formatClock, formatDuration, formatKm, formatPace } from '@/lib/activity'
-import {
-  BLOCK_START,
-  DAY_MS,
-  GOAL_TIME_S,
-  RACE_DATE,
-  TOTAL_WEEKS,
-  daysToRace,
-  startOfDay,
-} from '@/lib/block'
-import { BASELINE, BASELINE_FIRST_WEEK, BASELINE_SHIFT_MS, PRE_BLOCK } from '@/lib/baseline'
+import { DAY_MS, daysToRace, goalPaceSKm, startOfDay, totalWeeks, type BlockConfig } from '@/lib/block'
+import { baselineFor, type Baseline } from '@/lib/baseline'
 import {
   bestEfforts,
   cumulativeByDay,
@@ -26,10 +18,9 @@ import {
 import { cn } from '@/lib/cn'
 import type { Activity } from '@/lib/db/schema'
 import { decimal } from '@/lib/format'
-import { GOAL_PACE_S_KM } from '@/lib/metrics'
-import { ZONE_NAME } from '@/lib/paces'
+import { DEFAULT_HR_MAX, ZONE_NAME } from '@/lib/paces'
 import { BarRow, ChartLegend, ChartScale, LineChart, Sparkline, StackedBar } from './charts'
-import { useBlock } from './useBlock'
+import { NoBlockCard, useBlock } from './useBlock'
 import { island } from './Island'
 import {
   Card,
@@ -68,24 +59,45 @@ import {
  * whole volume question as a second card underneath. The chart is now a sparkline in the
  * hero's trailing slot, at the size that reading is worth, and the volume card it used to
  * push down is the same card: hero, weekly bars, stat strip.
+ *
+ * Only the owner carries a `baselineKey`, so `baselineFor` returns `null` for every other
+ * athlete: every card below degrades to its own numbers with no "frente a" clause, and
+ * `HeadToHead` — which is nothing *but* a comparison — does not render at all.
  */
 function ProgressScreen() {
   const { data, now, error, reload, progress, currentWeek } = useBlock()
 
-  const view = useMemo(() => (data ? build(data.activities, now) : null), [data, now])
+  const view = useMemo(
+    () =>
+      data?.block
+        ? build(
+            data.block,
+            data.activities,
+            baselineFor(data.user.baselineKey, data.block),
+            now,
+            // The five zones are shares of this athlete's own maximum; the fallback is only
+            // for someone who has not answered the question on `/ajustes` yet.
+            data.user.hrMax ?? DEFAULT_HR_MAX,
+          )
+        : null,
+    [data, now],
+  )
 
   if (error && !data)
     return <ErrorCard title="Sin datos del bloque" message={error} onRetry={() => void reload()} />
   if (!data || !view || !progress) return <Loading />
+  // No dates yet — `/bienvenida` is the only thing that fixes it, and every number on
+  // this screen is counted from them.
+  if (!data.block) return <NoBlockCard />
 
   return (
     <>
-      <VolumeCard view={view} progress={progress} currentWeek={currentWeek} />
+      <VolumeCard block={data.block} view={view} progress={progress} currentWeek={currentWeek} />
       <FormCard view={view} />
-      <ProjectionCard view={view} />
+      <ProjectionCard block={data.block} view={view} />
       <IntensityCard view={view} />
       <ConsistencyCard view={view} />
-      <HeadToHead view={view} />
+      <HeadToHead block={data.block} view={view} />
     </>
   )
 }
@@ -96,24 +108,33 @@ function ProgressScreen() {
 
 type View = ReturnType<typeof build>
 
-function build(activities: Activity[], now: number) {
+function build(
+  block: BlockConfig,
+  activities: Activity[],
+  baseline: Baseline | null,
+  now: number,
+  hrMax: number,
+) {
   const today = startOfDay(now)
   // The block's whole calendar is the x-axis, so the future is visible as space still to
   // fill rather than as a chart that stops where the data does.
-  const axis = days(BLOCK_START, RACE_DATE)
+  const axis = days(block.startsOn, block.raceOn)
   const todayIndex = Math.max(
     0,
-    Math.min(axis.length - 1, Math.round((today - BLOCK_START) / DAY_MS)),
+    Math.min(axis.length - 1, Math.round((today - block.startsOn) / DAY_MS)),
   )
 
-  const season = summarise(activities, BLOCK_START, today, PRE_BLOCK)
-  const last = summarise(BASELINE, BLOCK_START, today)
+  const season = summarise(activities, block.startsOn, today, baseline?.preBlock ?? [])
+  const last = baseline ? summarise(baseline.activities, block.startsOn, today) : null
 
-  const fitness = fitnessSeries([...PRE_BLOCK, ...activities], BLOCK_START, today)
-  const lastFitness = fitnessSeries(BASELINE, BLOCK_START, RACE_DATE)
+  const fitness = fitnessSeries([...(baseline?.preBlock ?? []), ...activities], block.startsOn, today)
+  const lastFitness = baseline ? fitnessSeries(baseline.activities, block.startsOn, block.raceOn) : []
 
-  const efforts = bestEfforts(activities)
-  const lastEfforts = bestEfforts(BASELINE)
+  const efforts = bestEfforts(block, activities, hrMax)
+  // The baseline is this same athlete's own earlier season, so it is read against the same
+  // block and the same maximum — the comparison is only a comparison if both sides are.
+  const lastEfforts = baseline ? bestEfforts(block, baseline.activities, hrMax) : []
+  const weeks = totalWeeks(block)
 
   return {
     today,
@@ -121,15 +142,14 @@ function build(activities: Activity[], now: number) {
     todayIndex,
     season,
     last,
-    /** True until the block reaches the week last season's build opened in. */
-    tooEarly: last.totals.runs === 0,
+    baseline,
     /**
-     * No previous season at all — a fork that put no CSVs in `docs/data/`. Distinct from
-     * `tooEarly`, which is a season that exists and has not opened yet: with nothing to
-     * compare against there is no week to name, and every line that names one is
-     * describing a build nobody ever ran.
+     * True while there is nothing to measure the block against in this window: either this
+     * athlete has no previous season at all — which is everyone but the owner — or they
+     * have one and the block has not yet reached the week it opened in. The two read the
+     * same on screen and neither may claim a number.
      */
-    noBaseline: BASELINE.length === 0,
+    tooEarly: last == null || last.totals.runs === 0,
     fitness,
     // Padded to the full axis: this season stops at today, last season runs to the race.
     fitnessLine: pad(
@@ -143,13 +163,13 @@ function build(activities: Activity[], now: number) {
     lastFitnessLine: lastFitness.map((p) => (p.fitness === 0 ? null : p.fitness)),
     // Only as far as today, so the sparkline spends its whole width on the days that
     // have happened rather than compressing them into the left eighth of the block.
-    cumulative: cumulativeByDay(activities, BLOCK_START, today),
-    weekly: weeklyTotals(activities, TOTAL_WEEKS),
-    lastWeekly: weeklyTotals(BASELINE, TOTAL_WEEKS),
+    cumulative: cumulativeByDay(activities, block.startsOn, today),
+    weekly: weeklyTotals(block, activities, weeks),
+    lastWeekly: baseline ? weeklyTotals(block, baseline.activities, weeks) : [],
     efforts,
     lastEfforts,
-    projection: projectHalf(efforts),
-    zones: zoneShares(activities),
+    projection: projectHalf(efforts, block.raceDistanceM),
+    zones: zoneShares(activities, hrMax),
     zoneCoverage: zoneCoverage(activities),
   }
 }
@@ -243,16 +263,18 @@ function Loading() {
  * answer than one aggregate share of a number the athlete never thinks in.
  */
 function VolumeCard({
+  block,
   view,
   progress,
   currentWeek,
 }: {
+  block: BlockConfig
   view: View
   progress: NonNullable<ReturnType<typeof useBlock>['progress']>
   currentWeek: number
 }) {
   const km = view.season.totals.distanceM / 1000
-  const lastKm = view.last.totals.distanceM / 1000
+  const lastKm = view.last == null ? 0 : view.last.totals.distanceM / 1000
 
   const bars = view.weekly.map((week, i) => {
     const value = (week?.distanceM ?? 0) / 1000
@@ -274,22 +296,25 @@ function VolumeCard({
   const compared = view.lastWeekly.some((w) => w != null && w.distanceM > 0)
   const peak = Math.max(0, ...view.weekly.map((w) => w?.distanceM ?? 0))
   const lastPeak = Math.max(0, ...view.lastWeekly.map((w) => w?.distanceM ?? 0))
+  const weeks = totalWeeks(block)
 
   return (
     <Card className="fade-up">
       <HeroMetric
-        eyebrow={`Semana ${currentWeek + 1} de ${TOTAL_WEEKS}`}
+        eyebrow={`Semana ${currentWeek + 1} de ${weeks}`}
         value={decimal(km, 0)}
         unit="km en el bloque"
         context={
-          view.noBaseline ? (
-            <>Faltan {daysToRace(view.today)} días</>
+          view.baseline == null ? (
+            // No season to compare against, so the countdown stands on its own rather than
+            // trailing a separator behind a sentence that was never printed.
+            <>Faltan {daysToRace(block, view.today)} días</>
           ) : (
             <>
               {view.tooEarly ? (
                 <>
                   La temporada pasada aún no había empezado a correr, su bloque abre en la semana{' '}
-                  {BASELINE_FIRST_WEEK + 1}
+                  {view.baseline.firstWeek + 1}
                 </>
               ) : (
                 <>
@@ -297,7 +322,7 @@ function VolumeCard({
                   {decimal(lastKm, 0)} km de la temporada pasada en este mismo punto
                 </>
               )}
-              <span className="text-label-3"> · faltan {daysToRace(view.today)} días</span>
+              <span className="text-label-3"> · faltan {daysToRace(block, view.today)} días</span>
             </>
           )
         }
@@ -318,14 +343,14 @@ function VolumeCard({
         <BarRow
           bars={bars}
           height={80}
-          label={`Kilómetros por semana, de la semana 1 a la ${TOTAL_WEEKS}, con el objetivo de cada una cruzado sobre su barra${
+          label={`Kilómetros por semana, de la semana 1 a la ${weeks}, con el objetivo de cada una cruzado sobre su barra${
             compared ? ' y la temporada 2025-26 en sombra detrás' : ''
           }. Van ${decimal(km, 0)} km en el bloque.`}
         />
         {/* The two things the bars encode that a bar cannot say on its own. The week
             colours are not in here: which bar is "now" is read off its position on a
             left-to-right week axis, not off the mint. */}
-        <ChartScale start="S1" end={`S${TOTAL_WEEKS}`}>
+        <ChartScale start="S1" end={`S${weeks}`}>
           {compared ? 'sombra = 2025-26 · discontinua = objetivo' : 'discontinua = objetivo'}
         </ChartScale>
       </figure>
@@ -335,7 +360,7 @@ function VolumeCard({
           label="Por semana"
           value={decimal(view.season.distancePerWeekM / 1000, 0)}
           hint={
-            view.tooEarly
+            view.last == null
               ? 'km por semana'
               : `${decimal(view.last.distancePerWeekM / 1000, 0)} km la pasada`
           }
@@ -349,9 +374,9 @@ function VolumeCard({
           label="Más larga"
           value={view.season.totals.longestM ? formatKm(view.season.totals.longestM) : '—'}
           hint={
-            view.last.totals.longestM
+            view.last?.totals.longestM
               ? `${formatKm(view.last.totals.longestM)} km la pasada`
-              : 'de 21,1 km'
+              : `de ${decimal(block.raceDistanceM / 1000)} km`
           }
         />
       </StatStrip>
@@ -367,12 +392,17 @@ function VolumeCard({
  * dashed 2025-26 line is named in the note rather than in the legend: three keys plus
  * both ends of the axis do not fit on one 375px caption row, and the note is where the
  * reason that line opens low belongs anyway.
+ *
+ * Both the line and the note it explains are dropped outright when there is no season on
+ * file — a dashed line with nothing behind it is not a lighter version of the comparison,
+ * it is a different chart wearing the same axes.
  */
 function FormCard({ view }: { view: View }) {
   const latest = view.fitness.at(-1)
   const form = latest?.form ?? 0
   const { label, tone } = formLabel(form)
   const lastAtToday = view.lastFitnessLine[view.todayIndex] ?? null
+  const hasBaseline = view.last != null
 
   return (
     <Card className="fade-up">
@@ -403,7 +433,9 @@ function FormCard({ view }: { view: View }) {
           markers={[{ at: view.todayIndex, label: 'Hoy' }]}
           shadeFrom={view.todayIndex}
           series={[
-            { values: view.lastFitnessLine, className: 'stroke-line-strong', dashed: true },
+            ...(hasBaseline
+              ? [{ values: view.lastFitnessLine, className: 'stroke-line-strong', dashed: true }]
+              : []),
             { values: view.fatigueLine, className: 'stroke-coral', strokeWidth: 1.5 },
             {
               values: view.fitnessLine,
@@ -413,8 +445,8 @@ function FormCard({ view }: { view: View }) {
           ]}
         />
         <ChartScale
-          start={dayFmt.format(new Date(BLOCK_START))}
-          end={dayFmt.format(new Date(RACE_DATE))}
+          start={dayFmt.format(new Date(view.axis[0] ?? view.today))}
+          end={dayFmt.format(new Date(view.axis.at(-1) ?? view.today))}
         >
           <ChartLegend
             dense
@@ -431,8 +463,10 @@ function FormCard({ view }: { view: View }) {
         {view.season.estimated > 0.05
           ? `, estimado en el ${Math.round(view.season.estimated * 100)}% de este bloque — esas salidas fueron sin pulsómetro`
           : ''}
-        . A trazos, la forma de 2025-26: su histórico arranca con el bloque, así que abre
-        desde abajo.
+        .
+        {hasBaseline
+          ? ' A trazos, la forma de 2025-26: su histórico arranca con el bloque, así que abre desde abajo.'
+          : ''}
       </p>
     </Card>
   )
@@ -450,15 +484,18 @@ function FormCard({ view }: { view: View }) {
  * it — the last-season column never links, because those rows are CSV, not Strava.
  *
  * The one place this table does *not* follow the page's same-distance-from-race-day rule
- * is that column: `bestEfforts(BASELINE)` reads the whole of last season, not last season
- * up to this point, because a personal best is the record to beat rather than a snapshot.
- * That is only safe while it is said out loud, which is what the last clause of the note
- * under the table is for — a green arrow against an unstated baseline is a claim, not a
- * number.
+ * is that column: `bestEfforts(baseline.activities)` reads the whole of last season, not
+ * last season up to this point, because a personal best is the record to beat rather than
+ * a snapshot. That is only safe while it is said out loud, which is what the last clause
+ * of the note under the table is for — a green arrow against an unstated baseline is a
+ * claim, not a number. The whole column — header, cells and note — disappears for an
+ * athlete with no season on file, rather than comparing against a benchmark that is not
+ * there.
  */
-function ProjectionCard({ view }: { view: View }) {
+function ProjectionCard({ block, view }: { block: BlockConfig; view: View }) {
   const projection = view.projection
-  const goalDelta = projection ? projection.timeS - GOAL_TIME_S : null
+  const goalDelta = projection ? projection.timeS - block.goalTimeS : null
+  const hasBaseline = view.last != null
   const anyEffort =
     view.efforts.some((e) => e.timeS != null) || view.lastEfforts.some((e) => e.timeS != null)
   const anyLink = view.efforts.some((e) => e.activity != null)
@@ -469,7 +506,7 @@ function ProjectionCard({ view }: { view: View }) {
       <CardTitle
         action={
           <span className="text-caption tabular-nums text-label-3">
-            Objetivo {formatClock(GOAL_TIME_S)} · {formatPace(GOAL_PACE_S_KM)}/km
+            Objetivo {formatClock(block.goalTimeS)} · {formatPace(goalPaceSKm(block))}/km
           </span>
         }
       >
@@ -512,13 +549,17 @@ function ProjectionCard({ view }: { view: View }) {
           >
             <span className="flex-1">Listón</span>
             <span className="w-16 text-right">Bloque</span>
-            <span className="w-16 text-right">2025-26</span>
-            <span className="w-12" />
+            {hasBaseline ? (
+              <>
+                <span className="w-16 text-right">2025-26</span>
+                <span className="w-12" />
+              </>
+            ) : null}
           </div>
 
           <ul className="divide-y divide-line">
             {view.efforts.map((effort, i) => {
-              const last = view.lastEfforts[i]
+              const last = hasBaseline ? view.lastEfforts[i] : undefined
               const delta =
                 effort.timeS == null || last?.timeS == null
                   ? null
@@ -533,12 +574,16 @@ function ProjectionCard({ view }: { view: View }) {
                       formatClock(effort.timeS)
                     )}
                   </span>
-                  <span className="data-number w-16 text-right text-caption text-label-3">
-                    {last?.timeS == null ? '' : formatClock(last.timeS)}
-                  </span>
-                  <span className="w-12 text-right">
-                    <Delta value={delta} better="down" />
-                  </span>
+                  {hasBaseline ? (
+                    <>
+                      <span className="data-number w-16 text-right text-caption text-label-3">
+                        {last?.timeS == null ? '' : formatClock(last.timeS)}
+                      </span>
+                      <span className="w-12 text-right">
+                        <Delta value={delta} better="down" />
+                      </span>
+                    </>
+                  ) : null}
                 </>
               )
               return (
@@ -560,8 +605,9 @@ function ProjectionCard({ view }: { view: View }) {
       <p className="mt-2.5 text-caption2 leading-relaxed text-label-3">
         Cada listón es el ritmo medio de una salida completa de al menos esa distancia, llevado a
         la distancia exacta — la app guarda resúmenes, no parciales — y solo cuentan los
-        esfuerzos: Z4 o más, o más rápido que ritmo medio. La columna de 2025-26 es la mejor marca
-        de toda aquella temporada. La media se proyecta con Riegel.
+        esfuerzos: Z4 o más, o más rápido que ritmo medio.
+        {hasBaseline ? ' La columna de 2025-26 es la mejor marca de toda aquella temporada.' : ''} La
+        media se proyecta con Riegel.
         {anyLink ? ' Toca un listón para abrir esa salida.' : ''}
       </p>
     </Card>
@@ -625,7 +671,7 @@ function IntensityCard({ view }: { view: View }) {
 /** The other thing that broke last season: not the totals, the gaps. */
 function ConsistencyCard({ view }: { view: View }) {
   const now = view.season.consistency
-  const then = view.last.consistency
+  const then = view.last?.consistency
 
   return (
     <Card className="fade-up">
@@ -635,17 +681,17 @@ function ConsistencyCard({ view }: { view: View }) {
         <Stat
           label="Salidas/sem"
           value={decimal(now.runsPerWeek)}
-          hint={view.tooEarly ? 'objetivo 5–6' : `${decimal(then.runsPerWeek)} la pasada`}
+          hint={view.tooEarly ? 'objetivo 5–6' : `${decimal(then!.runsPerWeek)} la pasada`}
         />
         <Stat
           label="Parón mayor"
           value={now.longestGapDays}
-          hint={view.tooEarly ? 'días sin correr' : `${then.longestGapDays} la pasada`}
+          hint={view.tooEarly ? 'días sin correr' : `${then!.longestGapDays} la pasada`}
         />
         <Stat
           label="Parones 6d+"
           value={now.breaks}
-          hint={view.tooEarly ? 'el patrón a romper' : `${then.breaks} la pasada`}
+          hint={view.tooEarly ? 'el patrón a romper' : `${then!.breaks} la pasada`}
         />
       </StatStrip>
 
@@ -666,12 +712,18 @@ function ConsistencyCard({ view }: { view: View }) {
  * — which is how a comparison stops being read at all. What is left is what nothing else
  * on the page says.
  *
- * Nothing renders at all until the baseline reaches the block: for weeks 1–3 there is no
- * counterpart to compare against, and the hero has already said so in a sentence. A card
- * repeating it would be a second explanation of the same absence.
+ * Nothing renders at all until there is a season to measure against and the block has
+ * reached the week it opened in: for an athlete with no `baselineKey`, or for block weeks
+ * 1–3, there is no counterpart to compare against, and either the hero above has already
+ * said so or there is nothing to say at all. A card here would be a second explanation of
+ * the same absence, or an explanation of an absence nobody asked about.
  */
-function HeadToHead({ view }: { view: View }) {
-  if (view.tooEarly) return null
+function HeadToHead({ block, view }: { block: BlockConfig; view: View }) {
+  // All three, and `baseline` explicitly rather than as a consequence of the other two:
+  // this card is nothing *but* a comparison, and the athlete it is drawn for may simply
+  // not have a season to compare against.
+  if (view.baseline == null || view.last == null || view.tooEarly) return null
+  const last = view.last
 
   const rows: {
     label: string
@@ -683,25 +735,25 @@ function HeadToHead({ view }: { view: View }) {
     {
       label: 'Salidas',
       now: view.season.totals.runs,
-      then: view.last.totals.runs,
+      then: last.totals.runs,
       format: (v) => String(Math.round(v)),
     },
     {
       label: 'Tiempo en pie',
       now: view.season.totals.movingS,
-      then: view.last.totals.movingS,
+      then: last.totals.movingS,
       format: formatDuration,
     },
     {
       label: 'Desnivel',
       now: view.season.totals.elevationM,
-      then: view.last.totals.elevationM,
+      then: last.totals.elevationM,
       format: (v) => `${decimal(v, 0)} m`,
     },
     {
       label: 'Ritmo medio',
       now: view.season.totals.meanPaceSKm ?? 0,
-      then: view.last.totals.meanPaceSKm ?? 0,
+      then: last.totals.meanPaceSKm ?? 0,
       format: (v) => `${formatPace(v)}/km`,
       // Faster is lower, so a shrinking number is the good one.
       better: 'down',
@@ -709,7 +761,7 @@ function HeadToHead({ view }: { view: View }) {
     {
       label: 'Días parado',
       now: view.season.consistency.days - view.season.consistency.daysRun,
-      then: view.last.consistency.days - view.last.consistency.daysRun,
+      then: last.consistency.days - last.consistency.daysRun,
       format: (v) => String(Math.round(v)),
       better: 'down',
     },
@@ -746,8 +798,8 @@ function HeadToHead({ view }: { view: View }) {
 
       <p className="mt-2.5 text-caption2 leading-relaxed text-label-3">
         Las dos temporadas medidas a la misma distancia del día de carrera: hoy faltan{' '}
-        {daysToRace(view.today)} días, que la temporada pasada fue el{' '}
-        {dateFmt.format(new Date(view.today - BASELINE_SHIFT_MS))}.
+        {daysToRace(block, view.today)} días, que la temporada pasada fue el{' '}
+        {dateFmt.format(new Date(view.today - view.baseline.shiftMs))}.
       </p>
     </Card>
   )

@@ -1,4 +1,4 @@
-import { BLOCK_START, RACE_DATE, TOTAL_WEEKS, weekIndex } from './block'
+import { totalWeeks, weekIndex, type BlockConfig } from './block'
 import { PREV_RACE_DATE } from './config'
 import type { Activity } from './db/schema'
 
@@ -6,7 +6,7 @@ import type { Activity } from './db/schema'
  * Last season, as data the app can compare against.
  *
  * The whole point of this block is to beat the one before it, and "beat" only means
- * something against a number. `docs/data/*.csv` already held that season — it was read
+ * something against a number. `docs/personal/data/*.csv` already held that season — it was read
  * once, by hand, to write `docs/03`; this module hands the same rows to the app so the
  * comparison is drawn rather than remembered.
  *
@@ -18,7 +18,7 @@ import type { Activity } from './db/schema'
  *
  * The directory is read with `import.meta.glob` rather than by two named imports,
  * because a named import is a build error the moment the file is not there — and a fork
- * arrives with either its own exports or nothing. An empty `docs/data/` resolves to `{}`
+ * arrives with either its own exports or nothing. An absent `docs/personal/data/` resolves to `{}`
  * and every export below degrades to an empty array, which is a season the app has no
  * counterpart for rather than a season that ran zero kilometres. The matched paths are
  * sorted so a second file cannot reorder the rows (and with them the negative ids)
@@ -31,10 +31,13 @@ import type { Activity } from './db/schema'
  * - otherwise, a name containing **`build`** is the previous season's build, the one the
  *   comparison is drawn against.
  *
- * `2025-26-build-activities.csv` and `2026-post-race-activities.csv` are this
- * repository's own, and they still match. Anything else in the directory is ignored:
- * `docs/data/` is also where a raw export lands on its way to being trimmed, and a file
- * the convention does not name is not a season.
+ * The directory is **`docs/personal/data/`**, and `docs/personal/` is gitignored: it is
+ * one athlete's six-year Strava record and it does not belong in a public repository. So
+ * the common case for anyone who clones this is that the glob matches nothing and every
+ * comparison against last season reads as absent — which is correct, and is why the
+ * absence has to be a supported state rather than a build error. Drop your own exports in
+ * to get the comparison back. Anything the convention does not name is ignored: that
+ * directory is also where a raw export lands on its way to being trimmed.
  *
  * Columns are read by header name, not by position, because the two files do not carry
  * the same ones: `date,sport,dist,time,elev,re` in both, and `name` in the build export
@@ -43,7 +46,7 @@ import type { Activity } from './db/schema'
  * Pure and browser-safe: no drizzle, no clock, no bindings.
  */
 
-const CSVS = import.meta.glob<string>('../../docs/data/*.csv', {
+const CSVS = import.meta.glob<string>('../../docs/personal/data/*.csv', {
   query: '?raw',
   import: 'default',
   eager: true,
@@ -55,6 +58,15 @@ const CSVS = import.meta.glob<string>('../../docs/data/*.csv', {
  * belongs to: the date only means anything as one end of the shift below.
  */
 export { PREV_RACE_DATE }
+
+/**
+ * The key an athlete carries on `users.baseline_key` to be handed this season.
+ *
+ * These CSVs are one person's history, so the comparison is a property of the athlete
+ * rather than of the app: everyone else gets null, and null is drawn as absent — the same
+ * way the first three weeks of this block are.
+ */
+export const BASELINE_KEY = 'ivan-2025-26'
 
 /**
  * How far the previous season sits behind this one, so its rows can be laid over the
@@ -72,7 +84,16 @@ export { PREV_RACE_DATE }
  * Pointing `PUBLIC_PREV_RACE_DATE` at the previous edition of the same race, which is
  * what it is for, keeps both.
  */
-export const BASELINE_SHIFT_MS = RACE_DATE - PREV_RACE_DATE
+/**
+ * How far last season sits behind a given block, so its rows can be laid over it directly.
+ *
+ * A function rather than a constant now: the owner can move their race date on `/ajustes`,
+ * and a shift computed once at module load would quietly leave the overlay a fortnight out.
+ * Point `PUBLIC_PREV_RACE_DATE` at the previous edition of the same race and this stays a
+ * whole number of weeks, which is what keeps every row on the same weekday as well as the
+ * same distance from race day.
+ */
+export const baselineShiftMs = (block: BlockConfig) => block.raceOn - PREV_RACE_DATE
 
 interface Row {
   date: string
@@ -104,11 +125,16 @@ function parse(csv: string): Row[] {
  *
  * Ids are negative: these rows never touch the database, and a negative id cannot collide
  * with a Strava one if a future export ever lands them in the same array.
+ *
+ * `userId` is the season's key rather than a uuid for the same reason: `activities.user_id`
+ * is now notNull, these rows are never inserted, and a slug can never be mistaken for the
+ * id of an athlete who actually exists.
  */
 function toActivity(row: Row, index: number, shiftMs: number): Activity {
   const [year, month, day] = row.date.split('-').map(Number) as [number, number, number]
   return {
     id: -(index + 1),
+    userId: BASELINE_KEY,
     name: row.name?.trim() || row.sport,
     sportType: row.sport,
     // The export carries a date, not a time: midnight of the local day, which is the
@@ -146,29 +172,9 @@ const { build: BUILD_ROWS, postRace: POST_RACE_ROWS } = (() => {
 /** The same season on its own dates, for anything that has to say when it happened. */
 export const BASELINE_RAW: Activity[] = BUILD_ROWS.map((row, i) => toActivity(row, i, 0))
 
-/**
- * The previous build, laid over this block: with this repository's own data, Sep 2025 –
- * Jan 2026 read as Sep 2026 – Jan 2027.
- *
- * It covers block weeks 3–22 — that season's build was 20 weeks against this one's 23, so
- * the first three weeks have no counterpart. They are absent rather than zero, and every
- * chart here draws them that way; `BASELINE_FIRST_WEEK` below is where they end, and an
- * empty list is the degenerate case of exactly the same thing.
- */
-export const BASELINE: Activity[] = BASELINE_RAW.map((a) => ({
-  ...a,
-  startedOn: a.startedOn + BASELINE_SHIFT_MS,
-}))
-
-/**
- * What the block is walked into with. Jan–Aug 2026 was the injury, not a build, so these
- * rows are never compared against — they exist so the fitness curve does not open at zero
- * on 17 August, which would read as six weeks of gains that were really just the average
- * catching up with reality.
- */
-export const PRE_BLOCK: Activity[] = POST_RACE_ROWS.map((row, i) =>
+const PRE_BLOCK_RAW: Activity[] = POST_RACE_ROWS.map((row, i) =>
   toActivity(row, i + BASELINE_RAW.length, 0),
-).filter((a) => a.startedOn < BLOCK_START)
+)
 
 /**
  * The first block week the baseline reaches. Before it there is nothing to compare with,
@@ -186,7 +192,35 @@ export const PRE_BLOCK: Activity[] = POST_RACE_ROWS.map((row, i) =>
  * negative week index. The first block week it reaches is still week 0, which is what
  * this constant is asked for, and week −43 is not a week anything can be said about.
  */
-export const BASELINE_FIRST_WEEK =
-  BASELINE.length === 0
-    ? TOTAL_WEEKS
-    : Math.max(0, Math.min(...BASELINE.map((a) => weekIndex(a.startedOn))))
+export interface Baseline {
+  /** Last season's build, shifted onto this block. */
+  activities: Activity[]
+  /** The run-in before it opened — never compared against, only run into the averages. */
+  preBlock: Activity[]
+  /** The first block week the baseline reaches; `totalWeeks` when there is none. */
+  firstWeek: number
+  /** What the rows were moved by, for anything that has to say when one really happened. */
+  shiftMs: number
+}
+
+/**
+ * The previous season, laid over one athlete's block — or `null`, which is what every
+ * athlete but the owner gets.
+ *
+ * `docs/personal/data/*.csv` is one person's Strava export. Handing it to everybody would draw a
+ * stranger's 2025-26 build across their charts and label it *la temporada pasada*, so it
+ * is gated on `users.baseline_key` and nothing else: a column only the owner row carries.
+ * A fork with its own CSVs points its own owner at them by keeping the same key.
+ */
+export function baselineFor(key: string | null, block: BlockConfig): Baseline | null {
+  if (key !== BASELINE_KEY || BASELINE_RAW.length === 0) return null
+
+  const shiftMs = baselineShiftMs(block)
+  const activities = BASELINE_RAW.map((a) => ({ ...a, startedOn: a.startedOn + shiftMs }))
+  return {
+    activities,
+    preBlock: PRE_BLOCK_RAW.filter((a) => a.startedOn < block.startsOn),
+    firstWeek: Math.max(0, Math.min(...activities.map((a) => weekIndex(block, a.startedOn)))),
+    shiftMs,
+  }
+}

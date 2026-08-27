@@ -1,4 +1,4 @@
-import { GOAL_TIME_S, RACE_DISTANCE_M, TOTAL_WEEKS, weekIndex } from './block'
+import { goalPaceSKm, totalWeeks, weekIndex, type BlockConfig } from './block'
 import { isRun, paceSKm } from './activity'
 import type { WeekPlan } from './plan'
 import type { Activity } from './db/schema'
@@ -10,10 +10,11 @@ import type { Activity } from './db/schema'
  *
  * Nothing here is stored. The whole block is ~150 activities, so recomputing on every
  * render costs less than the code that would keep a rollup table honest.
+ *
+ * Goal pace is not a constant here either: it is `goalPaceSKm(block)`, the athlete's own
+ * target over their own race distance, and it is carried out on `BlockProgress` so a
+ * screen never has to re-derive it.
  */
-
-/** Goal race pace, s/km — 3:47/km for 1:19:59 over the half. */
-export const GOAL_PACE_S_KM = GOAL_TIME_S / (RACE_DISTANCE_M / 1000)
 
 export interface Totals {
   runs: number
@@ -133,10 +134,11 @@ export interface BlockProgress {
  * distance against the whole block's target would read as permanently behind until the
  * final week, which is not information.
  */
-export function blockProgress(weeks: WeekPlan[], now: number): BlockProgress {
+export function blockProgress(block: BlockConfig, weeks: WeekPlan[], now: number): BlockProgress {
+  const total = totalWeeks(block)
   const weekly = weeks.map(weekMetrics)
-  const current = weekIndex(now)
-  const weeksElapsed = Math.min(TOTAL_WEEKS, Math.max(0, current + 1))
+  const current = weekIndex(block, now)
+  const weeksElapsed = Math.min(total, Math.max(0, current + 1))
 
   const withTargets = weekly.filter((w) => w.targetVolumeM != null)
   const plannedTotalM = withTargets.length
@@ -147,7 +149,7 @@ export function blockProgress(weeks: WeekPlan[], now: number): BlockProgress {
     ? null
     : toDate.reduce((sum, w) => sum + (w.targetVolumeM ?? 0), 0)
 
-  const block = totals(
+  const ran = totals(
     weeks.flatMap((w) => [
       ...w.sessions.flatMap((s) => (s.activity ? [s.activity] : [])),
       ...w.extras,
@@ -157,12 +159,12 @@ export function blockProgress(weeks: WeekPlan[], now: number): BlockProgress {
   return {
     weekIndex: current,
     weeksElapsed,
-    weeksRemaining: Math.max(0, TOTAL_WEEKS - weeksElapsed),
-    block,
+    weeksRemaining: Math.max(0, total - weeksElapsed),
+    block: ran,
     weekly,
     plannedTotalM,
     plannedToDateM,
-    longestRunM: block.longestM,
-    goalPaceSKm: GOAL_PACE_S_KM,
+    longestRunM: ran.longestM,
+    goalPaceSKm: goalPaceSKm(block),
   }
 }

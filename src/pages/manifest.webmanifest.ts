@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro'
-import { TOTAL_WEEKS } from '@/lib/block'
+import { DEFAULT_BLOCK, totalWeeks } from '@/lib/block'
 import { APP_DESCRIPTION, APP_NAME, APP_SHORT_NAME } from '@/lib/config'
 
 /**
@@ -49,7 +49,7 @@ export const GET: APIRoute = () =>
           {
             name: 'Plan',
             short_name: 'Plan',
-            description: `Las ${TOTAL_WEEKS} semanas del bloque`,
+            description: `Las ${totalWeeks(DEFAULT_BLOCK)} semanas del bloque`,
             url: '/plan',
             icons: [{ src: '/icon-192.png', sizes: '192x192', type: 'image/png' }],
           },

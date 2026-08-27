@@ -1,0 +1,60 @@
+---
+import { Register } from '../components/Register'
+import Base from '../layouts/Base.astro'
+export const prerender = true
+
+/**
+ * The door `/login` points at, and the only way an account is ever created: someone opened
+ * a link an admin minted. There is no open sign-up behind this page — the token in the
+ * query string is the whole membership check, and without one the form has nothing to
+ * claim.
+ *
+ * `Base` rather than `App`: the dock is for someone who is already inside, and this screen
+ * is the moment before that. It borrows `/login`'s composition instead — the mark, an
+ * eyebrow, a heading, one line of context, then the card — because the two are the same
+ * moment in the product and should read as one screen with two purposes.
+ *
+ * What it does *not* borrow is the `1:19:59`. That number is the owner's goal, and someone
+ * arriving here has not been asked for theirs yet; `/bienvenida` is where their own race,
+ * date and target get set. With no hero number to carry the top of the page, the heading
+ * does — in `title2`, which is the ramp's page-heading step and the same size the four
+ * tabs wear, rather than borrowing a metric's size for a sentence.
+ */
+---
+
+<Base title="Crear cuenta · La Mitja">
+  <main
+    class="mx-auto flex min-h-full max-w-sm flex-col justify-center gap-5 px-gutter py-10 pb-[calc(2.5rem+env(safe-area-inset-bottom))]"
+  >
+    <header class="fade-up">
+      {/* The La Mitja course profile, as on `/login` — decorative, so an empty alt. */}
+      <span
+        class="performance-shadow grid size-16 place-items-center rounded-2xl border border-line bg-surface-raised"
+      >
+        <img src="/favicon.svg" alt="" width="40" height="40" class="size-10" />
+      </span>
+
+      <p class="mt-5 text-caption2 font-semibold uppercase tracking-[0.16em] text-label-3">
+        Te han invitado
+      </p>
+      <h1 class="mt-2 font-display text-title2 font-bold tracking-tight text-label">
+        Crea tu cuenta
+      </h1>
+      <p class="mt-3 text-footnote leading-relaxed text-label-2">
+        Después elegirás tu carrera, tu objetivo y los días que entrenas.
+      </p>
+    </header>
+
+    <Register client:load />
+
+    <p class="fade-up text-center text-footnote text-label-3" style="animation-delay: 60ms">
+      ¿Ya tienes cuenta?
+      <a
+        href="/login"
+        class="tappable inline-flex min-h-11 items-center px-1 align-middle text-label-2 underline underline-offset-4"
+      >
+        Entrar
+      </a>
+    </p>
+  </main>
+</Base>

@@ -1,14 +1,16 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { TOTAL_WEEKS, startOfDay } from '@/lib/block'
+import { goalPaceSKm, startOfDay, totalWeeks, type BlockConfig } from '@/lib/block'
 import { cn } from '@/lib/cn'
 import { decimal } from '@/lib/format'
 import type { WeekMetrics } from '@/lib/metrics'
+import { DEFAULT_HR_MAX, paceBands } from '@/lib/paces'
 import { setDone, updateWeek } from '@/lib/plan-client'
 import type { MatchedSession, WeekPlan } from '@/lib/plan'
 import type { PlanSession } from '@/lib/db/schema'
+import type { Bands } from '@/lib/workout'
 import { SessionForm } from './SessionForm'
 import { ExtraCard, SessionCard } from './SessionCard'
-import { useBlock } from './useBlock'
+import { NoBlockCard, useBlock } from './useBlock'
 import { island } from './Island'
 import {
   Button,
@@ -195,6 +197,15 @@ function PlannerScreen() {
   if (error && !data)
     return <ErrorCard title="Sin datos del bloque" message={error} onRetry={() => void reload()} />
   if (!data || !progress) return <PlannerSkeleton />
+  // No dates yet — `/bienvenida` is the only thing that fixes it, and every number on
+  // this screen is counted from them.
+  if (!data.block) return <NoBlockCard />
+
+  const block = data.block
+  const hrMax = data.user.hrMax ?? DEFAULT_HR_MAX
+  // A zone is a share of *this* athlete's goal pace, so every band printed below is
+  // derived from their block rather than read off the owner's table.
+  const bands = paceBands(goalPaceSKm(block))
 
   async function toggle(match: MatchedSession) {
     setActionError(null)
@@ -230,7 +241,7 @@ function PlannerScreen() {
 
   return (
     <>
-      <BlockHeader week={weeks[currentWeek]!} metrics={weekly[currentWeek]!} />
+      <BlockHeader block={block} week={weeks[currentWeek]!} metrics={weekly[currentWeek]!} />
 
       <div className="flex flex-col gap-2">
         {phases.map(({ phase, from, to }) => (
@@ -254,6 +265,8 @@ function PlannerScreen() {
                     metrics={metrics}
                     index={i}
                     today={today}
+                    hrMax={hrMax}
+                    bands={bands}
                     state={
                       week.weekIndex === currentWeek
                         ? 'current'
@@ -285,6 +298,7 @@ function PlannerScreen() {
 
       {editing ? (
         <SessionForm
+          block={block}
           weekIndex={editing.weekIndex}
           session={editing.session}
           defaultDay={editing.day}
@@ -304,14 +318,22 @@ function PlannerScreen() {
  * got" is the question `/` opens with. The ring beside it is the one share this card is
  * about — sessions ticked off — which is a ring and not a bar by the same rule.
  */
-function BlockHeader({ week, metrics }: { week: WeekPlan; metrics: WeekMetrics }) {
+function BlockHeader({
+  block,
+  week,
+  metrics,
+}: {
+  block: BlockConfig
+  week: WeekPlan
+  metrics: WeekMetrics
+}) {
   const targetKm = prescribedM(week, metrics) / 1000
   const planned = metrics.sessionsPlanned
 
   return (
     <Card className="fade-up">
       <HeroMetric
-        eyebrow={`Semana ${metrics.weekIndex + 1} de ${TOTAL_WEEKS}`}
+        eyebrow={`Semana ${metrics.weekIndex + 1} de ${totalWeeks(block)}`}
         value={decimal(targetKm, 0)}
         unit="km previstos"
         context={
@@ -370,6 +392,8 @@ function WeekRow({
   state,
   isOpen,
   today,
+  hrMax,
+  bands,
   onOpen,
   onOpened,
   onReload,
@@ -386,6 +410,10 @@ function WeekRow({
   isOpen: boolean
   /** UTC midnight of the current local day. */
   today: number
+  /** The athlete's max HR, resolved once by the screen — `user.hrMax ?? DEFAULT_HR_MAX`. */
+  hrMax: number
+  /** The athlete's own six pace bands, resolved once by the screen from their goal pace. */
+  bands: Bands
   onOpen: () => void
   onOpened: () => void
   onReload: () => Promise<void>
@@ -503,6 +531,8 @@ function WeekRow({
                           <SessionCard
                             key={match.session.id}
                             match={match}
+                            hrMax={hrMax}
+                            bands={bands}
                             onToggle={match.activity ? undefined : () => onToggle(match)}
                             onEdit={() => onEdit(match.session)}
                           />

@@ -1,7 +1,6 @@
 ---
 import Base from '../layouts/Base.astro'
-import { GOAL_TIME_S, RACE_DATE } from '../lib/block'
-import { APP_NAME, APP_SHORT_NAME } from '../lib/config'
+import { APP_NAME, APP_SHORT_NAME, GOAL_TIME_S, RACE_DATE } from '../lib/config'
 import { formatClock } from '../lib/activity'
 export const prerender = true
 
@@ -26,16 +25,21 @@ const raceDay = new Intl.DateTimeFormat('es-ES', {
  * number, a line of context under it — because that is the shape the rest of the app opens
  * with and a stranger should be able to tell these are the same product. It is written out
  * here rather than imported: the primitive is a React component, and shipping a runtime to
- * a page whose whole job is one password field would cost more than the four spans it
+ * a page whose whole job is two fields and a button would cost more than the four spans it
  * saves.
  *
  * The goal time is ink, not mint. Mint is state in this app — done, now, ahead, the
  * primary action — and the goal is none of those; it is the target. The mint on this
- * screen is spent once, on the button.
+ * screen is spent once, on the button, which is also why the invitation link under the
+ * form is quiet: signing in is what this screen is for, and creating an account is the
+ * other door.
  *
- * Every word of identity here comes from `config.ts`: the name, the short name in the
- * eyebrow, race day, and the hero itself. This is the app's first impression, so it is the
- * last place a fork should still be greeted by somebody else's race.
+ * Every word of identity here comes from `config.ts` — the name, the short name in the
+ * eyebrow, race day, the hero itself — and that is the *deployment's* block, not the
+ * signed-in athlete's. It is the only screen where that is the right reading: nobody is
+ * signed in yet. An athlete arriving on an invitation has no goal of their own to show
+ * here; `/alta` opens on the invitation instead, and their own numbers are the first thing
+ * `/bienvenida` asks for.
  */
 ---
 
@@ -77,16 +81,38 @@ const raceDay = new Intl.DateTimeFormat('es-ES', {
       style="animation-delay: 30ms"
     >
       <label class="block">
-        <span class="text-caption2 uppercase tracking-[0.09em] text-label-3">Contraseña</span>
+        <span class="text-caption2 uppercase tracking-[0.09em] text-label-3">Correo</span>
         {/*
           The same control every form in the app uses (`CONTROL` in ui/index.tsx), one step
-          taller: 48px, matching the dock's columns and the button under it, because this
-          screen has exactly two targets on it and they should be the same size.
+          taller: 48px, matching the dock's columns and the button under it, because the
+          three targets on this screen should all be the same size.
 
           `text-body` is 17px and load-bearing — Safari zooms the whole page in on a focused
           input whose text is under 16px, and on a screen with no dock to scroll back to,
           that leaves you sideways with no way back.
+
+          `autocapitalize` and `autocorrect` off: iOS capitalises the first letter of every
+          field it is not told about, and an address is stored lowercased — `Marc@…` would
+          be typed, sent, and bounced against a row that reads `marc@…`.
         */}
+        <input
+          id="email"
+          type="email"
+          name="email"
+          autocomplete="email"
+          inputmode="email"
+          autocapitalize="none"
+          autocorrect="off"
+          spellcheck="false"
+          enterkeyhint="next"
+          required
+          aria-describedby="error"
+          class="motion-standard mt-1.5 h-12 w-full rounded-xl border border-line bg-surface-deep/35 px-3 text-body text-label outline-none transition-colors focus:border-line-strong focus:bg-fill aria-[invalid=true]:border-red"
+        />
+      </label>
+
+      <label class="mt-3 block">
+        <span class="text-caption2 uppercase tracking-[0.09em] text-label-3">Contraseña</span>
         <input
           id="password"
           type="password"
@@ -99,7 +125,7 @@ const raceDay = new Intl.DateTimeFormat('es-ES', {
         />
       </label>
 
-      {/* Under the field it belongs to, above the button — so the fix is next to the thing
+      {/* Under the fields it belongs to, above the button — so the fix is next to the thing
           that needs fixing, and the target the thumb is already over does not move. */}
       <p id="error" role="alert" class="mt-2 hidden text-footnote leading-relaxed text-red"></p>
 
@@ -111,42 +137,58 @@ const raceDay = new Intl.DateTimeFormat('es-ES', {
         Entrar al bloque
       </button>
     </form>
+
+    {/* The other door, and the only one there is: accounts exist because an admin minted a
+        link, so this is a pointer for someone holding one, not an open sign-up. */}
+    <p class="fade-up text-center text-footnote text-label-3" style="animation-delay: 60ms">
+      ¿Tienes una invitación?
+      <a
+        href="/alta"
+        class="tappable inline-flex min-h-11 items-center px-1 align-middle text-label-2 underline underline-offset-4"
+      >
+        Crea tu cuenta
+      </a>
+    </p>
   </main>
 </Base>
 
 <script>
+  import { clearCachedBlock } from '../lib/net'
   /**
    * The whole screen is one request, so the button is the only place to report it.
    *
    * Three states, and every one of them says something in Spanish: idle, `Entrando…` while
-   * the request is out, and a sentence under the field when it comes back wrong. The
+   * the request is out, and a sentence under the fields when it comes back wrong. The
    * version this replaces had none of the second and only one of the third — an unhandled
    * rejection on a dropped connection left the form looking exactly like a form that had
    * never been submitted.
    */
   const form = document.querySelector<HTMLFormElement>('#login')!
-  const input = document.querySelector<HTMLInputElement>('#password')!
+  const email = document.querySelector<HTMLInputElement>('#email')!
+  const password = document.querySelector<HTMLInputElement>('#password')!
   const button = document.querySelector<HTMLButtonElement>('#submit')!
   const error = document.querySelector<HTMLParagraphElement>('#error')!
+  const fields = [email, password]
   const idle = button.textContent
 
-  function fail(message: string) {
+  /** `focus` is where the correction most likely belongs; `also` is marked but not moved to. */
+  function fail(message: string, focus: HTMLInputElement, ...also: HTMLInputElement[]) {
     error.textContent = message
     error.classList.remove('hidden')
     // Pairs the red rule on the field with the sentence, so the state is never carried by
     // colour on its own, and puts the caret back where the correction has to happen.
-    input.setAttribute('aria-invalid', 'true')
-    input.focus()
-    input.select()
+    for (const field of [focus, ...also]) field.setAttribute('aria-invalid', 'true')
+    focus.focus()
+    focus.select()
   }
 
   function clearError() {
     error.classList.add('hidden')
-    input.removeAttribute('aria-invalid')
+    for (const field of fields) field.removeAttribute('aria-invalid')
   }
 
   // Typing is the fix, so it is also what dismisses the message.
-  input.addEventListener('input', clearError)
+  for (const field of fields) field.addEventListener('input', clearError)
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault()
@@ -154,19 +196,29 @@ const raceDay = new Intl.DateTimeFormat('es-ES', {
 
     // `novalidate` on the form: the browser's own bubble is unstyleable and phrases this
     // in its own words, and an empty field posted straight through would come back as
-    // "contraseña incorrecta", which is the wrong thing to tell someone who typed nothing.
-    if (!input.value) {
-      fail('Escribe tu contraseña para entrar.')
-      return
-    }
+    // "correo o contraseña incorrectos", which is the wrong thing to tell someone who
+    // typed nothing.
+    if (!email.value.trim()) return fail('Escribe tu correo para entrar.', email)
+    if (!password.value) return fail('Escribe tu contraseña para entrar.', password)
 
     button.disabled = true
     button.textContent = 'Entrando…'
     form.setAttribute('aria-busy', 'true')
 
     try {
-      const response = await fetch('/api/login', { method: 'POST', body: new FormData(form) })
+      // JSON rather than the `FormData` this used to post: the endpoint validates with the
+      // same zod schemas as every other write now, and those parse an object, not a
+      // multipart body of strings.
+      const response = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email: email.value, password: password.value }),
+      })
       if (response.ok) {
+        // Whatever the service worker was holding belongs to whoever signed in last, and
+        // this device has just changed hands as far as the app is concerned. Dropping it
+        // here means the first paint after signing in is this athlete's block or nothing.
+        await clearCachedBlock()
         // A document load rather than a client-side navigation: the session cookie has
         // just been set, and every island behind `/` reads it on mount. The button is
         // deliberately left saying `Entrando…` — the page is already on its way out, and
@@ -174,10 +226,12 @@ const raceDay = new Intl.DateTimeFormat('es-ES', {
         location.href = '/'
         return
       }
-      fail('Contraseña incorrecta.')
+      // The server says which half was wrong to nobody, so neither does this: both fields
+      // are marked and the caret goes to the password, which is the half that is retyped.
+      fail('Correo o contraseña incorrectos.', password, email)
     } catch {
       // fetch only rejects on a transport failure, so this is "no hay red", never a 401.
-      fail('No se ha podido conectar. Vuelve a intentarlo.')
+      fail('No se ha podido conectar. Vuelve a intentarlo.', password)
     }
 
     button.disabled = false

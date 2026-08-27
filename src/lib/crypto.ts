@@ -10,13 +10,14 @@
 
 const IV_BYTES = 12
 
-function bytesToBase64(bytes: Uint8Array<ArrayBuffer>): string {
+/** Exported so `password.ts` derives its base64 through the one implementation here. */
+export function bytesToBase64(bytes: Uint8Array<ArrayBuffer>): string {
   let binary = ''
   for (const byte of bytes) binary += String.fromCharCode(byte)
   return btoa(binary)
 }
 
-function base64ToBytes(value: string): Uint8Array<ArrayBuffer> {
+export function base64ToBytes(value: string): Uint8Array<ArrayBuffer> {
   const binary = atob(value)
   const bytes = new Uint8Array(new ArrayBuffer(binary.length))
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
@@ -71,4 +72,16 @@ export function randomToken(bytes = 32): string {
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
     .replace(/=+$/, '')
+}
+
+/**
+ * SHA-256 as lowercase hex, for a value stored as a fingerprint instead of as itself.
+ *
+ * Invite tokens go through this: the link is shown once, and a D1 export then hands over
+ * hashes rather than working invitations. A plain digest — no salt, no stretching — is
+ * right here because the input is 24 random bytes, not something a person chose.
+ */
+export async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
 }

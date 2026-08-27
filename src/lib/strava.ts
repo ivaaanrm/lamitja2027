@@ -1,14 +1,18 @@
 import { env } from 'cloudflare:workers'
+import { getAccount, upsertAccount } from './accounts'
 import { decrypt, encrypt } from './crypto'
 import type { Database } from './db/client'
-import { getState, KEY, setState } from './state'
+import type { StravaAthlete } from './db/schema'
 import type { StravaActivity } from './activity'
 import type { StravaLap, StravaSplit, StravaStreams } from './streams'
 
 /**
- * Everything Strava, in one file. Scope is one athlete syncing one 22-week block, which
- * is a handful of API calls a day — nowhere near the 100-per-15-min read limit, so there
- * is no budget tracker and no paginated backfill here.
+ * Everything Strava, in one file. Scope is a handful of athletes, each syncing one block of
+ * ~23 weeks — a few API calls per athlete per day, nowhere near the 100-per-15-min read
+ * limit, so there is still no budget tracker and no paginated backfill here.
+ *
+ * Nothing in here knows "the" Strava connection any more: every credential belongs to one
+ * user, so every function that touches one takes the user it is about.
  */
 
 const TOKEN_URL = 'https://www.strava.com/oauth/token'
@@ -21,7 +25,8 @@ interface StravaTokens {
   access_token: string
   refresh_token: string
   expires_at: number // epoch seconds
-  athlete?: { id: number; firstname: string | null; lastname: string | null; profile: string | null }
+  /** Present on the code exchange and absent on a refresh — see `saveTokens`. */
+  athlete?: StravaAthlete
 }
 
 export interface StravaDetailedActivity extends StravaActivity {
@@ -60,32 +65,38 @@ async function postToken(body: Record<string, string>): Promise<StravaTokens> {
 export const exchangeCode = (code: string) =>
   postToken({ code, grant_type: 'authorization_code' })
 
-/** Persists the refresh token encrypted; Strava rotates it on every refresh. */
-export async function saveTokens(db: Database, tokens: StravaTokens): Promise<void> {
-  await setState(
-    db,
-    KEY.STRAVA_REFRESH_TOKEN,
-    await encrypt(tokens.refresh_token, env.TOKEN_ENC_KEY),
-  )
-  if (tokens.athlete) {
-    await setState(db, KEY.STRAVA_ATHLETE, JSON.stringify(tokens.athlete))
-  }
+/**
+ * Persists one athlete's refresh token, encrypted. Strava rotates it on every refresh, so
+ * this runs on every sync and not only at connect time — and a refresh response carries no
+ * `athlete`, which is why the id and the profile are written only when they are there.
+ * That is also what makes the connect callback the sole path that can *create* the row.
+ */
+export async function saveTokens(
+  db: Database,
+  userId: string,
+  tokens: StravaTokens,
+): Promise<void> {
+  await upsertAccount(db, userId, {
+    refreshToken: await encrypt(tokens.refresh_token, env.TOKEN_ENC_KEY),
+    ...(tokens.athlete && { athleteId: tokens.athlete.id, athlete: tokens.athlete }),
+  })
 }
 
 /**
- * Exchanges the stored refresh token for a fresh access token and persists the rotated
- * refresh token. Access tokens are not cached: they last six hours, we sync a few times a
+ * Exchanges this athlete's stored refresh token for a fresh access token and persists the
+ * rotated one. Access tokens are not cached: they last six hours, we sync a few times a
  * day, and one extra request is cheaper than reasoning about staleness.
  */
-export async function accessToken(db: Database): Promise<string> {
-  const stored = await getState(db, KEY.STRAVA_REFRESH_TOKEN)
-  if (!stored) throw new Error('Strava is not connected')
+export async function accessToken(db: Database, userId: string): Promise<string> {
+  const account = await getAccount(db, userId)
+  // Surfaced verbatim by POST /api/sync, so it is written in the language of the app.
+  if (!account) throw new Error('Strava no está conectado')
 
   const tokens = await postToken({
-    refresh_token: await decrypt(stored, env.TOKEN_ENC_KEY),
+    refresh_token: await decrypt(account.refreshToken, env.TOKEN_ENC_KEY),
     grant_type: 'refresh_token',
   })
-  await saveTokens(db, tokens)
+  await saveTokens(db, userId, tokens)
   return tokens.access_token
 }
 

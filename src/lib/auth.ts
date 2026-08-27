@@ -2,22 +2,42 @@ import { env } from 'cloudflare:workers'
 import { timingSafeEqual } from './crypto'
 
 /**
- * One athlete, one password, both devices.
+ * Sessions: a signed cookie carrying the athlete's user id.
  *
  * Strava OAuth is how the *server* gets an API token, not how a person signs in — making
- * it the login would mean re-authorising on every device. Instead a single `APP_PASSWORD`
- * secret gates the app, exchanged once for a long-lived signed cookie.
+ * it the login would mean re-authorising on every device. A form and a cookie rather than
+ * HTTP Basic: an installed PWA on iOS gives no way to sign out of Basic auth, and the
+ * browser prompt sits outside the app's own chrome.
  *
- * A form and a cookie rather than HTTP Basic: an installed PWA on iOS gives no way to sign
- * out of Basic auth, and the browser prompt sits outside the app's own chrome.
+ * The mac is signed with `SESSION_SECRET` and never with `APP_PASSWORD` again: that one is
+ * now the single-use bootstrap secret, and a value a person types must not double as the
+ * key every device's cookie hangs from. Rotating `SESSION_SECRET` signs everyone out,
+ * which is the panic button; there is no session table to revoke from.
  */
+export interface SessionUser {
+  id: string
+  isAdmin: boolean
+  displayName: string
+  email: string
+  hrMax: number | null
+  baselineKey: string | null
+  /**
+   * Whether this athlete has minted an MCP token — a boolean, never the hash and never the
+   * token. `/ajustes` needs to know which of "mint" and "rotate" to offer and nothing more.
+   */
+  hasMcpToken: boolean
+}
+
 const COOKIE = 'lm_session'
 const MAX_AGE_S = 365 * 24 * 60 * 60
 
 async function sign(value: string): Promise<string> {
+  const secret = env.SESSION_SECRET
+  if (!secret) throw new Error('SESSION_SECRET is not set')
+
   const key = await crypto.subtle.importKey(
     'raw',
-    new TextEncoder().encode(env.APP_PASSWORD),
+    new TextEncoder().encode(secret),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign'],
@@ -26,31 +46,44 @@ async function sign(value: string): Promise<string> {
   return [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-export function checkPassword(candidate: string): boolean {
-  const expected = env.APP_PASSWORD
-  if (!expected) throw new Error('APP_PASSWORD is not set')
-  return timingSafeEqual(candidate, expected)
-}
-
-/** `issuedAt.signature` — the signature covers the timestamp, so the cookie is unforgeable. */
-export async function createSessionCookie(): Promise<string> {
-  const issuedAt = String(Date.now())
-  const value = `${issuedAt}.${await sign(issuedAt)}`
-  return `${COOKIE}=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${MAX_AGE_S}`
+/** `userId.issuedAt.hmac` — the mac covers `userId.issuedAt`, so neither can be swapped. */
+export async function createSessionCookie(userId: string): Promise<string> {
+  const value = `${userId}.${Date.now()}`
+  const cookie = `${value}.${await sign(value)}`
+  return `${COOKIE}=${cookie}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${MAX_AGE_S}`
 }
 
 export const clearSessionCookie = () =>
   `${COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`
 
-export async function isSignedIn(request: Request): Promise<boolean> {
+/**
+ * Verifies the signature and nothing else — no database read, so the middleware decides
+ * once per request whether that id still belongs to anyone. Null when absent or forged.
+ */
+export async function sessionUserId(request: Request): Promise<string | null> {
   const cookie = request.headers.get('cookie') ?? ''
   const match = cookie.match(new RegExp(`(?:^|; )${COOKIE}=([^;]+)`))
-  if (!match) return false
+  if (!match) return null
 
-  const [issuedAt, signature] = decodeURIComponent(match[1]).split('.')
-  if (!issuedAt || !signature) return false
+  // Split from the right, twice: the mac comes off first, then the timestamp, so a user
+  // id is never assumed to be free of dots.
+  const raw = decodeURIComponent(match[1])
+  const macAt = raw.lastIndexOf('.')
+  if (macAt < 1) return null
 
-  // Rotating APP_PASSWORD invalidates every existing cookie, which is the intended
-  // way to sign all devices out.
-  return timingSafeEqual(signature, await sign(issuedAt))
+  const value = raw.slice(0, macAt)
+  if (!timingSafeEqual(raw.slice(macAt + 1), await sign(value))) return null
+
+  const issuedAt = value.lastIndexOf('.')
+  return issuedAt > 0 ? value.slice(0, issuedAt) : null
+}
+
+/**
+ * The bootstrap secret, and only that. `APP_PASSWORD` no longer signs anyone in — it
+ * authorises the single call that gives the owner row its first password hash.
+ */
+export function checkBootstrapSecret(candidate: string): boolean {
+  const expected = env.APP_PASSWORD
+  if (!expected) throw new Error('APP_PASSWORD is not set')
+  return timingSafeEqual(candidate, expected)
 }

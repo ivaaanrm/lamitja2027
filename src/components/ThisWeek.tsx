@@ -4,6 +4,7 @@ import { DAY_MS, startOfDay } from '@/lib/block'
 import { cn } from '@/lib/cn'
 import type { Activity } from '@/lib/db/schema'
 import type { DayPlan, MatchedSession, WeekPlan } from '@/lib/plan'
+import type { Bands } from '@/lib/workout'
 import { SessionCard } from './SessionCard'
 import { ACCENT, Card, CardTitle, DoneToggle, EmptyState, TextLink } from './ui'
 
@@ -48,11 +49,17 @@ const detailFmt = new Intl.DateTimeFormat('es-ES', {
 export function ThisWeek({
   week,
   today,
+  hrMax,
+  bands,
   onToggle,
 }: {
   week: WeekPlan
   /** UTC midnight of the current local day. */
   today: number
+  /** The athlete's max HR, resolved once by the screen — `user.hrMax ?? DEFAULT_HR_MAX`. */
+  hrMax: number
+  /** The athlete's own six pace bands, resolved once by the screen from their goal pace. */
+  bands: Bands
   onToggle: (match: MatchedSession) => void
 }) {
   // `null` lets the detail follow the plan forward; picking a line pins it there instead.
@@ -125,6 +132,8 @@ export function ThisWeek({
                 // than handing its steps to a card still holding the last one's state.
                 key={selected.session.id}
                 match={selected}
+                hrMax={hrMax}
+                bands={bands}
                 defaultOpen
                 // The way back out of `/sesion` is the tab it was opened from.
                 from="hoy"

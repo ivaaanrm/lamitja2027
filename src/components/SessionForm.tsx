@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { formatPace, parsePace } from '@/lib/activity'
+import { goalPaceSKm, weekDays, type BlockConfig } from '@/lib/block'
 import { cn } from '@/lib/cn'
 import { ApiError, createSession, deleteSession, updateSession } from '@/lib/plan-client'
-import { SESSION_META, SESSION_TYPES, weekDays } from '@/lib/plan'
+import { SESSION_META, SESSION_TYPES } from '@/lib/plan'
+import { paceBands } from '@/lib/paces'
 import { formatStep } from '@/lib/workout'
 import type { PlanSession } from '@/lib/db/schema'
 import { Button, Field, Select, TextArea, TextInput } from './ui'
@@ -72,12 +74,14 @@ interface Viewport {
  * saved, and on a phone the fold moves every time the keyboard opens.
  */
 export function SessionForm({
+  block,
   weekIndex,
   session,
   defaultDay,
   onSaved,
   onClose,
 }: {
+  block: BlockConfig
   weekIndex: number
   session?: PlanSession
   defaultDay?: number
@@ -85,7 +89,7 @@ export function SessionForm({
   onClose: () => void
 }) {
   const [draft, setDraft] = useState<Draft>(() =>
-    session ? fromSession(session) : blank(defaultDay ?? weekDays(weekIndex)[0]!),
+    session ? fromSession(session) : blank(defaultDay ?? weekDays(block, weekIndex)[0]!),
   )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -254,7 +258,7 @@ export function SessionForm({
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-5 pb-4">
             <Field label="Día">
               <Select value={draft.scheduledOn} onChange={(e) => set('scheduledOn', e.target.value)}>
-                {weekDays(weekIndex).map((day) => (
+                {weekDays(block, weekIndex).map((day) => (
                   <option key={day} value={day}>
                     {dayFmt.format(new Date(day))}
                   </option>
@@ -337,7 +341,9 @@ export function SessionForm({
                 <ol className="mt-2 space-y-1">
                   {session.steps.map((step, i) => (
                     <li key={i} className="text-caption leading-relaxed tabular-nums text-label-2">
-                      {formatStep(step)}
+                      {/* The athlete's own bands, from their goal pace — the owner's
+                          table would print Ivan's seconds under someone else's target. */}
+                      {formatStep(step, paceBands(goalPaceSKm(block)))}
                     </li>
                   ))}
                 </ol>

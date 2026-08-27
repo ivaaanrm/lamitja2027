@@ -1,25 +1,23 @@
-import { GOAL_TIME_S, HR_MAX, RACE_DISTANCE_M } from './config'
-
 /**
  * Training paces, seconds per kilometre, from docs/03-training-plan-2027.md §4.
  *
- * Goal-derived rather than VDOT-derived, and now that literally: the six bands are
- * *ratios of goal pace*, so the target really is the input. The January checkpoint is
- * what tests whether it was ever realistic.
+ * Goal-derived rather than VDOT-derived: the target is the input, and the January
+ * checkpoint is what tests whether it was ever realistic. Which is also why the six bands
+ * are held as *ratios* of goal pace — the table docs/03 prescribes is one athlete's
+ * arithmetic on one target, and prescribing it to a second athlete would hand them the
+ * owner's paces under their own goal.
  *
- * A ratio rather than an offset because ability scales and offsets do not. Goal pace
- * plus 73 s/km is a sane easy run for the 3:47/km runner these bands were written for
- * and nonsense for a 5:30/km one, who would be asked to jog at 6:43 — while +18% of
- * goal pace is the same *effort* at either ability. The calibration point is docs/03 §4:
- * at the default goal of 1:19:59 over 21 097,5 m — 227,467 s/km — every ratio below
- * rounds back to exactly the second it was derived from, which is what
- * `test/unit/paces.test.ts` pins.
+ * A ratio rather than an offset, because ability scales and offsets do not. Goal pace plus
+ * 73 s/km is a sane easy run for the 3:47/km runner these bands were written for and
+ * nonsense for a 5:30/km one, who would be asked to jog at 6:43 — while +32% of goal pace
+ * is the same *effort* at either ability. The round trip is exact at the reference goal,
+ * which is what `test/unit/paces.test.ts` pins.
  *
- * What a ratio cannot know is that the *shape* of the table is a claim about a
- * well-trained runner racing a half: six bands over five zones, with goal pace sitting
- * at the top of Z4. That claim travels with the goal reasonably well and not infinitely
- * — a 2:30 half is not raced at threshold — so a fork moving a long way from this goal
- * should read §4 again rather than trust the arithmetic.
+ * What a ratio cannot know is that the *shape* of the table is a claim about a well-trained
+ * runner racing a half: six bands over five zones, with goal pace sitting at the top of Z4.
+ * That claim travels with the goal reasonably well and not infinitely — a 2:30 half is not
+ * raced at threshold — so an athlete a long way from this reference should read §4 again
+ * rather than trust the arithmetic.
  */
 export interface PaceBand {
   /** Faster bound, s/km. */
@@ -28,53 +26,54 @@ export interface PaceBand {
   hi: number
 }
 
-/** Goal race pace, s/km. `metrics.ts` derives the same number for the projection card. */
-const GOAL_PACE_S_KM = GOAL_TIME_S / (RACE_DISTANCE_M / 1000)
+const mmss = (minutes: number, seconds: number) => minutes * 60 + seconds
 
-/**
- * Each band as a share of goal pace. The trailing comment on every line is the pace it
- * was derived from — docs/03 §4, at a 1:19:59 goal — and six decimal places is what
- * keeps `Math.round(ratio * 227.467)` landing back on exactly those seconds.
- */
-const BAND_RATIOS = {
-  easy: { lo: 1.318869, hi: 1.450755 }, // 5:00–5:30/km
-  long: { lo: 1.252925, hi: 1.362831 }, // 4:45–5:10/km
-  steady: { lo: 1.143019, hi: 1.208963 }, // 4:20–4:35/km
-  threshold: { lo: 1.011133, hi: 1.046302 }, // 3:50–3:58/km
-  /** Goal race pace itself: the band opens two seconds under it and closes on it. */
-  race: { lo: 0.989151, hi: 0.997944 }, // 3:45–3:47/km
-  vo2: { lo: 0.923208, hi: 0.967170 }, // 3:30–3:40/km
-} as const satisfies Record<string, PaceBand>
+/** The bands docs/03 §4 prescribes, and the goal pace they were written for. */
+const REF = {
+  goalPaceSKm: 4799 / 21.0975,
+  bands: {
+    easy: { lo: mmss(5, 0), hi: mmss(5, 30) },
+    long: { lo: mmss(4, 45), hi: mmss(5, 10) },
+    steady: { lo: mmss(4, 20), hi: mmss(4, 35) },
+    threshold: { lo: mmss(3, 50), hi: mmss(3, 58) },
+    /** Goal race pace — sub-1:20 is 3:47/km. */
+    race: { lo: mmss(3, 45), hi: mmss(3, 47) },
+    vo2: { lo: mmss(3, 30), hi: mmss(3, 40) },
+  },
+} satisfies { goalPaceSKm: number; bands: Record<string, PaceBand> }
 
-export type PaceZone = keyof typeof BAND_RATIOS
-
-/**
- * The table at a given goal pace. Exported so the derivation can be tested at goals
- * nobody in this repository is training for — the whole point of expressing the bands as
- * ratios is that they hold for a runner who is not this one.
- *
- * Whole seconds, because a pace band is read off a watch: a bound of 300,4 s/km is a
- * false precision that no session is run to.
- */
-export function bandsForGoalPace(goalPaceSKm: number): Record<PaceZone, PaceBand> {
-  const band = (ratios: PaceBand): PaceBand => ({
-    lo: Math.round(ratios.lo * goalPaceSKm),
-    hi: Math.round(ratios.hi * goalPaceSKm),
-  })
-  return {
-    easy: band(BAND_RATIOS.easy),
-    long: band(BAND_RATIOS.long),
-    steady: band(BAND_RATIOS.steady),
-    threshold: band(BAND_RATIOS.threshold),
-    race: band(BAND_RATIOS.race),
-    vo2: band(BAND_RATIOS.vo2),
-  }
-}
-
-export const PACES: Record<PaceZone, PaceBand> = bandsForGoalPace(GOAL_PACE_S_KM)
+export type PaceZone = keyof typeof REF.bands
 
 /** Runtime list of the zones — the validator needs one, `keyof` is types only. */
-export const PACE_ZONES = Object.keys(PACES) as [PaceZone, ...PaceZone[]]
+export const PACE_ZONES = Object.keys(REF.bands) as [PaceZone, ...PaceZone[]]
+
+/**
+ * Each band as a multiple of goal pace, divided out of REF rather than written down a
+ * second time: a ratio and the band it came from cannot drift apart if only one of them
+ * is ever typed.
+ */
+export const PACE_RATIO: Record<PaceZone, PaceBand> = Object.fromEntries(
+  PACE_ZONES.map((zone) => [
+    zone,
+    { lo: REF.bands[zone].lo / REF.goalPaceSKm, hi: REF.bands[zone].hi / REF.goalPaceSKm },
+  ]),
+) as Record<PaceZone, PaceBand>
+
+/** The six bands for a target, in whole seconds — nobody runs to a tenth of one. */
+export function paceBands(goalPaceSKm: number): Record<PaceZone, PaceBand> {
+  return Object.fromEntries(
+    PACE_ZONES.map((zone) => [
+      zone,
+      {
+        lo: Math.round(PACE_RATIO[zone].lo * goalPaceSKm),
+        hi: Math.round(PACE_RATIO[zone].hi * goalPaceSKm),
+      },
+    ]),
+  ) as Record<PaceZone, PaceBand>
+}
+
+/** The owner's table, unchanged in value — the round trip through the ratios is exact. */
+export const PACES = paceBands(REF.goalPaceSKm)
 
 // ---------------------------------------------------------------------------
 // The five-zone model
@@ -101,9 +100,7 @@ export const zoneTag = (zone: Zone) => `Z${zone}`
 /**
  * Which of the five a pace band belongs to. Six bands over five zones: the long-run band
  * and the easy band are both Z2, and race pace sits at the top of Z4 rather than in a
- * zone of its own — for a half raced near threshold, which is what a sub-1:20 is, goal
- * pace *is* threshold. The mapping is on the band, not on the pace, so it survives the
- * goal changing: the bands move together and their order does not change.
+ * zone of its own — for a sub-1:20 half, goal pace *is* threshold.
  */
 export const PACE_ZONE_NUMBER: Record<PaceZone, Zone> = {
   easy: 2,
@@ -125,23 +122,21 @@ export const ZONE_LABEL: Record<PaceZone, string> = {
 }
 
 /**
- * Maximum heart rate. It comes from `config.ts` now — it is a fact about an athlete, not
- * about the app — and is re-exported here so this file stays the one place the zone model
- * lives: a caller that wants zones should never have to know where the number behind them
- * was read.
+ * Maximum heart rate, from docs/01 §: 191 seen in the El Tast 10K and 185 in the half,
+ * against an estimated 192–195. The lower end of the estimate is used — an inflated
+ * maximum quietly pushes every run down a zone.
  *
- * The default, from docs/01 §: 191 seen in the El Tast 10K and 185 in the half, against
- * an estimated 192–195. The lower end of the estimate is used — an inflated maximum
- * quietly pushes every run down a zone.
+ * It is only the fallback now: an athlete who knows their own carries it on `users.hr_max`,
+ * and this number is a calibration against two of Ivan's races, not a formula that
+ * transfers.
  */
-export { HR_MAX }
+export const DEFAULT_HR_MAX = 192
 
 /**
- * Where each zone opens, as a share of `HR_MAX` — shares rather than bpm for the same
- * reason the pace bands are ratios: they are the model, and the athlete's maximum is the
- * input. Calibrated against the two races the app has real data for rather than a
- * textbook: the half was run at 172 avg (top of Z4) and the 10K at 176 (Z4 into Z5),
- * which is exactly where a half and a 10K should land.
+ * Where each zone opens, as a share of maximum heart rate. Calibrated against the two
+ * races the app has real data for rather than a textbook: the half was run at 172 avg
+ * (top of Z4) and the 10K at 176 (Z4 into Z5), which is exactly where a half and a 10K
+ * should land.
  */
 const ZONE_FLOOR: Record<Exclude<Zone, 1>, number> = {
   2: 0.72,
@@ -151,14 +146,14 @@ const ZONE_FLOOR: Record<Exclude<Zone, 1>, number> = {
 }
 
 /**
- * The zone an average heart rate falls in.
+ * The zone an average heart rate falls in, against the athlete's own maximum.
  *
  * This is the only thing the app ever does with a heart rate: a run reports "Z3", never
  * "151 ppm". The exact number is noise — it drifts with heat, sleep and the strap — and
  * it is not what any decision in the plan is made on.
  */
-export function hrZone(bpm: number): Zone {
-  const share = bpm / HR_MAX
+export function hrZone(bpm: number, hrMax: number): Zone {
+  const share = bpm / hrMax
   if (share >= ZONE_FLOOR[5]) return 5
   if (share >= ZONE_FLOOR[4]) return 4
   if (share >= ZONE_FLOOR[3]) return 3
@@ -167,14 +162,20 @@ export function hrZone(bpm: number): Zone {
 }
 
 /** Where each zone opens, in bpm — the reference lines on a heart-rate trace. */
-export const ZONE_FLOOR_BPM: Record<Exclude<Zone, 1>, number> = {
-  2: Math.round(ZONE_FLOOR[2] * HR_MAX),
-  3: Math.round(ZONE_FLOOR[3] * HR_MAX),
-  4: Math.round(ZONE_FLOOR[4] * HR_MAX),
-  5: Math.round(ZONE_FLOOR[5] * HR_MAX),
+export function zoneFloorsBpm(hrMax: number): Record<Exclude<Zone, 1>, number> {
+  return {
+    2: Math.round(ZONE_FLOOR[2] * hrMax),
+    3: Math.round(ZONE_FLOOR[3] * hrMax),
+    4: Math.round(ZONE_FLOOR[4] * hrMax),
+    5: Math.round(ZONE_FLOOR[5] * hrMax),
+  }
 }
 
 /** Mid-band pace, s/km — what a prescribed distance is costed at when estimating time. */
 export const midOf = (band: PaceBand) => (band.lo + band.hi) / 2
 
+/**
+ * The owner's mid-band pace for a zone. Anything athlete-scoped costs a zone with
+ * `midOf(bands[zone])` against their own table instead — see `workout.ts`.
+ */
 export const midPaceSKm = (zone: PaceZone) => midOf(PACES[zone])

@@ -3,15 +3,18 @@ import App from '../layouts/App.astro'
 import { Progress } from '../components/Progress'
 import { APP_NAME } from '../lib/config'
 
-// Prerendered shell. Both seasons are derived on the client: this one from /api/data, the
-// 2025-26 baseline from the CSVs bundled into `lib/baseline.ts`.
+// Prerendered shell. This season is derived on the client from /api/data; the 2025-26
+// baseline comes from the CSVs bundled into `lib/baseline.ts`, keyed to the owner alone —
+// only they have a `baselineKey`, so the static subtitle below cannot name that season by
+// build time without lying to every other athlete. `Progress` reads `baselineFor` itself
+// and drops every "frente a" clause when it comes back null.
 export const prerender = true
 ---
 
 <App
   title={`Progreso · ${APP_NAME}`}
   heading="Progreso"
-  sub="Contra la temporada 2025-26, a la misma distancia de la carrera"
+  sub="Evolución del bloque, semana a semana"
   tab="progress"
 >
   <Progress client:load />

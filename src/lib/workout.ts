@@ -1,5 +1,5 @@
 import { decimal } from './format'
-import { PACES, ZONE_LABEL, midPaceSKm, type PaceBand, type PaceZone } from './paces'
+import { PACES, ZONE_LABEL, midOf, type PaceBand, type PaceZone } from './paces'
 
 /**
  * The prescription itself — what a session actually asks for, as data rather than prose.
@@ -12,7 +12,17 @@ import { PACES, ZONE_LABEL, midPaceSKm, type PaceBand, type PaceZone } from './p
  *
  * Pure and browser-safe — no drizzle, no zod, no clock. `db/schema.ts` imports `Step`
  * from here; the zod mirror lives in `plan-input.ts`, which only the Worker loads.
+ *
+ * Everything that turns a *zone* into seconds — sizing a timed effort, estimating a
+ * duration, printing `@ 3:50–3:58/km` — takes the athlete's own six bands. A zone is a
+ * share of goal pace (`paceBands` in `paces.ts`), so reading them off the owner's table
+ * would prescribe Ivan's paces under someone else's target. `PACES` stays the default
+ * because it is the owner's table and `seed.ts` is the owner's plan: `buildPlan` must keep
+ * producing byte-identical output, and it never passes bands.
  */
+
+/** The six bands a session is read against — one athlete's, from their goal pace. */
+export type Bands = Record<PaceZone, PaceBand>
 
 export type StepKind = 'warmup' | 'rep' | 'steady' | 'strides' | 'cooldown'
 export const STEP_KINDS: [StepKind, ...StepKind[]] = [
@@ -53,8 +63,10 @@ export interface Step {
   note: string | null
 }
 
-/** Recovery jogs are costed at the slow end of easy — they are not part of the workout. */
-const JOG_PACE_S_KM = PACES.easy.hi
+/** Recovery jogs are costed at the slow end of the athlete's own easy band — they are not
+ *  part of the workout, but they are still their legs and their pace. */
+const jogPaceSKm = (bands: Bands) => bands.easy.hi
+/** Walking is walking: nobody's goal pace makes it faster. */
 const WALK_PACE_S_KM = 12 * 60
 /** Strides are ~5 m/s: fast, relaxed turnover, not a sprint. */
 const STRIDE_SPEED_MS = 5
@@ -129,7 +141,7 @@ export const standingFor = (seconds: number): Recovery => ({
   durationS: seconds,
 })
 
-function recoveryDistanceM(recovery: Recovery): number {
+function recoveryDistanceM(recovery: Recovery, bands: Bands): number {
   if (recovery.distanceM != null) return recovery.distanceM
   if (recovery.durationS == null) return 0
   switch (recovery.kind) {
@@ -138,55 +150,56 @@ function recoveryDistanceM(recovery: Recovery): number {
     case 'walk':
       return (recovery.durationS / WALK_PACE_S_KM) * 1000
     default:
-      return (recovery.durationS / JOG_PACE_S_KM) * 1000
+      return (recovery.durationS / jogPaceSKm(bands)) * 1000
   }
 }
 
-function recoveryDurationS(recovery: Recovery): number {
+function recoveryDurationS(recovery: Recovery, bands: Bands): number {
   if (recovery.durationS != null) return recovery.durationS
   if (recovery.distanceM == null) return 0
-  const pace = recovery.kind === 'walk' ? WALK_PACE_S_KM : JOG_PACE_S_KM
+  const pace = recovery.kind === 'walk' ? WALK_PACE_S_KM : jogPaceSKm(bands)
   return (recovery.distanceM / 1000) * pace
 }
 
 /** One rep's distance — its own, or what its duration buys at the zone's mid-pace. */
-function effortDistanceM(step: Step): number {
+function effortDistanceM(step: Step, bands: Bands): number {
   if (step.kind === 'strides') return (step.durationS ?? DEFAULT_STRIDE_S) * STRIDE_SPEED_MS
   if (step.distanceM != null) return step.distanceM
   if (step.durationS == null) return 0
   // A timed effort with no band is costed as easy running — the fallback only ever
   // applies to Phase 0, where the whole point is that there is no band.
-  return (step.durationS / midPaceSKm(step.zone ?? 'easy')) * 1000
+  return (step.durationS / midOf(bands[step.zone ?? 'easy'])) * 1000
 }
 
-function effortDurationS(step: Step): number {
+function effortDurationS(step: Step, bands: Bands): number {
   if (step.durationS != null) return step.durationS
   if (step.kind === 'strides') return DEFAULT_STRIDE_S
   if (step.distanceM == null) return 0
-  return (step.distanceM / 1000) * midPaceSKm(step.zone ?? 'easy')
+  return (step.distanceM / 1000) * midOf(bands[step.zone ?? 'easy'])
 }
 
 /** The step's own running, recoveries excluded — `5 × 1 km` is 5 km however long the jog. */
-export const effortMetres = (step: Step) => effortDistanceM(step) * step.reps
+export const effortMetres = (step: Step, bands: Bands = PACES) =>
+  effortDistanceM(step, bands) * step.reps
 
 /** Everything the step puts on the legs, recovery jogs included. */
-export function stepDistanceM(step: Step): number {
-  const recoveries = step.recovery ? recoveryDistanceM(step.recovery) * (step.reps - 1) : 0
-  return effortDistanceM(step) * step.reps + recoveries
+export function stepDistanceM(step: Step, bands: Bands = PACES): number {
+  const recoveries = step.recovery ? recoveryDistanceM(step.recovery, bands) * (step.reps - 1) : 0
+  return effortDistanceM(step, bands) * step.reps + recoveries
 }
 
-export function stepDurationS(step: Step): number {
-  const recoveries = step.recovery ? recoveryDurationS(step.recovery) * (step.reps - 1) : 0
-  return effortDurationS(step) * step.reps + recoveries
+export function stepDurationS(step: Step, bands: Bands = PACES): number {
+  const recoveries = step.recovery ? recoveryDurationS(step.recovery, bands) * (step.reps - 1) : 0
+  return effortDurationS(step, bands) * step.reps + recoveries
 }
 
 /** Total prescribed distance, metres. This is what a session's target distance is. */
-export const workoutDistanceM = (steps: Step[]) =>
-  Math.round(steps.reduce((sum, step) => sum + stepDistanceM(step), 0))
+export const workoutDistanceM = (steps: Step[], bands: Bands = PACES) =>
+  Math.round(steps.reduce((sum, step) => sum + stepDistanceM(step, bands), 0))
 
 /** Estimated time on feet, seconds — derived, never stored, always shown as ≈. */
-export const workoutDurationS = (steps: Step[]) =>
-  Math.round(steps.reduce((sum, step) => sum + stepDurationS(step), 0))
+export const workoutDurationS = (steps: Step[], bands: Bands = PACES) =>
+  Math.round(steps.reduce((sum, step) => sum + stepDurationS(step, bands), 0))
 
 /**
  * Metres run at threshold or faster — the honest measure of a week's intensity.
@@ -194,20 +207,20 @@ export const workoutDurationS = (steps: Step[]) =>
  * Warm-ups, cool-downs and recovery jogs are excluded, which is why this is not simply
  * the distance of the quality sessions: an interval session is mostly easy running.
  */
-export const hardDistanceM = (steps: Step[]) =>
+export const hardDistanceM = (steps: Step[], bands: Bands = PACES) =>
   Math.round(
     steps
       .filter((s) => (s.kind === 'rep' || s.kind === 'steady') && s.zone && HARD_ZONES.has(s.zone))
-      .reduce((sum, s) => sum + effortDistanceM(s) * s.reps, 0),
+      .reduce((sum, s) => sum + effortDistanceM(s, bands) * s.reps, 0),
   )
 
 /** The band the session is really about — the widest effort that is not a warm-up. */
-export function primaryZone(steps: Step[]): PaceZone | null {
+export function primaryZone(steps: Step[], bands: Bands = PACES): PaceZone | null {
   let best: PaceZone | null = null
   let bestM = 0
   for (const step of steps) {
     if (step.kind === 'warmup' || step.kind === 'cooldown' || !step.zone) continue
-    const metres = effortDistanceM(step) * step.reps
+    const metres = effortDistanceM(step, bands) * step.reps
     if (metres > bestM) {
       best = step.zone
       bestM = metres
@@ -217,9 +230,9 @@ export function primaryZone(steps: Step[]): PaceZone | null {
 }
 
 /** The band that zone is run at — what a session prescribes when nothing overrides it. */
-export const workoutBand = (steps: Step[]): PaceBand | null => {
-  const zone = primaryZone(steps)
-  return zone ? PACES[zone] : null
+export const workoutBand = (steps: Step[], bands: Bands = PACES): PaceBand | null => {
+  const zone = primaryZone(steps, bands)
+  return zone ? bands[zone] : null
 }
 
 // ---------------------------------------------------------------------------
@@ -277,9 +290,9 @@ export function stepHeadline(step: Step): string {
   return step.reps > 1 ? `${step.reps} × ${size}` : size
 }
 
-const band = (zone: PaceZone | null) => {
+const band = (zone: PaceZone | null, bands: Bands = PACES) => {
   if (!zone) return null
-  const { lo, hi } = PACES[zone]
+  const { lo, hi } = bands[zone]
   const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`
   return lo === hi ? `${mmss(lo)}/km` : `${mmss(lo)}–${mmss(hi)}/km`
 }
@@ -301,11 +314,11 @@ export function formatRecovery(recovery: Recovery): string {
 }
 
 /** `5 × 1 km @ 3:50–3:58 · 90 s de trote` — one step, said the way a session is written. */
-export function formatStep(step: Step): string {
+export function formatStep(step: Step, bands: Bands = PACES): string {
   const headline = stepHeadline(step)
   if (step.kind === 'strides' || step.kind === 'warmup' || step.kind === 'cooldown') return headline
 
-  const pace = band(step.zone)
+  const pace = band(step.zone, bands)
   const withPace = pace ? `${headline} @ ${pace}` : headline
   return step.recovery && step.reps > 1
     ? `${withPace} · ${formatRecovery(step.recovery)}`
@@ -317,7 +330,8 @@ export const isEffort = (step: Step) =>
   step.kind === 'rep' || step.kind === 'steady' || step.kind === 'strides'
 
 /** The whole session on one line, for the row that has no space to expand. */
-export const formatWorkout = (steps: Step[]) => steps.map(formatStep).join(' · ')
+export const formatWorkout = (steps: Step[], bands: Bands = PACES) =>
+  steps.map((step) => formatStep(step, bands)).join(' · ')
 
 /**
  * What the plan says where it prescribes no band at all.

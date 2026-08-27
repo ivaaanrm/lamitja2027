@@ -186,14 +186,23 @@ Then regenerate the binding types:
 pnpm cf-typegen
 ```
 
-### 3. The four secrets
+### 3. The five secrets
 
 ```bash
-pnpm exec wrangler secret put APP_PASSWORD           # the login. One password, all your devices.
+pnpm exec wrangler secret put APP_PASSWORD           # one-time: claims the owner account, then spent
+pnpm exec wrangler secret put SESSION_SECRET         # openssl rand -base64 32 — signs the session cookies
 pnpm exec wrangler secret put STRAVA_CLIENT_SECRET   # from the Strava application page
 pnpm exec wrangler secret put STRAVA_WEBHOOK_VERIFY  # any random string; used once, at subscribe time
 pnpm exec wrangler secret put TOKEN_ENC_KEY          # openssl rand -base64 32 — exactly 32 bytes
 ```
+
+`APP_PASSWORD` is **not** the login. Nobody signs in with it: it authorises exactly one
+call, `POST /api/bootstrap`, which turns the owner row the migration planted into a real
+account with an email and a password of its own. Every later call gets a `409`. Everyone
+else joins on an invitation.
+
+`SESSION_SECRET` signs the session cookies and is never a value anyone types. Rotating it
+signs every athlete out of every device — the panic button.
 
 Each prompts for the value; each also reads standard input, so
 `printf '%s' "$SECRET" | pnpm exec wrangler secret put APP_PASSWORD` works when a prompt
@@ -256,12 +265,28 @@ deploy fails outright, and even past that it resolves the assets directory wrong
 config to deploy is the one the Astro adapter *generates*, `dist/server/wrangler.json`,
 which is what `pnpm deploy` does. This is gotcha 6 in `AGENTS.md`.
 
-### 5. Sign in, connect, and get a plan into the database
+### 5. Claim your account, connect Strava, invite your friends
 
-Open the deployed URL. It redirects to `/login`; the password is `APP_PASSWORD`, and it
-is exchanged for a signed cookie good for a year, on every device you enter it on.
-Rotating `APP_PASSWORD` invalidates every one of those cookies at once — that is the
-sign-out-everywhere switch, and it also drops the offline payload cached on each phone.
+The migration plants an owner row with no password. Claim it once — this is the only thing
+`APP_PASSWORD` is for, and it works exactly once:
+
+```bash
+HOST=https://your-worker-host
+curl -s -X POST "$HOST/api/bootstrap" -H 'content-type: application/json' -H "Origin: $HOST" \
+  -d '{"password":"'"$APP_PASSWORD"'","email":"you@example.com","newPassword":"at least ten chars","displayName":"Your Name"}'
+```
+
+From then on you sign in at `/login` with that email and password, exchanged for a signed
+cookie good for a year on each device. Rotating `SESSION_SECRET` invalidates every one of
+those cookies at once — the sign-out-everywhere switch — and signing out drops the offline
+payload cached on that phone.
+
+**Inviting a friend.** As an admin, open `/ajustes` → *Invitaciones* → **Crear invitación**
+and send them the link; it is single-use and expires in seven days. They pick their own
+email and password — you never see it — then land on `/bienvenida` to enter their own race,
+date, distance and goal. Their plan starts empty: they write it in `/plan`, or point an
+agent at their own MCP endpoint (section f). They connect their own Strava account through
+your API application, and nobody can see anybody else's anything.
 
 Then press **Conectar con Strava** on the home screen and accept the consent screen with
 the private-activities box ticked. The callback stores the token and runs a first sync;
@@ -279,10 +304,15 @@ HOST=https://your-worker-host
 # carries a *non*-form content-type. A bodyless POST carries none, so `/api/plan/seed`
 # answers `403 Cross-site POST form submissions are forbidden` — before the cookie is
 # so much as looked at — unless the header is there.
-curl -s -c /tmp/lm.cookies -X POST "$HOST/api/login" \
-  -H "Origin: $HOST" --data-urlencode "password=$APP_PASSWORD"
+curl -s -c /tmp/lm.cookies -X POST "$HOST/api/login" -H 'content-type: application/json' \
+  -H "Origin: $HOST" -d '{"email":"you@example.com","password":"'"$PASSWORD"'"}'
 curl -s -b /tmp/lm.cookies -X POST "$HOST/api/plan/seed" -H "Origin: $HOST"
 ```
+
+Seeding is **owner-only**: `src/lib/seed.ts` is one athlete's hand-written 23 weeks, in
+Spanish, naming races they entered — it is a document, not a generator, so handing it to
+somebody training for a different race would be worse than an empty plan. Everyone else
+writes their own, by hand or through their agent.
 
 The same thing is one call on the MCP server (`seed_plan`), which needs no cookie.
 
@@ -324,9 +354,8 @@ design.
 cp .env.example .env
 ```
 
-Eleven values, all optional — with no `.env` at all the app builds the block this
-repository ships with. Four of them are what the app *calls* itself; seven are the block
-it computes.
+Ten values, all optional — with no `.env` at all the app builds the block this
+repository ships with. Three of them are what the app *calls* itself; seven are the block it computes.
 
 **Identity** — between them these reach all eight page titles, the launch screen, the
 login screen, `404`, the meta description, the Open Graph card and
@@ -337,7 +366,6 @@ login screen, `404`, the meta description, the Open Graph card and
 | `PUBLIC_APP_NAME` | What the app calls itself: the `<title>` of every page and the name of the installed app. Distinct from the race — the event is *La Mitja de Granollers*, the app is *La Mitja 2027*. | free text | `La Mitja 2027` |
 | `PUBLIC_APP_SHORT_NAME` | The home-screen label. iOS truncates around twelve characters, so keep it short. | free text | `La Mitja` |
 | `PUBLIC_APP_DESCRIPTION` | One sentence, read three times: meta description, Open Graph card, manifest. | free text, Spanish | *Entrenamiento hacia una media…* |
-| `PUBLIC_GOAL_LABEL` | The objective as a runner says it — the heading on `/`. Not derived from the goal time, because naming the distance in Spanish and deciding what is being chased is a sentence, not arithmetic. | free text | `Media sub-1:20` |
 
 **The block** — the values the training maths is computed from.
 
@@ -349,7 +377,7 @@ login screen, `404`, the meta description, the Open Graph card and
 | `PUBLIC_BLOCK_START` | The Monday the block opens on. Nothing before it is synced or counted. | `YYYY-MM-DD`, **must be a Monday** | `2026-08-17` |
 | `PUBLIC_GOAL_TIME` | The goal finish time. Every pace band is a ratio of the pace it implies over the race distance. | `h:mm:ss` or `mm:ss` | `1:19:59` |
 | `PUBLIC_HR_MAX` | Maximum heart rate, bpm. The five zone floors are shares of it; no bpm is ever rendered, only the zone. | number > 0 | `192` |
-| `PUBLIC_PREV_RACE_DATE` | Last season's race — the anchor `docs/data/*.csv` is aligned on, so both seasons read at the same distance from race day. | `YYYY-MM-DD`, before the race date | `2026-01-18` |
+| `PUBLIC_PREV_RACE_DATE` | Last season's race — the anchor `docs/personal/data/*.csv` is aligned on, so both seasons read at the same distance from race day. | `YYYY-MM-DD`, before the race date | `2026-01-18` |
 
 Everything else follows. The number of weeks is `ceil((RACE_DATE − BLOCK_START) / 7 days)`;
 the five phases are shares of that total, so a 19-week block still gets all five of them —
@@ -394,11 +422,11 @@ two files that cannot read a build-time value at all.
 | `src/layouts/Base.astro`, `src/pages/manifest.webmanifest.ts` | `<meta name="theme-color">`, and `background_color` / `theme_color`. | All three are `--color-surface` written out — a `<meta>` and a JSON body cannot read a token. Change a ground and grep the hex; it has drifted before. |
 | `astro.config.mjs` | `site:` — your deployed origin | Used to build the absolute Open Graph URLs at prerender time. |
 | `src/components/Progress.tsx`, `src/components/TrainingLog.tsx` | The season label `2025-26`, and one `'de 21,1 km'` written out where its sibling in `Dashboard.tsx` derives it | Small, real, and worth fixing if you fork — they are the last two places a number is written rather than derived. |
-| `docs/` | `01`, `02`, `03` and `docs/data/*.csv` are the author's race analysis, injury history and Strava exports | They are the reasoning behind every default above. Replace them with your own, or delete them. |
+| `docs/` | `01`, `02`, `03` and `docs/personal/data/*.csv` are the author's race analysis, injury history and Strava exports | They are the reasoning behind every default above. Replace them with your own, or delete them. |
 
 ### Last season's data
 
-`src/lib/baseline.ts` globs `docs/data/*.csv` — it does not name individual files. Two
+`src/lib/baseline.ts` globs `docs/personal/data/*.csv` — it does not name individual files. Two
 words in a filename decide what a file is: **`post-race`** makes it the pre-block period
 (in the fitness average, never compared against), and **`build`** makes it the previous
 season, the one every comparison is drawn against. A file whose name carries neither is
@@ -477,19 +505,24 @@ vocabulary, reads what you have actually been running, and writes the weeks back
 POST https://<your-worker-host>/api/mcp
 ```
 
-**Authentication** — `Authorization: Bearer <APP_PASSWORD>`, the same single password the
-app signs in with, compared in constant time before the request body is even parsed.
+**Authentication** — `Authorization: Bearer <token>`, where the token is **your own**,
+minted on `/ajustes` → *Agente (MCP)* → **Crear token**. It is shown once and stored only
+as a hash, so if you lose it you mint another. It is deliberately not your password.
 
-> That token is full read/write access to the deployment: the whole training log, and the
-> power to overwrite or delete the entire plan. It is the app password. Treat handing it
-> to an agent as handing over the app, and rotate it (`wrangler secret put APP_PASSWORD`)
-> if it leaks — which also signs every device out.
+Every athlete on the deployment has their own token and their own endpoint behaviour: the
+same URL, but what an agent sees and writes is scoped to whoever the token belongs to. Your
+agent cannot read or touch anybody else's block.
+
+> The token is full read/write on **your** training data: the whole log, and the power to
+> overwrite or delete your entire plan. It is not full access to the deployment and it is
+> not your login. Treat it as you would an API key — and if it leaks, **Generar uno nuevo**
+> invalidates the old one immediately, or **Revocar** turns MCP off for your account.
 
 ### Connect it to Claude Code
 
 ```bash
 claude mcp add --transport http lamitja https://<your-worker-host>/api/mcp \
-  --header "Authorization: Bearer $APP_PASSWORD"
+  --header "Authorization: Bearer $MCP_TOKEN"
 ```
 
 Add `--scope user` to have it available in every project rather than only this one.
@@ -499,7 +532,7 @@ Add `--scope user` to have it available in every project rather than only this o
 
 ```bash
 curl -sS https://<your-worker-host>/api/mcp \
-  -H "Authorization: Bearer $APP_PASSWORD" \
+  -H "Authorization: Bearer $MCP_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | jq '.result.tools[].name'
 ```
@@ -510,13 +543,15 @@ server they just deployed. The brief an agent starts from is one call further:
 
 ```bash
 curl -sS https://<your-worker-host>/api/mcp \
-  -H "Authorization: Bearer $APP_PASSWORD" -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $MCP_TOKEN" -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_block","arguments":{}}}'
 ```
 
 `GET` and `DELETE` answer `405` with `Allow: POST` — there is no server-initiated stream
 and no session to delete. A `401` means the bearer token is wrong; a `500` saying
-`APP_PASSWORD is not configured` means the secret was never set on the deployment.
+`401` with *Send `Authorization: Bearer <token>`* means the token is wrong, revoked, or
+belongs to an athlete who has not finished `/bienvenida` — a block is required before any
+tool will answer.
 
 ### The eleven tools
 

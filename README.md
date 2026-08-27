@@ -1,16 +1,18 @@
 # StrideAI
 
-A training tracker for one runner and one race block. Activities sync from Strava, the
-plan is written by hand, and everything else — whether a session was completed, weekly
-volume against target, this season against the last one, the finish time the current
-shape projects to — is derived on read. An Astro PWA on a single Cloudflare Worker with
-D1 behind it, deployed with one command. It installs to the home screen and opens with
-no signal — a plan is read at the trailhead, which is exactly where the bars run out.
+A training tracker for a running club of one, or of a few. Activities sync from Strava,
+the plan is written by hand, and everything else — whether a session was completed, weekly
+volume against target, this season against the last one, the finish time the current shape
+projects to — is derived on read. An Astro PWA on a single Cloudflare Worker with D1 behind
+it, deployed with one command. It installs to the home screen and opens with no signal — a
+plan is read at the trailhead, which is exactly where the bars run out.
 
-It is built for a single athlete self-hosting their own copy: one password, one Strava
-connection, one training block, no accounts and no multi-tenancy. That constraint is the
-design rather than a gap — a block is ~150 activities, which is why there is no sync
-queue, no cursor and no pagination anywhere in the codebase.
+**Invite-only, and small on purpose.** You deploy it, you connect it to your own Strava API
+application, and you invite whoever you actually train with. Each athlete gets their own
+login, their own Strava connection, their own race and dates, and their own plan; nobody
+can see anybody else's. There is no public sign-up, no password reset and no billing — a
+block is ~150 activities, which is why there is no sync queue, no cursor and no pagination
+anywhere in the codebase either.
 
 The block it ships with is the author's — *La Mitja 2027*: La Mitja de Granollers,
 24 January 2027, sub-1:20. That is the reference instance, not the product. Fork it, point
@@ -25,8 +27,8 @@ Cloudflare account.
 
 ```bash
 pnpm install
-cp .dev.vars.example .dev.vars   # four secrets — APP_PASSWORD is the one you sign in with
-pnpm db:migrate:local            # the four tables, into .wrangler/state
+cp .dev.vars.example .dev.vars   # five secrets — see docs/setup.md
+pnpm db:migrate:local            # the eight tables, into .wrangler/state
 pnpm dev                         # http://localhost:4321
 ```
 
@@ -45,21 +47,22 @@ pnpm exec wrangler whoami                     # which account you just signed in
 pnpm exec wrangler d1 create my-training      # paste database_name + database_id into wrangler.jsonc
 pnpm exec wrangler kv namespace create CACHE  # paste id into wrangler.jsonc
 pnpm cf-typegen                               # regenerate the binding types you just changed
-pnpm exec wrangler secret put APP_PASSWORD    # and STRAVA_CLIENT_SECRET, TOKEN_ENC_KEY, STRAVA_WEBHOOK_VERIFY
+pnpm exec wrangler secret put APP_PASSWORD    # + SESSION_SECRET, STRAVA_CLIENT_SECRET, TOKEN_ENC_KEY, STRAVA_WEBHOOK_VERIFY
 pnpm db:migrate
 pnpm deploy
 ```
 
-Open the URL wrangler prints, sign in with `APP_PASSWORD`, press **Conectar con Strava**.
+Claim the owner account with `POST /api/bootstrap` (that is all `APP_PASSWORD` is for), sign
+in with the email and password you chose, then press **Conectar con Strava**.
 Creating the Strava API application, pointing its callback domain at that URL and
 subscribing the webhook all need a browser — [`docs/setup.md`](docs/setup.md) walks
 through it in the order it has to happen, starting with Strava, because the callback
 domain is app-wide and OAuth cannot complete against localhost.
 
-## Make it your race
+## Make it your deployment
 
 ```bash
-cp .env.example .env      # eleven: four names, the race, the block's Monday, the goal, HR max
+cp .env.example .env      # the names, and the default block a new athlete's form opens on
 ```
 
 The pace bands, the phase boundaries and the length of the block are all derived from
@@ -71,11 +74,11 @@ in `src/lib/seed.ts` — is listed file by file in
 ## Write your own plan with an agent
 
 The deployment serves its own plan as an MCP server at `POST /api/mcp`, authenticated
-with the same `APP_PASSWORD`:
+with a token you mint on `/ajustes` — one per athlete, not your password:
 
 ```bash
 claude mcp add --transport http lamitja https://<your-worker-host>/api/mcp \
-  --header "Authorization: Bearer $APP_PASSWORD"
+  --header "Authorization: Bearer $MCP_TOKEN"
 ```
 
 Then ask for the block you want: *"look at what I actually ran the last three weeks and
@@ -92,8 +95,9 @@ the block brief, what is planned, what was run, what it adds up to, and the writ
 | [`docs/setup.md`](docs/setup.md) | Strava application, Cloudflare deploy, configuration, local development, the MCP server. |
 | [`docs/03-training-plan-2027.md`](docs/03-training-plan-2027.md) | The plan `src/lib/seed.ts` encodes: phases, volumes, paces, checkpoints, knee protocol. |
 
-Everything under `docs/` and `docs/data/` is the author's own race history, injury notes
-and training design. A fork replaces it with its own — or deletes `docs/data/*.csv`, and
-the comparison against last season simply reads as absent.
+The author's own race history, injury notes and training design live in `docs/personal/`,
+which is gitignored and is not in this repository. Drop your own Strava exports into
+`docs/personal/data/` to get the comparison against last season; with none, it reads as
+absent, which is the normal state for anyone who clones this.
 
 MIT — see [`LICENSE`](LICENSE).

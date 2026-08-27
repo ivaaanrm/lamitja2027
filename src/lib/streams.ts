@@ -1,4 +1,4 @@
-import { hrZone, type Zone } from './paces'
+import { DEFAULT_HR_MAX, hrZone, type Zone } from './paces'
 
 /**
  * One activity, second by second — shaped for the detail view.
@@ -186,8 +186,15 @@ const round = (value: number | null) => (value == null ? null : Math.round(value
  * strap's index, so a strap sampling at 4/5 the recording rate reported four fifths of a
  * run and called it the whole thing. The shares underneath the trace were then a
  * percentage of a number that was itself short.
+ *
+ * `hrMax` is the athlete's own: the zone floors are shares of it, so reading a trace
+ * against someone else's maximum files every sample a zone or two off. It defaults to the
+ * same fallback the route resolves — an athlete who has not set one on `/ajustes`.
  */
-export function timeInZones(streams: StravaStreams): Record<Zone, number> {
+export function timeInZones(
+  streams: StravaStreams,
+  hrMax: number = DEFAULT_HR_MAX,
+): Record<Zone, number> {
   const out: Record<Zone, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
   const time = streams.time?.data ?? []
   const hr = streams.heartrate?.data ?? []
@@ -198,7 +205,7 @@ export function timeInZones(streams: StravaStreams): Record<Zone, number> {
 
   for (let j = 1; j < hr.length; j++) {
     const bpm = hr[j]!
-    if (bpm > 0) out[hrZone(bpm)] += clock(j) - clock(j - 1)
+    if (bpm > 0) out[hrZone(bpm, hrMax)] += clock(j) - clock(j - 1)
   }
   return out
 }
@@ -235,11 +242,12 @@ function isPressed(laps: Lap[]): boolean {
 export function buildDetail(
   streams: StravaStreams,
   activity: { splits_metric?: StravaSplit[]; laps?: StravaLap[]; description?: string | null },
+  hrMax: number = DEFAULT_HR_MAX,
 ): ActivityDetail {
   const laps = (activity.laps ?? []).map(toLap)
   return {
     trace: resample(streams),
-    zoneS: timeInZones(streams),
+    zoneS: timeInZones(streams, hrMax),
     splits: (activity.splits_metric ?? []).map(toSplit),
     laps: isPressed(laps) ? laps : [],
     description: activity.description?.trim() || null,

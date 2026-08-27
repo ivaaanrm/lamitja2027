@@ -14,7 +14,7 @@ import source from '../../public/sw.js?raw'
  * `self` — and the event objects handed to it by hand. Everything else it touches
  * (`Request`, `Response`, `Headers`, `URL`) is a real Node global, so what runs is the
  * shipped source and not a paraphrase of it. `?raw` reaches outside `src/` the same way
- * `baseline.ts` reaches into `docs/data` (AGENTS gotcha 14).
+ * `baseline.ts` reaches into `docs/personal/data` (AGENTS gotcha 14).
  */
 
 // ---------------------------------------------------------------------------

@@ -1,18 +1,16 @@
-import { and, asc, eq, getTableColumns, gte, lte, sql, type SQL } from 'drizzle-orm'
+import { and, asc, eq, getTableColumns, gte, inArray, lte, sql, type SQL } from 'drizzle-orm'
 import {
-  BLOCK_START,
   DAY_MS,
-  GOAL_TIME_S,
-  RACE_DATE,
-  RACE_DISTANCE_M,
-  TOTAL_WEEKS,
   daysToRace,
+  goalPaceSKm,
   startOfDay,
+  totalWeeks,
   wallClockNow,
   weekIndex,
+  weekStart,
+  type BlockConfig,
 } from '../block'
 import { formatClock, formatPace, paceSKm, parsePace } from '../activity'
-import { RACE_NAME } from '../config'
 import {
   activityLoad,
   bestEfforts,
@@ -34,14 +32,21 @@ import {
   type PlanSession,
   type PlanWeek,
 } from '../db/schema'
-import { GOAL_PACE_S_KM, weekMetrics } from '../metrics'
-import { PACES, PACE_ZONES, PACE_ZONE_NUMBER, ZONE_LABEL, hrZone } from '../paces'
-import { createSessionInput, updateSessionInput, updateWeekInput } from '../plan-input'
+import { weekMetrics } from '../metrics'
+import {
+  PACE_ZONES,
+  PACE_ZONE_NUMBER,
+  ZONE_LABEL,
+  hrZone,
+  paceBands,
+  type PaceBand,
+  type PaceZone,
+} from '../paces'
+import { sessionInputs, updateWeekInput } from '../plan-input'
 import {
   SESSION_META,
   SESSION_TYPES,
   buildBlock,
-  weekStart,
   type MatchedSession,
   type WeekPlan,
 } from '../plan'
@@ -147,18 +152,47 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
  * "was Tuesday's session done" must get the answer the athlete sees on the phone, and
  * there is exactly one function that decides it.
  */
-async function readBlock(db: Database) {
+async function readBlock({ db, userId, block }: McpCtx) {
   const [weeks, sessions, acts] = await Promise.all([
-    db.select().from(planWeeks).orderBy(asc(planWeeks.weekIndex)),
-    db.select().from(planSessions).orderBy(asc(planSessions.scheduledOn), asc(planSessions.dayOrder)),
-    db.select().from(activities).where(gte(activities.startedOn, BLOCK_START)),
+    db.select().from(planWeeks).where(eq(planWeeks.userId, userId)).orderBy(asc(planWeeks.weekIndex)),
+    db
+      .select()
+      .from(planSessions)
+      .where(eq(planSessions.userId, userId))
+      .orderBy(asc(planSessions.scheduledOn), asc(planSessions.dayOrder)),
+    db
+      .select()
+      .from(activities)
+      .where(and(eq(activities.userId, userId), gte(activities.startedOn, block.startsOn))),
   ])
 
-  const plan = buildBlock(TOTAL_WEEKS, weeks, sessions, acts)
+  const plan = buildBlock(block, weeks, sessions, acts)
   const matched = new Map<string, MatchedSession>()
   for (const week of plan) for (const m of week.sessions) matched.set(m.session.id, m)
 
   return { sessions, plan, matched }
+}
+
+/**
+ * Everything a tool is allowed to touch, resolved once per request from the bearer token.
+ *
+ * It replaces the bare `Database` the single-athlete version passed around, and the reason
+ * is the whole security model of this server: a tool that is handed a connection can query
+ * anything, and a tool that is handed a *context* has an athlete's id sitting next to it in
+ * every signature. Every query below filters on `userId`, and there is no path that reaches
+ * the database without going through here.
+ *
+ * `block`, `hrMax` and `bands` come with it so no tool re-derives them, and so none of them
+ * can accidentally reach for a module-level default that belongs to the owner.
+ */
+export interface McpCtx {
+  db: Database
+  /** The athlete this token belongs to. Every row read or written is filtered on it. */
+  userId: string
+  block: BlockConfig
+  hrMax: number
+  /** The athlete's six pace bands, from their own goal — never the owner's table. */
+  bands: Record<PaceZone, PaceBand>
 }
 
 /**
@@ -179,8 +213,8 @@ const prescribedVolumeM = (matched: MatchedSession[]): number =>
 // Serialisers — the database's units on the way out, its dates translated
 // ---------------------------------------------------------------------------
 
-function weekShape(index: number, row: PlanWeek | null) {
-  const monday = weekStart(index)
+function weekShape(block: BlockConfig, index: number, row: PlanWeek | null) {
+  const monday = weekStart(block, index)
   return {
     weekIndex: index,
     startsOn: toIsoDate(monday),
@@ -193,10 +227,10 @@ function weekShape(index: number, row: PlanWeek | null) {
   }
 }
 
-function weekOut(plan: WeekPlan) {
+function weekOut(block: BlockConfig, plan: WeekPlan) {
   const metrics = weekMetrics(plan)
   return {
-    ...weekShape(plan.weekIndex, plan.week),
+    ...weekShape(block, plan.weekIndex, plan.week),
     prescribedVolumeM: round(prescribedVolumeM(plan.sessions)),
     sessionsPlanned: metrics.sessionsPlanned,
     sessionsDone: metrics.sessionsDone,
@@ -209,11 +243,11 @@ function weekOut(plan: WeekPlan) {
   }
 }
 
-function sessionOut(session: PlanSession, match?: MatchedSession) {
+function sessionOut(block: BlockConfig, session: PlanSession, match?: MatchedSession) {
   return {
     id: session.id,
     date: toIsoDate(session.scheduledOn),
-    weekIndex: weekIndex(session.scheduledOn),
+    weekIndex: weekIndex(block, session.scheduledOn),
     dayOrder: session.dayOrder,
     type: session.type,
     isQuality: SESSION_META[session.type].isQuality,
@@ -242,7 +276,7 @@ function sessionOut(session: PlanSession, match?: MatchedSession) {
  * one. Cadence is the exception and is given in full: it is the primary marker in the knee
  * protocol, in steps per minute.
  */
-function activityOut(activity: Activity) {
+function activityOut(activity: Activity, hrMax: number) {
   const pace = paceSKm(activity.distanceM, activity.movingS)
   return {
     id: activity.id,
@@ -255,7 +289,7 @@ function activityOut(activity: Activity) {
     pace: pace > 0 ? toPace(pace) : null,
     elevationGainM: activity.elevationGainM == null ? null : round(activity.elevationGainM),
     cadenceSpm: activity.cadenceSpm,
-    hrZone: activity.averageHeartrate == null ? null : hrZone(activity.averageHeartrate),
+    hrZone: activity.averageHeartrate == null ? null : hrZone(activity.averageHeartrate, hrMax),
     load: round(activityLoad(activity)),
   }
 }
@@ -270,35 +304,37 @@ function activityOut(activity: Activity) {
  * vocabulary. One call, because a plan written against half of this is a plan that has to
  * be rewritten.
  */
-export function blockBrief(now: number, raceName: string = RACE_NAME) {
+export function blockBrief({ block, bands, hrMax }: McpCtx, now: number) {
+  const goalPace = goalPaceSKm(block)
   return {
     race: {
-      name: raceName,
-      date: toIsoDate(RACE_DATE),
-      distanceM: RACE_DISTANCE_M,
-      daysToRace: daysToRace(now),
+      name: block.raceName,
+      date: toIsoDate(block.raceOn),
+      distanceM: block.raceDistanceM,
+      daysToRace: daysToRace(block, now),
     },
     block: {
-      startsOn: toIsoDate(BLOCK_START),
-      endsOn: toIsoDate(RACE_DATE),
-      totalWeeks: TOTAL_WEEKS,
+      startsOn: toIsoDate(block.startsOn),
+      endsOn: toIsoDate(block.raceOn),
+      totalWeeks: totalWeeks(block),
       weekStartsOn: 'monday',
     },
     goal: {
-      time: formatClock(GOAL_TIME_S),
-      timeS: GOAL_TIME_S,
-      pace: toPace(GOAL_PACE_S_KM),
-      paceSKm: round(GOAL_PACE_S_KM, 1),
+      time: formatClock(block.goalTimeS),
+      timeS: block.goalTimeS,
+      pace: toPace(goalPace),
+      paceSKm: round(goalPace, 1),
     },
-    today: { date: toIsoDate(now), weekIndex: weekIndex(now) },
+    athlete: { hrMax },
+    today: { date: toIsoDate(now), weekIndex: weekIndex(block, now) },
     paceZones: PACE_ZONES.map((zone) => ({
       zone,
       zoneNumber: PACE_ZONE_NUMBER[zone],
       label: ZONE_LABEL[zone],
-      lo: toPace(PACES[zone].lo),
-      hi: toPace(PACES[zone].hi),
-      loSKm: PACES[zone].lo,
-      hiSKm: PACES[zone].hi,
+      lo: toPace(bands[zone].lo),
+      hi: toPace(bands[zone].hi),
+      loSKm: bands[zone].lo,
+      hiSKm: bands[zone].hi,
     })),
     sessionTypes: SESSION_TYPES.map((type) => ({
       type,
@@ -418,7 +454,9 @@ function toSessionFields(args: Record<string, unknown>): {
   return { value, issues }
 }
 
-type SessionSchema = typeof createSessionInput | typeof updateSessionInput
+type SessionSchema =
+  | ReturnType<typeof sessionInputs>['createSessionInput']
+  | ReturnType<typeof sessionInputs>['updateSessionInput']
 
 function parseSession(
   args: Record<string, unknown>,
@@ -431,7 +469,7 @@ function parseSession(
     ...issues,
     ...(parsed.success
       ? []
-      : parsed.error.issues.map((issue) => {
+      : parsed.error.issues.map((issue: { path: PropertyKey[]; message: string }) => {
           const path = issue.path.map(String)
           if (path[0] && MCP_FIELD[path[0]]) path[0] = MCP_FIELD[path[0]]
           return { path: path.join('.'), message: issue.message }
@@ -468,9 +506,10 @@ function readIsoArg(args: Record<string, unknown>, key: string): number | undefi
   return fromIsoDate(args[key] as string)
 }
 
-function readWeekIndex(raw: unknown): number {
-  if (!Number.isInteger(raw) || (raw as number) < 0 || (raw as number) >= TOTAL_WEEKS) {
-    throw new ToolError(`weekIndex must be an integer between 0 and ${TOTAL_WEEKS - 1}.`)
+function readWeekIndex(block: BlockConfig, raw: unknown): number {
+  const weeks = totalWeeks(block)
+  if (!Number.isInteger(raw) || (raw as number) < 0 || (raw as number) >= weeks) {
+    throw new ToolError(`weekIndex must be an integer between 0 and ${weeks - 1}.`)
   }
   return raw as number
 }
@@ -493,13 +532,53 @@ const columnsOf = (table: typeof planWeeks | typeof planSessions) =>
 const chunkSize = (table: typeof planWeeks | typeof planSessions) =>
   Math.max(1, Math.floor(D1_MAX_BOUND_PARAMS / columnsOf(table)))
 
-/** Every column but the key, so an upsert overwrites rather than skipping. */
-const excludedSet = (table: typeof planWeeks | typeof planSessions, key: string) =>
+/**
+ * Every column but the key ones, so an upsert overwrites rather than skipping.
+ *
+ * `userId` is always among them: the keys here are composite — `(user_id, week_index)` and
+ * `(user_id, id)` — and a SET that reassigns the owner of a row on conflict is a sentence
+ * nobody should ever be able to write by accident.
+ */
+const excludedSet = (table: typeof planWeeks | typeof planSessions, keys: string[]) =>
   Object.fromEntries(
     Object.entries(getTableColumns(table))
-      .filter(([name]) => name !== key)
+      .filter(([name]) => !keys.includes(name))
       .map(([name, column]) => [name, sql`excluded.${sql.identifier(column.name)}`]),
   )
+
+/**
+ * Refuses a pin onto somebody else's run.
+ *
+ * `plan_sessions.activity_id` references `activities(id)` alone, and a Strava activity id
+ * is global — so the foreign key is perfectly happy to let one athlete pin another
+ * athlete's activity to their own session. The database cannot catch this: the row it is
+ * pointing at genuinely exists. `src/pages/api/plan/sessions/[id].ts` checks it on the HTTP
+ * side and this is the same check on the MCP side, because "the agent path forgot the
+ * guard the form path has" is exactly how a hole of this kind survives.
+ *
+ * One query for the whole batch rather than one per row: `create_sessions` writes a season
+ * at a time.
+ */
+async function assertOwnsActivities(
+  { db, userId }: McpCtx,
+  rows: { activityId?: number | null }[],
+): Promise<void> {
+  const wanted = [...new Set(rows.map((row) => row.activityId).filter((id): id is number => id != null))]
+  if (wanted.length === 0) return
+
+  const owned = await db
+    .select({ id: activities.id })
+    .from(activities)
+    .where(and(eq(activities.userId, userId), inArray(activities.id, wanted)))
+
+  const have = new Set(owned.map((row) => row.id))
+  const missing = wanted.filter((id) => !have.has(id))
+  if (missing.length > 0) {
+    throw new ToolError(
+      `No activity of yours with id ${missing.join(', ')}. Pin only activities from list_activities.`,
+    )
+  }
+}
 
 /**
  * The plan-seeding write, mirroring `POST /api/plan/seed`.
@@ -510,8 +589,12 @@ const excludedSet = (table: typeof planWeeks | typeof planSessions, key: string)
  * runs in plain Node under vitest. If the seeding write ever grows a third caller, it
  * should move into a module of its own and both should call that.
  */
-async function writePlan(db: Database, now: number) {
-  const { weeks, sessions } = buildPlan(now)
+async function writePlan({ db, userId }: McpCtx, now: number) {
+  const built = buildPlan(now)
+  // Stamped with the owner of the plan on the way in. `buildPlan` is the owner's document
+  // and knows nothing about accounts, so this is the only place the rows gain an athlete.
+  const weeks = built.weeks.map((week) => ({ ...week, userId }))
+  const sessions = built.sessions.map((session) => ({ ...session, userId }))
 
   const weekStmts = []
   for (let i = 0; i < weeks.length; i += chunkSize(planWeeks)) {
@@ -519,7 +602,10 @@ async function writePlan(db: Database, now: number) {
       db
         .insert(planWeeks)
         .values(weeks.slice(i, i + chunkSize(planWeeks)))
-        .onConflictDoUpdate({ target: planWeeks.weekIndex, set: excludedSet(planWeeks, 'weekIndex') }),
+        .onConflictDoUpdate({
+          target: [planWeeks.userId, planWeeks.weekIndex],
+          set: excludedSet(planWeeks, ['userId', 'weekIndex']),
+        }),
     )
   }
 
@@ -529,7 +615,10 @@ async function writePlan(db: Database, now: number) {
       db
         .insert(planSessions)
         .values(sessions.slice(i, i + chunkSize(planSessions)))
-        .onConflictDoUpdate({ target: planSessions.id, set: excludedSet(planSessions, 'id') }),
+        .onConflictDoUpdate({
+          target: [planSessions.userId, planSessions.id],
+          set: excludedSet(planSessions, ['userId', 'id']),
+        }),
     )
   }
 
@@ -662,7 +751,7 @@ const SESSION_ID = {
 // ---------------------------------------------------------------------------
 
 interface Tool extends ToolDefinition {
-  run(db: Database, args: Record<string, unknown>, now: number): Promise<unknown>
+  run(ctx: McpCtx, args: Record<string, unknown>, now: number): Promise<unknown>
 }
 
 const TOOLS: Tool[] = [
@@ -677,7 +766,7 @@ const TOOLS: Tool[] = [
     // `wallClockNow` because "today" is a day-scale question and `Date.now()` is the one
     // number in the app that is a true instant: asked at half past midnight in Madrid,
     // the raw instant answers with yesterday's date and yesterday's week index.
-    run: async (_db, _args, now) => blockBrief(wallClockNow(now)),
+    run: async (ctx, _args, now) => blockBrief(ctx, wallClockNow(now)),
   },
 
   {
@@ -686,9 +775,10 @@ const TOOLS: Tool[] = [
     description:
       'Every week of the block in order: its Monday and Sunday as ISO dates, its phase, focus, target volume (metres), down-week flag and notes, the volume its sessions actually prescribe, and what was actually run in it. A week with no plan_weeks row yet comes back with null fields rather than being omitted, so this is the whole block whether or not it has been written. `prescribedVolumeM` is what the week\'s sessions add up to and `targetVolumeM` is the figure they were sized from — keep them in agreement. Takes no arguments.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-    async run(db) {
-      const { plan } = await readBlock(db)
-      return { totalWeeks: TOTAL_WEEKS, weeks: plan.map(weekOut) }
+    async run(ctx) {
+      const { block } = ctx
+      const { plan } = await readBlock(ctx)
+      return { totalWeeks: totalWeeks(block), weeks: plan.map((week) => weekOut(block, week)) }
     },
   },
 
@@ -706,14 +796,15 @@ const TOOLS: Tool[] = [
         to: isoDate('Latest scheduled day, inclusive, YYYY-MM-DD.'),
       },
     },
-    async run(db, args) {
-      const { sessions, matched } = await readBlock(db)
+    async run(ctx, args) {
+      const { db, userId, block } = ctx
+      const { sessions, matched } = await readBlock(ctx)
 
       let from: number | undefined
       let to: number | undefined
       if (args.weekIndex !== undefined) {
-        const index = readWeekIndex(args.weekIndex)
-        from = weekStart(index)
+        const index = readWeekIndex(block, args.weekIndex)
+        from = weekStart(block, index)
         to = from + 6 * DAY_MS
       } else {
         from = readIsoArg(args, 'from')
@@ -723,7 +814,7 @@ const TOOLS: Tool[] = [
       const rows = sessions.filter(
         (s) => (from === undefined || s.scheduledOn >= from) && (to === undefined || s.scheduledOn <= to),
       )
-      return { count: rows.length, sessions: rows.map((s) => sessionOut(s, matched.get(s.id))) }
+      return { count: rows.length, sessions: rows.map((s) => sessionOut(block, s, matched.get(s.id))) }
     },
   },
 
@@ -741,22 +832,27 @@ const TOOLS: Tool[] = [
         limit: { type: 'integer', minimum: 1, maximum: 500, description: 'Most recent N within the range. Default 200.' },
       },
     },
-    async run(db, args) {
+    async run(ctx, args) {
+      const { db, userId, block, hrMax } = ctx
       const from = readIsoArg(args, 'from')
       const to = readIsoArg(args, 'to')
       const limit = args.limit === undefined ? 200 : readWithin(args.limit, 1, 500, 'limit')
 
-      const filters: SQL[] = [gte(activities.startedOn, from ?? BLOCK_START)]
-      if (to !== undefined) filters.push(lte(activities.startedOn, to))
+      // Only the date narrowing goes in the array. The athlete filter stays written out at
+      // the query below, where it is visible to a reader and to the tenancy test — a
+      // `where(and(...filters))` that happens to contain it somewhere is exactly the shape
+      // that hid `update_session` being unscoped.
+      const narrow: SQL[] = [gte(activities.startedOn, from ?? block.startsOn)]
+      if (to !== undefined) narrow.push(lte(activities.startedOn, to))
 
       const rows = await db
         .select()
         .from(activities)
-        .where(and(...filters))
+        .where(and(eq(activities.userId, userId), ...narrow))
         .orderBy(asc(activities.startedOn))
 
       const kept = rows.slice(Math.max(0, rows.length - limit))
-      return { count: kept.length, truncated: rows.length > kept.length, activities: kept.map(activityOut) }
+      return { count: kept.length, truncated: rows.length > kept.length, activities: kept.map((a) => activityOut(a, hrMax)) }
     },
   },
 
@@ -773,12 +869,16 @@ const TOOLS: Tool[] = [
         to: isoDate('End of the window, inclusive, YYYY-MM-DD. Default: today.'),
       },
     },
-    async run(db, args, now) {
+    async run(ctx, args, now) {
+      const { db, userId, block, hrMax } = ctx
       const to = readIsoArg(args, 'to') ?? startOfDay(wallClockNow(now))
       const from = readIsoArg(args, 'from') ?? to - 27 * DAY_MS
       if (from > to) throw new ToolError('`from` is after `to`.')
 
-      const rows = await db.select().from(activities).where(gte(activities.startedOn, BLOCK_START))
+      const rows = await db
+        .select()
+        .from(activities)
+        .where(and(eq(activities.userId, userId), gte(activities.startedOn, block.startsOn)))
 
       // `summarise` takes the whole list and windows it itself — the activities *before*
       // the window are the run-in a 42-day average needs to mean anything, and dropping
@@ -791,8 +891,8 @@ const TOOLS: Tool[] = [
       const point = fitnessSeries(rows, to, to).at(-1)
       // Bests are read from the whole block, not the window: a personal best is a fact
       // about the season, and a four-week window would report the fastest easy month.
-      const efforts = bestEfforts(rows)
-      const projection = projectHalf(efforts)
+      const efforts = bestEfforts(block, rows, hrMax)
+      const projection = projectHalf(efforts, block.raceDistanceM)
 
       return {
         window: { from: toIsoDate(window.from), to: toIsoDate(window.to), weeks: round(window.weeks, 2) },
@@ -824,13 +924,13 @@ const TOOLS: Tool[] = [
           form: round(point?.form ?? 0, 1),
           label: formLabel(point?.form ?? 0).label,
         },
-        weeklyVolume: weeklyTotals(rows, TOTAL_WEEKS).flatMap((totals, index) =>
+        weeklyVolume: weeklyTotals(block, rows, totalWeeks(block)).flatMap((totals, index) =>
           totals === null
             ? []
             : [
                 {
                   weekIndex: index,
-                  startsOn: toIsoDate(weekStart(index)),
+                  startsOn: toIsoDate(weekStart(block, index)),
                   runs: totals.runs,
                   distanceM: round(totals.distanceM),
                   meanPace: totals.meanPaceSKm == null ? null : toPace(totals.meanPaceSKm),
@@ -851,7 +951,7 @@ const TOOLS: Tool[] = [
             : { time: formatClock(projection.timeS), timeS: round(projection.timeS), from: projection.from.label },
         hrZones: {
           coverage: round(zoneCoverage(inWindow), 3),
-          shares: zoneShares(inWindow).map((share) => ({
+          shares: zoneShares(inWindow, hrMax).map((share) => ({
             zone: share.zone,
             runs: share.runs,
             movingS: share.movingS,
@@ -880,8 +980,9 @@ const TOOLS: Tool[] = [
         notes: { type: ['string', 'null'], maxLength: 2000, description: 'Coaching prose. Spanish.' },
       },
     },
-    async run(db, args, now) {
-      const index = readWeekIndex(args.weekIndex)
+    async run(ctx, args, now) {
+      const { db, userId, block } = ctx
+      const index = readWeekIndex(block, args.weekIndex)
       const { weekIndex: _ignored, ...rest } = args
 
       const parsed = updateWeekInput.safeParse(rest)
@@ -895,11 +996,11 @@ const TOOLS: Tool[] = [
       const patch = { ...parsed.data, updatedAt: now }
       const [row] = await db
         .insert(planWeeks)
-        .values({ weekIndex: index, ...patch })
-        .onConflictDoUpdate({ target: planWeeks.weekIndex, set: patch })
+        .values({ userId, weekIndex: index, ...patch })
+        .onConflictDoUpdate({ target: [planWeeks.userId, planWeeks.weekIndex], set: patch })
         .returning()
 
-      return weekShape(index, row ?? null)
+      return weekShape(block, index, row ?? null)
     },
   },
 
@@ -914,18 +1015,29 @@ const TOOLS: Tool[] = [
       required: ['scheduledOn', 'type', 'title'],
       properties: { id: SESSION_ID, ...SESSION_FIELDS },
     },
-    async run(db, args, now) {
+    async run(ctx, args, now) {
+      const { db, userId, block } = ctx
       const id = readId(args.id)
-      const parsed = parseSession(args, createSessionInput)
+      const parsed = parseSession(args, sessionInputs(block).createSessionInput)
       if ('issues' in parsed) throw new ToolError('The session is not valid; nothing was written.', parsed.issues)
+
+      await assertOwnsActivities(ctx, [parsed.data as { activityId?: number | null }])
 
       const [row] = await db
         .insert(planSessions)
-        .values({ id, ...parsed.data, updatedAt: now } as NewPlanSession)
-        .onConflictDoUpdate({ target: planSessions.id, set: excludedSet(planSessions, 'id') })
+        .values({ userId, id, ...parsed.data, updatedAt: now } as NewPlanSession)
+        // The key is (user_id, id), so the conflict target has to be both. Naming `id`
+        // alone matches no constraint and D1 rejects the statement outright — which is at
+        // least loud. The dangerous version of this mistake is the one that *matches*: an
+        // upsert keyed on `id` across all athletes would let one agent's `w03-tue-1`
+        // overwrite another's.
+        .onConflictDoUpdate({
+          target: [planSessions.userId, planSessions.id],
+          set: excludedSet(planSessions, ['userId', 'id']),
+        })
         .returning()
 
-      return row ? sessionOut(row) : { id }
+      return row ? sessionOut(block, row) : { id }
     },
   },
 
@@ -952,7 +1064,8 @@ const TOOLS: Tool[] = [
         },
       },
     },
-    async run(db, args, now) {
+    async run(ctx, args, now) {
+      const { db, userId, block } = ctx
       const list = args.sessions
       if (!Array.isArray(list) || list.length === 0) throw new ToolError('`sessions` must be a non-empty array.')
 
@@ -979,9 +1092,9 @@ const TOOLS: Tool[] = [
         }
         seen.add(id)
 
-        const parsed = parseSession(raw, createSessionInput)
+        const parsed = parseSession(raw, sessionInputs(block).createSessionInput)
         if ('issues' in parsed) failures.push({ index, issues: parsed.issues })
-        else rows.push({ id, ...parsed.data, updatedAt: now } as NewPlanSession)
+        else rows.push({ userId, id, ...parsed.data, updatedAt: now } as NewPlanSession)
       })
 
       if (failures.length > 0) {
@@ -991,6 +1104,8 @@ const TOOLS: Tool[] = [
         )
       }
 
+      await assertOwnsActivities(ctx, rows as { activityId?: number | null }[])
+
       const perStatement = chunkSize(planSessions)
       const statements = []
       for (let i = 0; i < rows.length; i += perStatement) {
@@ -998,7 +1113,10 @@ const TOOLS: Tool[] = [
           db
             .insert(planSessions)
             .values(rows.slice(i, i + perStatement))
-            .onConflictDoUpdate({ target: planSessions.id, set: excludedSet(planSessions, 'id') }),
+            .onConflictDoUpdate({
+              target: [planSessions.userId, planSessions.id],
+              set: excludedSet(planSessions, ['userId', 'id']),
+            }),
         )
       }
       await db.batch(statements as [(typeof statements)[number], ...typeof statements])
@@ -1026,21 +1144,29 @@ const TOOLS: Tool[] = [
         ...SESSION_FIELDS,
       },
     },
-    async run(db, args, now) {
+    async run(ctx, args, now) {
+      const { db, userId, block } = ctx
       const id = args.id
       if (typeof id !== 'string' || id === '') throw new ToolError('`id` is required.')
 
-      const parsed = parseSession(args, updateSessionInput)
+      const parsed = parseSession(args, sessionInputs(block).updateSessionInput)
       if ('issues' in parsed) throw new ToolError('The patch is not valid; nothing was written.', parsed.issues)
+
+      // `and(userId, id)`, because `id` alone is not a key here: the primary key is
+      // (user_id, id), and ids are hand-chosen slugs like `w03-tue-1` that two athletes
+      // will pick independently. Scoped by the *where clause* rather than by a read-then-
+      // check, so there is no window between the two and no row that is looked at before
+      // it is established whose it is.
+      await assertOwnsActivities(ctx, [parsed.data as { activityId?: number | null }])
 
       const [row] = await db
         .update(planSessions)
         .set({ ...parsed.data, updatedAt: now })
-        .where(eq(planSessions.id, id))
+        .where(and(eq(planSessions.userId, userId), eq(planSessions.id, id)))
         .returning()
 
       if (!row) throw new ToolError(`No session with id "${id}".`)
-      return sessionOut(row)
+      return sessionOut(block, row)
     },
   },
 
@@ -1055,13 +1181,14 @@ const TOOLS: Tool[] = [
       required: ['id'],
       properties: { id: { type: 'string', description: 'The session id, from list_sessions.' } },
     },
-    async run(db, args) {
+    async run(ctx, args) {
+      const { db, userId, block } = ctx
       const id = args.id
       if (typeof id !== 'string' || id === '') throw new ToolError('`id` is required.')
 
       const [row] = await db
         .delete(planSessions)
-        .where(eq(planSessions.id, id))
+        .where(and(eq(planSessions.userId, userId), eq(planSessions.id, id)))
         .returning({ id: planSessions.id })
 
       if (!row) throw new ToolError(`No session with id "${id}".`)
@@ -1075,8 +1202,9 @@ const TOOLS: Tool[] = [
     description:
       'OVERWRITES the whole plan with the deployment\'s built-in example plan — every week and every session, including anything edited by hand or written by you. Session ids are derived from week and weekday, so this is "reset to the plan", not "merge with the plan". Use it to start from a known-good block before authoring, or to undo. It does not touch synced activities. Takes no arguments.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-    async run(db, _args, now) {
-      return writePlan(db, now)
+    async run(ctx, _args, now) {
+      const { db, userId, block } = ctx
+      return writePlan(ctx, now)
     },
   },
 ]
@@ -1089,7 +1217,7 @@ function readWithin(raw: unknown, min: number, max: number, label: string): numb
 }
 
 /** What the reader is told before it picks a tool. */
-export const SERVER_INSTRUCTIONS = `This server is one runner's training block: a fixed window of weeks ending on race day, the plan prescribed inside it, and the activities synced from Strava.
+export const SERVER_INSTRUCTIONS = `This server is your own training block: a fixed window of weeks ending on race day, the plan prescribed inside it, and the activities synced from Strava.
 
 To author or revise a plan:
 1. Call get_block first. It gives the block's dates, how many weeks it has, the goal time and pace, the pace bands, the session types and the step vocabulary. Everything you write has to fit inside those dates.
@@ -1110,23 +1238,23 @@ The app speaks Spanish to the athlete. Tool names, arguments and these instructi
  * The MCP surface's own version, bumped when a tool's contract changes. Deliberately not
  * the app's package version, which moves for reasons no client cares about.
  */
-const SERVER_VERSION = '1.0.0'
+export const SERVER_VERSION = '2.0.0'
 
 /**
  * Binds the tools to a database and a credential.
  *
- * The database arrives as an argument rather than being read from `cloudflare:workers`
+ * The context arrives as an argument rather than being read from `cloudflare:workers`
  * here, which is what keeps this module out of the bindings and testable in plain Node —
  * `src/pages/api/mcp.ts` is the only file that knows where `env.DB` comes from.
+ *
+ * One registry per request, built *after* the bearer token has been resolved to an
+ * athlete, so every tool it hands back is already bound to that athlete's rows. There is
+ * no registry that is not somebody's.
  */
-export function createToolRegistry(db: Database, secret: string): ToolRegistry {
+export function createToolRegistry(ctx: McpCtx): ToolRegistry {
   const byName = new Map(TOOLS.map((tool) => [tool.name, tool]))
 
   return {
-    serverInfo: { name: 'lamitja-training', version: SERVER_VERSION },
-    instructions: SERVER_INSTRUCTIONS,
-    secret,
-
     list: () => TOOLS.map(({ name, title, description, inputSchema }) => ({ name, title, description, inputSchema })),
 
     async call(name, args): Promise<ToolResult> {
@@ -1136,7 +1264,7 @@ export function createToolRegistry(db: Database, secret: string): ToolRegistry {
       try {
         // The true instant, which is what `updatedAt` wants; the two tools that ask
         // "what day is it" move it onto the wall clock themselves.
-        const value = await tool.run(db, args, Date.now())
+        const value = await tool.run(ctx, args, Date.now())
         return { content: [{ type: 'text', text: JSON.stringify(value, null, 2) }] }
       } catch (cause) {
         // A validation failure is a result the agent can act on, not a dead transport:

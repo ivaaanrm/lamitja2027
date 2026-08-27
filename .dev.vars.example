@@ -5,8 +5,9 @@
 # (see `.env.example`), and the Strava *client id*, which is public and sits in
 # `wrangler.jsonc`. Full walkthrough: docs/setup.md.
 
-# The single login password, shared across your devices — exchanged once for a signed
-# cookie good for a year. Rotating it signs every device out. Pick something long.
+# The one-time bootstrap secret, and nothing else. It no longer signs anyone in: it
+# authorises the single `POST /api/bootstrap` that gives the owner account its first email
+# and password, after which it is spent. Everyone else arrives on an invitation.
 APP_PASSWORD=""
 
 # From your own Strava application at https://www.strava.com/settings/api → Client Secret.
@@ -19,8 +20,13 @@ STRAVA_CLIENT_SECRET=""
 # `openssl rand -hex 16` is as good as anything.
 STRAVA_WEBHOOK_VERIFY=""
 
-# AES-GCM key for the Strava refresh token at rest, so a database dump is not a stolen
-# Strava account. Must decode to exactly 32 bytes: `openssl rand -base64 32`.
-# Treat it as permanent — regenerate it on a live deployment and the stored token stops
-# decrypting, so Strava has to be reconnected from the home screen.
+# AES-GCM key for the Strava refresh tokens at rest, so a database dump is not a stolen
+# Strava account — one per connected athlete, all under this key. Must decode to exactly
+# 32 bytes: `openssl rand -base64 32`. Treat it as permanent: regenerate it on a live
+# deployment and every stored token stops decrypting, so every athlete has to reconnect.
 TOKEN_ENC_KEY=""
+
+# Signs the session cookies. Not a password anyone types, and never `APP_PASSWORD`: a
+# value a person types must not double as the key every device's cookie hangs from.
+# `openssl rand -base64 32`. Rotating it signs every athlete out of every device.
+SESSION_SECRET=""

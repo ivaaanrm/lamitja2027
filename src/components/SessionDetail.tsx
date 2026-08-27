@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { formatDuration, formatKm, formatPace, formatPaceRange, isRun, paceSKm } from '@/lib/activity'
-import { TOTAL_WEEKS } from '@/lib/block'
+import { goalPaceSKm, totalWeeks, type BlockConfig } from '@/lib/block'
 import { cn } from '@/lib/cn'
 import type { Activity, PlanSession } from '@/lib/db/schema'
 import { decimal } from '@/lib/format'
-import { PACE_ZONE_NUMBER, hrZone, zoneTag } from '@/lib/paces'
+import { DEFAULT_HR_MAX, PACE_ZONE_NUMBER, hrZone, paceBands, zoneTag } from '@/lib/paces'
 import { setDone } from '@/lib/plan-client'
 import { SESSION_META, sessionEffort, type MatchedSession, type SessionType, type WeekPlan } from '@/lib/plan'
 import {
@@ -20,9 +20,10 @@ import {
   workoutDistanceM,
   workoutDurationS,
   zoneLabel,
+  type Bands,
   type Step,
 } from '@/lib/workout'
-import { useBlock } from './useBlock'
+import { NoBlockCard, useBlock } from './useBlock'
 import { island } from './Island'
 import {
   ACCENT,
@@ -96,6 +97,14 @@ function SessionDetailScreen() {
   if (error && !data)
     return <ErrorCard title="Sin datos del bloque" message={error} onRetry={() => void reload()} />
   if (!data || id === undefined) return <ScreenSkeleton />
+  // No dates yet — `/bienvenida` is the only thing that fixes it, and every number on
+  // this screen is counted from them.
+  if (!data.block) return <NoBlockCard />
+
+  const block = data.block
+  const hrMax = data.user.hrMax ?? DEFAULT_HR_MAX
+  // A zone is a share of *this* athlete's goal pace — see the same line in `Planner`.
+  const bands = paceBands(goalPaceSKm(block))
 
   if (!found) {
     return (
@@ -133,11 +142,11 @@ function SessionDetailScreen() {
 
   return (
     <>
-      <Overview match={match} week={week} back={back} />
+      <Overview block={block} match={match} week={week} back={back} bands={bands} />
 
       {SESSION_META[session.type].family === 'run' ? (
         steps ? (
-          <Workout steps={steps} type={session.type} />
+          <Workout steps={steps} type={session.type} bands={bands} />
         ) : (
           <Card className="fade-up">
             <CardTitle>El entrenamiento</CardTitle>
@@ -164,7 +173,7 @@ function SessionDetailScreen() {
         </Card>
       ) : null}
 
-      {activity ? <Result activity={activity} session={session} /> : null}
+      {activity ? <Result activity={activity} session={session} hrMax={hrMax} /> : null}
 
       {/* Not a card, and not a filled button. The two actions a session detail offers are
           both secondary to reading it — one of them only exists for the sessions Strava
@@ -222,16 +231,20 @@ const dateFmt = new Intl.DateTimeFormat('es-ES', {
  * screen opens with; everything below is how the session is built.
  */
 function Overview({
+  block,
   match,
   week,
   back,
+  bands,
 }: {
+  block: BlockConfig
   match: MatchedSession
   week: WeekPlan
   back: { href: string; label: string }
+  bands: Bands
 }) {
   const { session, activity, done } = match
-  const effort = sessionEffort(session)
+  const effort = sessionEffort(session, bands)
   const pace = effort.band ? formatPaceRange(effort.band.lo, effort.band.hi) : null
   // The zone names the band; without one the honest answer is the plan's own words, and
   // with a hand-typed pace there is no zone to name — the number says it all.
@@ -281,7 +294,7 @@ function Overview({
         {dateFmt.format(new Date(session.scheduledOn))}
       </p>
       <p className="mt-0.5 text-caption tabular-nums text-label-3">
-        {[`Semana ${week.weekIndex + 1} de ${TOTAL_WEEKS}`, week.week?.phase]
+        {[`Semana ${week.weekIndex + 1} de ${totalWeeks(block)}`, week.week?.phase]
           .filter(Boolean)
           .join(' · ')}
       </p>
@@ -322,11 +335,11 @@ function Overview({
  * counts only what is run at threshold or faster — the honest measure of the session and
  * the one docs/03 §3 budgets the week in.
  */
-function Workout({ steps, type }: { steps: Step[]; type: SessionType }) {
-  const hard = hardDistanceM(steps)
+function Workout({ steps, type, bands }: { steps: Step[]; type: SessionType; bands: Bands }) {
+  const hard = hardDistanceM(steps, bands)
   const totals = [
-    formatDistance(workoutDistanceM(steps)),
-    `≈ ${formatDuration(workoutDurationS(steps))}`,
+    formatDistance(workoutDistanceM(steps, bands)),
+    `≈ ${formatDuration(workoutDurationS(steps, bands))}`,
     hard > 0 ? `${formatDistance(hard)} a umbral o más` : null,
   ]
     .filter(Boolean)
@@ -341,6 +354,7 @@ function Workout({ steps, type }: { steps: Step[]; type: SessionType }) {
             key={i}
             step={step}
             type={type}
+            bands={bands}
             last={i === steps.length - 1}
           />
         ))}
@@ -355,17 +369,19 @@ function Workout({ steps, type }: { steps: Step[]; type: SessionType }) {
 function TimelineStep({
   step,
   type,
+  bands,
   last,
 }: {
   step: Step
   type: SessionType
+  bands: Bands
   /** The last node draws no connector — a rail past the final step is a step that is missing. */
   last: boolean
 }) {
   const accent = ACCENT[type]
   const zone = step.zone ? PACE_ZONE_NUMBER[step.zone] : null
   const effort = isEffort(step)
-  const sub = [STEP_ROLE[step.kind], paceBandLabel(step.zone)].filter(Boolean).join(' · ')
+  const sub = [STEP_ROLE[step.kind], paceBandLabel(step.zone, bands)].filter(Boolean).join(' · ')
 
   return (
     <li className="flex gap-2.5 pb-3.5 last:pb-0">
@@ -428,7 +444,15 @@ function TimelineStep({
  * Cadence and the heart-rate zone hang under the rule — the two secondary markers the knee
  * protocol is steered by, and the zone rather than the bpm for the reason it always is.
  */
-function Result({ activity, session }: { activity: Activity; session: PlanSession }) {
+function Result({
+  activity,
+  session,
+  hrMax,
+}: {
+  activity: Activity
+  session: PlanSession
+  hrMax: number
+}) {
   const pace = isRun(activity.sportType) ? paceSKm(activity.distanceM, activity.movingS) : null
   const markers: { key: string; node: ReactNode }[] = []
   if (activity.cadenceSpm) {
@@ -444,7 +468,7 @@ function Result({ activity, session }: { activity: Activity; session: PlanSessio
   if (activity.averageHeartrate) {
     markers.push({
       key: 'hr',
-      node: <span>{zoneTag(hrZone(activity.averageHeartrate))} de media</span>,
+      node: <span>{zoneTag(hrZone(activity.averageHeartrate, hrMax))} de media</span>,
     })
   }
 

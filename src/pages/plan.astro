@@ -1,18 +1,16 @@
 ---
 import App from '../layouts/App.astro'
 import { Planner } from '../components/Planner'
-import { TOTAL_WEEKS } from '../lib/block'
-import { APP_NAME, APP_SHORT_NAME } from '../lib/config'
+import { APP_NAME } from '../lib/config'
 
 // Prerendered app shell, same as the home page — the plan itself arrives from /api/data.
+// The week count used to sit in a static subtitle here, but the block — and so the total —
+// is per-athlete now and unknown at build time; `Planner`'s own header already says
+// "Semana X de Y" once the block loads, so the count is not lost, just moved into the
+// island (the same "no sub" shape `sesion.astro` and `actividad.astro` already use).
 export const prerender = true
 ---
 
-<App
-  title={`Plan · ${APP_NAME}`}
-  heading="Plan"
-  sub={`${TOTAL_WEEKS} semanas hasta ${APP_SHORT_NAME}`}
-  tab="plan"
->
+<App title={`Plan · ${APP_NAME}`} heading="Plan" tab="plan">
   <Planner client:load />
 </App>

@@ -3,25 +3,41 @@
 Training tracker for a sub-1:20 half marathon at La Mitja on **24 January 2027**.
 Astro PWA on a single Cloudflare Worker, D1 for storage.
 
-**Scope is deliberately narrow: one athlete, one 23-week block starting Mon 17 Aug 2026.**
-That is ~150 activities in total. Nothing before the block is synced — the 2020–2026
-history lives in `docs/data/*.csv`, and the app reads the 2025-26 season straight out of
-those files (`src/lib/baseline.ts`) rather than storing a second copy of a finished record.
-Read that constraint before adding anything: it is why there is no outbox, no pagination,
-no rate-limit budget, no tombstones and no materialised metrics.
+**Scope is deliberately narrow: several athletes, invite-only, still small.** A handful of
+friends, not a product — no teams, no roles beyond `is_admin`, no password reset by email
+(the admin re-invites), no per-user rate limiting, no background queues. Each athlete has
+their own login, their own Strava connection, their own block dates and their own plan.
+Nothing before an athlete's block is synced for them — the owner's 2020–2026 history lives
+in `docs/personal/data/*.csv`, and the app reads the 2025-26 season straight out of those files
+(`src/lib/baseline.ts`) rather than storing a second copy of a finished record; it is the
+owner's own history, and no other athlete compares against it. Read that constraint before
+adding anything: it is why there is no outbox, no pagination, no rate-limit budget, no
+tombstones and no materialised metrics.
 
-Narrow is not the same as hard-coded. The repository is open source (MIT), and *which*
-block it tracks — the race, its date and distance, the Monday it opens on, the goal, the
-athlete's `HR_MAX`, and every name the app calls itself by — is eleven `PUBLIC_*` values
-with this block as their defaults; see
-**The block's edges are configuration** below — eleven `PUBLIC_*` values covering both the
-block and every name the app calls itself by. Everything a forker follows once lives in
+Narrow is not the same as hard-coded. The repository is open source (MIT), and nothing
+about *which* race is compiled in twice over. Each athlete's block — race, date, distance,
+the Monday it opens on, the goal — is a row in `blocks`, read at request time and passed as
+the first argument of everything that counts a week. The ten `PUBLIC_*` values in
+`config.ts` are what a *deployment* is called and what a new athlete's form opens on; see
+**The block's edges are configuration** below. Everything a forker follows once lives in
 `README.md`, `docs/setup.md` and `LLM.md` — the same procedure as an executable runbook,
 for an agent standing the project up on somebody's machine — and belongs there rather than
-here: this file is for whoever is changing the code. The project is *StrideAI*; *La Mitja 2027* is the reference
-instance it ships configured as.
+here: this file is for whoever is changing the code. The project is *StrideAI*;
+*La Mitja 2027* is the reference instance it ships configured as.
 
-Training design (phases, volumes, paces, knee protocol): `docs/03-training-plan-2027.md`.
+**The invariant that outranks everything else in this file: no query returns or writes a
+row belonging to another athlete.** Every table but `users` and `invites` carries a
+`user_id`, every key on them is composite, and every statement filters on it — including
+the ones behind the MCP server, which is where it was got wrong first. `update_session`
+and `delete_session` shipped keyed on `id` alone, which is not a key: ids are hand-chosen
+slugs like `w03-tue-1` that two athletes pick independently, so one agent could rewrite
+another's plan. It passed the type check, the whole unit suite and the build, and was
+caught by two accounts and a curl. `test/unit/mcp.test.ts` now reads `tools.ts` and fails
+if any statement in it does not name `userId` — a crude test for a bug that is invisible
+to every ordinary one.
+
+Training design (phases, volumes, paces, knee protocol): `docs/personal/03-training-plan-2027.md`
+— the owner's, and gitignored along with the rest of `docs/personal/`.
 
 ## Commands
 
@@ -45,29 +61,47 @@ Trigger the nightly sync without waiting for the clock (against `pnpm preview`):
 curl "http://localhost:8787/cdn-cgi/handler/scheduled?cron=0+3+*+*+*&format=json"
 ```
 
+Claim the owner account — once per database, against a schema at `0004` or later. The
+migration plants the owner row with an empty `password_hash`; this is what gives it a real
+one, and every later call 409s because no password hashes to empty:
+
+```bash
+curl -X POST http://localhost:8787/api/bootstrap \
+  -H 'content-type: application/json' \
+  -d '{"password":"$APP_PASSWORD","email":"tu@correo.com","newPassword":"al menos diez","displayName":"Ivan"}'
+```
+
+Everyone after that arrives through an admin-minted invite (`/ajustes` → Invitaciones →
+`/alta?token=…`). `POST /api/login` takes JSON — `{email, password}` — not the form body it
+used to: the endpoint validates with the same zod schemas as every other write, and those
+parse an object rather than a multipart body of strings.
+
 ## Shape
 
-**Four tables** (`src/lib/db/schema.ts`, the source of truth — never hand-edit
+**Eight tables** (`src/lib/db/schema.ts`, the source of truth — never hand-edit
 `migrations/`):
 
 | Table | Holds |
 |---|---|
-| `activities` | Runs and rides inside the block. Strava units, one row per activity. |
-| `plan_weeks` | One row per week of the block: phase, volume target, down-week flag. |
-| `plan_sessions` | The prescribed plan, one row per session, each with its workout as structured steps. |
-| `app_state` | Two values: the encrypted Strava refresh token and the last sync time. |
+| `users` | One row per athlete: email, PBKDF2 password hash, display name, `is_admin`, HR max, baseline key. |
+| `invites` | Single-use invite tokens (hashed), minted by an admin, redeemed once. |
+| `blocks` | One row per athlete: block start, race date, goal time, race distance/name. |
+| `strava_accounts` | One row per athlete who connected Strava: encrypted refresh token, athlete id, last sync time. |
+| `activities` | Runs and rides inside an athlete's block, owned by `user_id`. Strava units, one row per activity. |
+| `plan_weeks` | One row per athlete per week of their block: phase, volume target, down-week flag. |
+| `plan_sessions` | The prescribed plan, one row per athlete per session, each with its workout as structured steps. |
 
 **The block's edges are configuration; everything else about it is code**
-(`src/lib/config.ts`). Eleven values are read from `import.meta.env.PUBLIC_*` with this
+(`src/lib/config.ts`). Ten values are read from `import.meta.env.PUBLIC_*` with this
 repository's own block as the defaults, so pointing the whole app at another race is a
 `.env` rather than an edit to arithmetic. Seven are the block itself — the race's name,
 date and distance, the Monday it opens on, the goal time, `HR_MAX`, and last season's
-race. Four are *identity*: `APP_NAME`, `APP_SHORT_NAME`, `APP_DESCRIPTION`, `GOAL_LABEL`.
+race. Three are *identity*: `APP_NAME`, `APP_SHORT_NAME` and `APP_DESCRIPTION`.
 
 Identity is separate from `RACE_NAME` because they are different nouns — the event is
 *La Mitja de Granollers* and the app is *La Mitja 2027*, one printed on a bib and the
 other on a home screen — and a fork that could only override the race would end up with a
-tab reading `Plan · La Mitja 2027` above a plan for Berlin. Between them the four reach
+tab reading `Plan · La Mitja 2027` above a plan for Berlin. Between them the three reach
 every user-visible name in one hop: all eight `<title>`s, `Boot.astro`'s wordmark,
 `/login`'s eyebrow and hero, `404`, the meta description, the Open Graph card, and the
 manifest. `/login`'s hero is `formatClock(GOAL_TIME_S)` and its eyebrow is
@@ -125,12 +159,30 @@ is the only test that proves `config.ts` is wired to its consumers rather than m
 parsing correctly. Those assertions are about the example block and belong with it.
 
 **The plan is written, not generated.** `src/lib/seed.ts` is the 23 weeks of
+
+`app_state` is gone — its two values (the refresh token, the last sync time) are per-athlete
+now and live on `strava_accounts`. Every read and every write filters on `user_id`; there is
+no query in the app that may return another athlete's row, and a missing filter is a bug of
+the same class as a missing auth check.
+
+**The owner's plan is still written, not generated.** `src/lib/seed.ts` is the 23 weeks of
 `docs/03-training-plan-2027.md` typed out, week by week — a deterministic function, not an
-engine. `POST /api/plan/seed` writes it, keyed on ids derived from week and weekday, so
-re-seeding is "reset to the plan" and overwrites anything edited by hand. Every column
-that isn't structural is still nullable and still editable from `/plan`, because the phase
-boundaries and volume targets in `docs/03` are expected to move as the knee and the Phase 0
-gate report back.
+engine — and it must keep producing that plan byte-identically. `POST /api/plan/seed` is
+owner-only (gated on `baselineKey === BASELINE_KEY`) and writes it, keyed on ids derived
+from week and weekday, so re-seeding is "reset to the plan" and overwrites anything edited
+by hand. Every column that isn't structural is still nullable and still editable from
+`/plan`, because the phase boundaries and volume targets in `docs/03` are expected to move
+as the knee and the Phase 0 gate report back.
+
+Every other athlete gets a plan through `src/lib/generator.ts` instead — pure, browser-safe,
+no drizzle, no zod, no clock, driven by a `PlanInput` (volume ramp, run/quality/strength
+days, down-week cadence, extra races) the `/crear-plan` wizard collects. It reuses the ideas
+the hand-written seed already proves rather than inventing new ones: phases scaled to the
+block length, a capped linear ramp, quality sessions built from `workout.ts` steps at bands
+derived from the athlete's own goal pace, and easy days that absorb whatever volume is left
+over. `POST /api/plan/generate` replaces an athlete's plan wholesale — delete then insert,
+inside one `db.batch` — which is why regenerating is a deliberate, warned-about action in
+`/ajustes`, not a merge.
 
 Which makes `seed.ts` the one file that is an *example* rather than machinery: it is this
 athlete's block, in Spanish, and a fork either rewrites those weeks or writes its own plan
@@ -165,16 +217,27 @@ Strava will never report (strength, cross) are the ones that use `done_at`.
 
 **A session's week is derived from `scheduled_on`, never stored.** Moving a session to
 another day must not be able to leave a stale week index behind it. Likewise a week's
-Monday is `BLOCK_START + i * WEEK_MS`, not a column.
+Monday is `block.startsOn + i * WEEK_MS`, not a column.
 
-**Auth is one password, not Strava OAuth.** Strava OAuth is how the *server* obtains an
-API token; making it the login would mean re-authorising on every device. `APP_PASSWORD`
-is exchanged once for a signed, year-long cookie that works on desktop and iPhone alike.
-Rotating `APP_PASSWORD` signs every device out. `src/middleware.ts` gates `/api/*` closed
-by default, with an explicit public list.
+**The block is a value now, not a constant.** `src/lib/block.ts` still owns `DAY_MS`,
+`WEEK_MS`, `startOfDay`, `startOfWeek`, `HALF_MARATHON_M` — but the four numbers that used
+to be module-level constants (start date, race date, goal time, race distance) are now a
+`BlockConfig`, one row per athlete in the `blocks` table. `LAMITJA_2027` is what's left of
+the old constants: the owner's own block, the same numbers `docs/03` was written against,
+kept around as the value the owner's `blocks` row is seeded with and as what `seed.ts` and
+`baseline.ts` are still hand-written against. Every function that used to close over the
+constants now takes a `BlockConfig` as its first parameter — `block` is always first,
+everywhere — because the alternative is a hidden global that silently mixes one athlete's
+week index into another's plan. Paces move with it: `src/lib/paces.ts`'s six bands are no
+longer literals but ratios of goal pace (`paceBands(goalPaceSKm(block))`), derived from the
+one reference table `docs/03` prescribes, so another athlete's plan is paced at *their*
+target rather than at Ivan's — `PACES`, the owner's table, is just `paceBands()` called with
+the reference goal pace, and a test pins it equal to the original literals so it can never
+silently drift. `hrZone` takes an `hrMax` argument now too; `HR_MAX` is renamed
+`DEFAULT_HR_MAX` and is only the fallback for an athlete with no `hr_max` set.
 
-One password behind a public URL is one password behind a *known* URL, so the two
-endpoints that take a credential sit behind Cloudflare's `ratelimit` binding
+A password behind a public URL is a password behind a *known* URL, so the two endpoints
+that take a credential sit behind Cloudflare's `ratelimit` binding
 (`src/lib/ratelimit.ts`, declared in `wrangler.jsonc`): `/api/login` at 8 a minute, and
 `/api/mcp` at 60 — higher because a legitimate caller there is an agent writing a whole
 block in a burst, not a person signing in. Three things about it are load-bearing.
@@ -183,6 +246,11 @@ block in a burst, not a person signing in. Three things about it are load-bearin
 the kinder design and protects nothing: if a correct guess skips the limiter, every guess
 is still checked and the only thing throttled is the status code the guesser gets back.
 The cost is that a legitimate sign-in also counts, which at eight a minute nobody meets.
+It is also what makes `/api/login`'s constant-time dummy hash affordable: 210k PBKDF2
+rounds on an unauthenticated request is a denial-of-service lever right up until a caller
+only gets eight of them a minute, and without it "no such account" returns in a
+millisecond while "wrong password" takes 100 ms — a reliable oracle for which of a few
+named friends has an account here.
 
 *It fails open.* A missing binding — local `wrangler dev`, or a fork that dropped it —
 means no limiting rather than no app. An app that will not let its owner in because a
@@ -190,7 +258,8 @@ rate limiter is unavailable has turned a hardening measure into an outage.
 
 *It is a speed bump, not a lock.* The binding is per-Cloudflare-location and eventually
 consistent, so a spread-out attacker gets a multiple of those numbers. The actual defence
-is the entropy of `APP_PASSWORD`. And note a WAF rate-limiting rule is **not** an option
+is the entropy of the passwords themselves — which is why `auth-input.ts` will not accept
+one under ten characters. And note a WAF rate-limiting rule is **not** an option
 here: those are configured per zone, and `workers.dev` is not a zone you own.
 
 **The plan is also an MCP server** (`src/lib/mcp/`, `POST /api/mcp`). Typing twenty-three
@@ -200,12 +269,22 @@ the block brief, the weeks, the sessions, the activities, the derived summary �
 writes, of which `create_sessions` exists so that "write me a 16-week plan" is one round
 trip rather than ninety.
 
-**Bearer, not cookie.** An MCP client has no cookie jar and no login form to post to, so
-it presents `Authorization: Bearer <APP_PASSWORD>` — the same single password, compared
-with `timingSafeEqual` before the JSON-RPC body is so much as parsed, and answered `500`
-rather than let anyone in if the secret is unset. A second credential just for this
-endpoint would be a second thing to rotate and a second thing to leak, and the endpoint
-reaches exactly the data the password already unlocks. `/api/mcp` therefore sits in
+**Bearer, and the token is *looked up*, not compared.** An MCP client has no cookie jar
+and no login form to post to, so it presents `Authorization: Bearer <token>` — an
+athlete's own token, minted on `/ajustes` and stored only as `sha256` in
+`users.mcp_token_hash`, unique. `resolveMcpToken` hashes what was presented, finds the one
+athlete it belongs to, loads their block, and returns a registry with their id closed over
+every query behind it. A token belonging to nobody resolves to `null` and the request is
+refused before its body is read.
+
+That shape is deliberate and it is the fix for the class of bug described at the top of
+this file: there is no way to *obtain* a registry without having established whose it is,
+so a tool cannot accidentally run unscoped. It is a separate credential from the login
+password on purpose — an MCP token lives in plain text in an agent's config file and gets
+copied around, a password is typed; making them one string would mean handing an agent the
+ability to sign in, and rotating the password to revoke an agent. `POST /api/mcp-token`
+mints and replaces (that is how you rotate), `DELETE` revokes, and the plaintext exists in
+one response body and nowhere else. `/api/mcp` sits in
 `SELF_AUTHENTICATED_PATHS` in the middleware — its **own named set**, not another line in
 `PUBLIC_PATHS`, because the difference between "checks its own auth" and "has no check at
 all" is invisible at a glance and the cost of confusing them is the whole training log.
@@ -223,10 +302,12 @@ client is whichever one their SDK shipped with, and a request carrying no versio
 is served leniently as legacy — that is what a bare `curl` looks like, and pointing one at
 a server you just deployed is the first thing anybody does.
 
-`protocol.ts` knows the wire and nothing about training; `tools.ts` takes its `Database`
-and its secret as arguments, so both are testable in plain Node with a fabricated
-`Request`, no D1 and no bindings, and `src/pages/api/mcp.ts` is the only file that knows
-where `env.DB` and `env.APP_PASSWORD` come from.
+`protocol.ts` knows the wire and nothing about training; `tools.ts` takes an `McpCtx` —
+database, athlete id, block, `hrMax`, pace bands — so both are testable in plain Node with
+a fabricated `Request`, no D1 and no bindings, and `src/pages/api/mcp.ts` is the only file
+that knows where `env.DB` comes from. The context replaced a bare `Database` for a reason
+worth keeping: a tool handed a connection can query anything, and a tool handed a context
+has the athlete's id sitting next to it in the signature.
 
 **The tools reuse `plan-input.ts` rather than validating twice.** The MCP layer rewrites
 types at the boundary — ISO dates to UTC-midnight ms, `mm:ss` paces to s/km, a step's
@@ -253,6 +334,31 @@ import a module that pulls `env` from `cloudflare:workers` at load.
 re-fetching the whole window costs one API call and removes every class of cursor-drift
 bug — a renamed or corrected activity self-heals. The webhook triggers it (ignoring the
 event body entirely — any event just means "refresh"), and a nightly cron is the safety net.
+
+**Auth is per-user email + password, not Strava OAuth.** Strava OAuth is how the *server*
+obtains an API token per athlete; making it the login would mean re-authorising on every
+device, and it says nothing about who is allowed in. `src/lib/password.ts` hashes with
+PBKDF2-SHA256 (210,000 iterations, WebCrypto's only KDF in a Worker — no bcrypt/argon2 WASM
+for this scale) and a signed cookie (`src/lib/auth.ts`) is exchanged once and lasts a year,
+working on desktop and iPhone alike. `SESSION_SECRET` signs that cookie; rotating it signs
+every device out — that is the panic button. `APP_PASSWORD` is no longer the login: it is
+the one-time bootstrap secret `POST /api/bootstrap` checks to give the owner row (created
+with an empty password hash by the migration) its first real password, and it 409s once
+that has happened. Everyone after the owner arrives through an admin-minted single-use
+invite (`src/lib/invites.ts`) — the token is shown once, only its hash is stored, and
+`/alta` redeems it. `src/middleware.ts` gates `/api/*` closed by default, with an explicit
+public list, and also resolves the cookie to `context.locals.user` — a cookie whose user no
+longer exists reads as signed out, which is how deleting a user revokes their devices.
+
+**Sync is one function with no cursor, run per athlete.** `syncBlock(db, user)` fetches
+everything after that athlete's `block.startsOn` in a single request and upserts it with
+their `user_id` on every row. The block is one page of results, so re-fetching the whole
+window costs one API call and removes every class of cursor-drift bug — a renamed or
+corrected activity self-heals. The webhook now routes on the event's `owner_id`: it looks
+up the matching `strava_accounts` row and syncs only that athlete (an unknown athlete id is
+a 200 with no work — Strava must never see an error), and a nightly cron walks every
+connected account, syncing each in turn and catching per-athlete so one dead refresh token
+cannot skip the rest.
 
 **Four tabs, one dock.** `/` `/plan` `/progreso` `/registro`, listed once in
 `src/lib/nav.ts` and rendered by `src/components/Dock.astro` — plain HTML fixed to the
@@ -385,25 +491,15 @@ be in `activities`, so the endpoint cannot read arbitrary activities off the acc
 page is one prerendered shell; the id is in the query string and read in an effect (gotcha
 15). Laps are shown only when they differ from the per-km auto-laps — a series session.
 
-**Last season is data, not memory** (`src/lib/baseline.ts`). `docs/data/*.csv` is read
-`?raw` at build time and parsed into `Activity` rows, so the 2025-26 build can be compared
-against without a table, a sync or a second copy to keep honest. The *directory* is read
-with `import.meta.glob(…, { query: '?raw', eager: true })` and its files classified by
-name — `post-race` in a filename is the pre-block period and `build` is the previous
-season — rather than by two named imports, so a fork drops its own exports in or deletes
-them and the comparison goes quiet instead of failing to resolve a module. A file named
-as neither is ignored rather than guessed at, because `docs/data/` is also where a raw
-export lands on its way to being trimmed. An empty
-directory has to degrade cleanly all the way down: `BASELINE_FIRST_WEEK` answers
-`TOTAL_WEEKS` rather than `Infinity` when there is no baseline, and is floored at `0`
-because a previous build longer than this block reaches back past `BLOCK_START` and would
-otherwise report week −43.
-
-The rows are shifted by `RACE_DATE - PREV_RACE_DATE` — both configuration, and 371 days,
-exactly 53 weeks, at the defaults — which lands every one of them on the same weekday
-*and* the same distance from race day. Pointing `PUBLIC_PREV_RACE_DATE` at the previous
-edition of the same race is what keeps that a whole number of weeks. That is the only
-alignment that
+**Last season is data, not memory, and it is the owner's data alone** (`src/lib/baseline.ts`).
+`docs/personal/data/*.csv` is imported `?raw` and parsed into `Activity` rows, so the 2025-26 build
+can be compared against without a table, a sync or a second copy to keep honest — but it is
+one athlete's finished record, not a generic feature, so it sits behind `baselineFor(key)`
+and only the athlete whose `users.baseline_key` names it (`BASELINE_KEY = 'ivan-2025-26'`,
+the owner only) ever sees a comparison; everyone else's `baselineFor` returns `null` and the
+UI renders nothing rather than a stranger's season. The rows are shifted by
+`RACE_DATE - PREV_RACE_DATE` — 371 days, exactly 53 weeks — which lands every one of them
+on the same weekday *and* the same distance from race day. That is the only alignment that
 answers "am I ahead of where I was": last season's build was 20 weeks against this one's
 23, so week 12 is not the same place in the two and "eleven weeks out" always is. It leaves
 block weeks 1–3 with no counterpart, and those read as absent rather than as zero.
@@ -413,7 +509,7 @@ run in the 42-day average so the fitness curve does not open at zero on 17 Augus
 **Analytics are read-time and pure** (`src/lib/analytics.ts`). Fitness and fatigue are the
 usual 42/7-day exponential averages over training load; load is Strava's Relative Effort
 where the strap recorded one, and otherwise a least-squares fallback fitted to the 100 runs
-in `docs/data` that carry one (±33%, so `estimatedShare` reports how much of a window
+in `docs/personal/data` that carry one (±33%, so `estimatedShare` reports how much of a window
 leaned on it). Best efforts come from whole runs rather than splits, because the app stores
 summaries — and only from runs that were *efforts* (Z4+, or faster than steady), or the
 10 km best would be won by whichever easy run happened to be ten kilometres long. Every
@@ -474,7 +570,7 @@ Tailwind classes so a chart is styled like everything else on the page.
     the manifest.
 13. **`wrangler d1 execute --file` against remote is flaky** (upload step fails on transient
     network errors). Retry, or use `--command`.
-14. **`?raw` imports work, including from outside `src/`.** `docs/data/*.csv` is inlined at
+14. **`?raw` imports work, including from outside `src/`.** `docs/personal/data/*.csv` is inlined at
     build time by Vite — in the Worker bundle, in the prerender pass and in vitest alike.
     `astro/client` pulls in `vite/client`, so the module is typed without a declaration.
 15. **A `client:load` island is also rendered during prerender**, in a Worker, where
@@ -517,22 +613,21 @@ Tailwind classes so a chart is styled like everything else on the page.
 - **Numbers are written Spanish too.** `src/lib/format.ts` owns `decimal()`, and nothing
   renders a bare `toFixed(1)` — `12.4 km` on screen is as wrong as an English label.
 - **Intensity is Z1–Z5, never a heart rate.** `src/lib/paces.ts` owns the five-zone model:
-  `PACE_ZONE_NUMBER` maps each pace band onto a zone, and `hrZone()` maps an average
-  heart rate onto one. The exact bpm is never rendered — it drifts with heat, sleep and
-  the strap, and no decision in the plan is made on it. The zone floors are *shares* of
-  `HR_MAX`, and `HR_MAX` itself comes from `config.ts` (`PUBLIC_HR_MAX`, default 192);
-  both were calibrated against the two races in docs/01, not a textbook formula, so a fork
-  measures its own maximum rather than taking 220 − age.
+  `PACE_ZONE_NUMBER` maps each pace band onto a zone, and `hrZone(bpm, hrMax)` maps an
+  average heart rate onto one. The exact bpm is never rendered — it drifts with heat, sleep
+  and the strap, and no decision in the plan is made on it. `DEFAULT_HR_MAX` and the zone
+  floors are calibrated against the two races in docs/01, not a textbook formula, and are
+  only the fallback for an athlete with no `hr_max` of their own set in `/ajustes`.
 - **Units follow Strava**: metres, seconds, m/s. Paces (s/km) are derived at read time.
 - **Cadence is stored as spm**, already doubled from Strava's rpm. 85 rpm ≈ 170 spm, and
   cadence is the primary marker in the knee protocol — halving it misreads the metric.
   It renders as `pasos/min`, never `ppm` — which in Spanish reads as heart rate.
 - **Dates are INTEGER epoch milliseconds**, stored as the athlete's local wall clock, so
   "which day was this run" does not depend on the viewing device.
-- **Pure logic stays out of I/O modules.** `src/lib/config.ts`, `src/lib/activity.ts`,
-  `src/lib/block.ts`, `src/lib/plan.ts`, `src/lib/workout.ts`, `src/lib/paces.ts`,
-  `src/lib/format.ts`, `src/lib/seed.ts`, `src/lib/metrics.ts`, `src/lib/analytics.ts` and
-  `src/lib/baseline.ts` import nothing from `cloudflare:workers`,
+- **Pure logic stays out of I/O modules.** `src/lib/config.ts`, `src/lib/activity.ts`, `src/lib/block.ts`,
+  `src/lib/plan.ts`, `src/lib/workout.ts`, `src/lib/paces.ts`, `src/lib/format.ts`,
+  `src/lib/seed.ts`, `src/lib/generator.ts`, `src/lib/metrics.ts`, `src/lib/analytics.ts`
+  and `src/lib/baseline.ts` import nothing from `cloudflare:workers`,
   take `now` explicitly, and are unit-tested in plain Node; `src/lib/sync.ts` and
   `src/lib/strava.ts` own the side effects. `src/lib/mcp/*` belongs to the first group by
   taking its `Database` and its credential as arguments rather than reading either.
@@ -628,7 +723,7 @@ Tailwind classes so a chart is styled like everything else on the page.
   `TOKEN_ENC_KEY` and `APP_PASSWORD` are secrets — `wrangler secret put` on the
   deployment, `.dev.vars` locally (`.dev.vars.example` documents all four). The Strava
   client ID is public, differs per deployment and is needed at request time, so it is a
-  `wrangler.jsonc` var. The eleven `PUBLIC_*` values are public, differ per *fork* and are
+  `wrangler.jsonc` var. The ten `PUBLIC_*` values are public, differ per *fork* and are
   wanted as constants by pure modules, so they are `.env` and compiled in
   (`.env.example`). Adding a value means picking one of those three, not inventing a
   fourth.

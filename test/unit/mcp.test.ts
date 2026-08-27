@@ -4,9 +4,11 @@ import {
   PROTOCOL_VERSIONS,
   RPC,
   handleMcp,
+  type McpServer,
   type ToolRegistry,
 } from '@/lib/mcp/protocol'
 import {
+  SERVER_INSTRUCTIONS,
   blockBrief,
   createToolRegistry,
   fromIsoDate,
@@ -14,8 +16,8 @@ import {
   toIsoDate,
   toPace,
 } from '@/lib/mcp/tools'
-import { BLOCK_START, GOAL_TIME_S, RACE_DATE, TOTAL_WEEKS } from '@/lib/block'
-import { PACES, PACE_ZONES } from '@/lib/paces'
+import { HALF_MARATHON_M, goalPaceSKm, totalWeeks, type BlockConfig } from '@/lib/block'
+import { DEFAULT_HR_MAX, PACE_ZONES, paceBands } from '@/lib/paces'
 import { SESSION_TYPES } from '@/lib/plan'
 import type { Database } from '@/lib/db/client'
 
@@ -31,21 +33,41 @@ const SECRET = 'correct-horse-battery-staple'
 const URL_ = 'https://lamitja.example/api/mcp'
 const VERSION_META = 'io.modelcontextprotocol/protocolVersion'
 
-function stubRegistry(): ToolRegistry {
+/**
+ * One athlete's block, written out. Every tool test below runs against this rather than
+ * against whatever `.env` the machine carries — see `block.test.ts` for why.
+ */
+const BLOCK: BlockConfig = {
+  startsOn: Date.UTC(2026, 7, 17),
+  raceOn: Date.UTC(2027, 0, 24),
+  goalTimeS: 4799,
+  raceDistanceM: HALF_MARATHON_M,
+  raceName: 'La Mitja',
+}
+
+const stubTools = (): ToolRegistry => ({
+  list: () => [
+    { name: 'echo', title: 'Echo', description: 'Echoes its arguments.', inputSchema: { type: 'object' } },
+    { name: 'boom', description: 'Always fails.', inputSchema: { type: 'object' } },
+    { name: 'throws', description: 'Throws.', inputSchema: { type: 'object' } },
+  ],
+  call: async (name, args) => {
+    if (name === 'throws') throw new Error('handler exploded')
+    if (name === 'boom') return { content: [{ type: 'text', text: 'row 3 is invalid' }], isError: true }
+    return { content: [{ type: 'text', text: JSON.stringify(args) }] }
+  },
+})
+
+/**
+ * The server the transport is handed. `resolve` stands in for the token lookup: only
+ * `SECRET` belongs to anybody, and everything else resolves to `null` — which is exactly
+ * the shape `resolveMcpToken` has against the real table.
+ */
+function stubRegistry(): McpServer {
   return {
     serverInfo: { name: 'test-server', version: '9.9.9' },
     instructions: 'Call get_block first.',
-    secret: SECRET,
-    list: () => [
-      { name: 'echo', title: 'Echo', description: 'Echoes its arguments.', inputSchema: { type: 'object' } },
-      { name: 'boom', description: 'Always fails.', inputSchema: { type: 'object' } },
-      { name: 'throws', description: 'Throws.', inputSchema: { type: 'object' } },
-    ],
-    call: async (name, args) => {
-      if (name === 'throws') throw new Error('handler exploded')
-      if (name === 'boom') return { content: [{ type: 'text', text: 'row 3 is invalid' }], isError: true }
-      return { content: [{ type: 'text', text: JSON.stringify(args) }] }
-    },
+    resolve: async (token: string) => (token === SECRET ? stubTools() : null),
   }
 }
 
@@ -158,9 +180,30 @@ describe('bearer auth', () => {
     expect(response.status).toBe(401)
   })
 
-  it('refuses to serve anything when the deployment has no password set', async () => {
-    const response = await handleMcp(post(request('ping')), { ...stubRegistry(), secret: '' })
-    expect(response.status).toBe(500)
+  it('refuses a token that belongs to no athlete', async () => {
+    // The multi-athlete shape of "wrong password": `resolve` finds nobody, and the request
+    // is refused before its body is read. There is no deployment-wide secret to be unset.
+    const response = await handleMcp(post(request('ping'), { auth: 'not-anybodys-token' }), {
+      ...stubRegistry(),
+      resolve: async () => null,
+    })
+    expect(response.status).toBe(401)
+  })
+
+  it('never hands out a registry it could not attribute', async () => {
+    // The guarantee `resolve` exists to give: no token, no tools. If this ever passes with
+    // a null resolution, some path is building an unscoped registry.
+    let built = false
+    const response = await handleMcp(post(request('tools/list'), { auth: 'guess' }), {
+      ...stubRegistry(),
+      resolve: async () => {
+        built = true
+        return null
+      },
+    })
+    expect(built).toBe(true)
+    expect(response.status).toBe(401)
+    expect(await response.clone().json()).toMatchObject({ error: { code: RPC.UNAUTHORIZED } })
   })
 })
 
@@ -416,15 +459,15 @@ describe('malformed input', () => {
 
 describe('ISO dates', () => {
   it('writes a stored wall clock as YYYY-MM-DD', () => {
-    expect(toIsoDate(BLOCK_START)).toBe('2026-08-17')
-    expect(toIsoDate(RACE_DATE)).toBe('2027-01-24')
+    expect(toIsoDate(BLOCK.startsOn)).toBe('2026-08-17')
+    expect(toIsoDate(BLOCK.raceOn)).toBe('2027-01-24')
     // Any time of day on a stored date still names that date.
-    expect(toIsoDate(BLOCK_START + 23 * 3_600_000)).toBe('2026-08-17')
+    expect(toIsoDate(BLOCK.startsOn + 23 * 3_600_000)).toBe('2026-08-17')
   })
 
   it('reads YYYY-MM-DD back as UTC midnight, which is the scale everything is stored on', () => {
-    expect(fromIsoDate('2026-08-17')).toBe(BLOCK_START)
-    expect(fromIsoDate(' 2027-01-24 ')).toBe(RACE_DATE)
+    expect(fromIsoDate('2026-08-17')).toBe(BLOCK.startsOn)
+    expect(fromIsoDate(' 2027-01-24 ')).toBe(BLOCK.raceOn)
     expect(toIsoDate(fromIsoDate('2026-12-31'))).toBe('2026-12-31')
   })
 
@@ -448,7 +491,7 @@ describe('mm:ss paces', () => {
     expect(toPace(227)).toBe('3:47')
     expect(fromPace('3:47')).toBe(227)
     for (const zone of PACE_ZONES) {
-      expect(fromPace(toPace(PACES[zone].lo))).toBe(Math.round(PACES[zone].lo))
+      expect(fromPace(toPace(CTX.bands[zone].lo))).toBe(Math.round(CTX.bands[zone].lo))
     }
   })
 
@@ -464,7 +507,14 @@ describe('mm:ss paces', () => {
 // ---------------------------------------------------------------------------
 
 /** Every tool below is one that never reaches the database on the path being tested. */
-const registry = () => createToolRegistry(null as unknown as Database, SECRET)
+const CTX = {
+  db: null as unknown as Database,
+  userId: 'test-athlete',
+  block: BLOCK,
+  hrMax: DEFAULT_HR_MAX,
+  bands: paceBands(goalPaceSKm(BLOCK)),
+}
+const registry = () => createToolRegistry(CTX)
 
 const resultOf = async (name: string, args: Record<string, unknown> = {}) => {
   const result = await registry().call(name, args)
@@ -501,7 +551,7 @@ describe('the registry', () => {
   })
 
   it('tells the agent how to approach a plan', () => {
-    const { instructions } = registry()
+    const instructions = SERVER_INSTRUCTIONS
     expect(instructions).toContain('get_block')
     expect(instructions).toContain('steps')
     expect(instructions).toMatch(/consecutive days/)
@@ -515,19 +565,19 @@ describe('get_block', () => {
    * plan from the one the app is running.
    */
   it('reports exactly the block the rest of the app is built on', () => {
-    const brief = blockBrief(Date.UTC(2026, 7, 26), 'Test Race')
+    const brief = blockBrief(CTX, Date.UTC(2026, 7, 26))
 
-    expect(brief.race.name).toBe('Test Race')
-    expect(brief.race.date).toBe(toIsoDate(RACE_DATE))
-    expect(brief.block.startsOn).toBe(toIsoDate(BLOCK_START))
-    expect(brief.block.totalWeeks).toBe(TOTAL_WEEKS)
-    expect(brief.goal.timeS).toBe(GOAL_TIME_S)
+    expect(brief.race.name).toBe(BLOCK.raceName)
+    expect(brief.race.date).toBe(toIsoDate(BLOCK.raceOn))
+    expect(brief.block.startsOn).toBe(toIsoDate(BLOCK.startsOn))
+    expect(brief.block.totalWeeks).toBe(totalWeeks(BLOCK))
+    expect(brief.goal.timeS).toBe(BLOCK.goalTimeS)
     expect(brief.today).toEqual({ date: '2026-08-26', weekIndex: 1 })
 
     expect(brief.paceZones.map((band) => band.zone)).toEqual([...PACE_ZONES])
     for (const band of brief.paceZones) {
-      expect(band.loSKm).toBe(PACES[band.zone].lo)
-      expect(band.hiSKm).toBe(PACES[band.zone].hi)
+      expect(band.loSKm).toBe(CTX.bands[band.zone].lo)
+      expect(band.hiSKm).toBe(CTX.bands[band.zone].hi)
     }
     expect(brief.sessionTypes.map((type) => type.type)).toEqual([...SESSION_TYPES])
   })
@@ -535,7 +585,7 @@ describe('get_block', () => {
   it('answers without touching the database', async () => {
     const { isError, text } = await resultOf('get_block')
     expect(isError).toBe(false)
-    expect(JSON.parse(text).block.totalWeeks).toBe(TOTAL_WEEKS)
+    expect(JSON.parse(text).block.totalWeeks).toBe(totalWeeks(BLOCK))
   })
 })
 
@@ -563,7 +613,7 @@ describe('write validation happens before the database does', () => {
 
   it('refuses a pace that is not mm:ss', async () => {
     const { isError, text } = await resultOf('create_session', {
-      scheduledOn: toIsoDate(BLOCK_START),
+      scheduledOn: toIsoDate(BLOCK.startsOn),
       type: 'easy',
       title: 'Rodaje',
       targetPaceLo: '5.00',
@@ -575,9 +625,9 @@ describe('write validation happens before the database does', () => {
   it('names the failing rows of a batch by index and writes none of them', async () => {
     const { isError, text } = await resultOf('create_sessions', {
       sessions: [
-        { id: 'w00-mon-0', scheduledOn: toIsoDate(BLOCK_START), type: 'easy', title: 'Rodaje' },
+        { id: 'w00-mon-0', scheduledOn: toIsoDate(BLOCK.startsOn), type: 'easy', title: 'Rodaje' },
         { id: 'w00-tue-0', scheduledOn: 'nope', type: 'easy', title: 'Rodaje' },
-        { id: 'w00-wed-0', scheduledOn: toIsoDate(BLOCK_START), type: 'flying', title: 'Rodaje' },
+        { id: 'w00-wed-0', scheduledOn: toIsoDate(BLOCK.startsOn), type: 'flying', title: 'Rodaje' },
       ],
     })
     expect(isError).toBe(true)
@@ -588,7 +638,7 @@ describe('write validation happens before the database does', () => {
   })
 
   it('refuses a batch that would write the same id twice', async () => {
-    const day = toIsoDate(BLOCK_START)
+    const day = toIsoDate(BLOCK.startsOn)
     const { isError, text } = await resultOf('create_sessions', {
       sessions: [
         { id: 'w00-mon-0', scheduledOn: day, type: 'easy', title: 'Rodaje' },
@@ -624,7 +674,7 @@ describe('write validation happens before the database does', () => {
   })
 
   it('refuses a week index outside the block', async () => {
-    const { isError, text } = await resultOf('upsert_week', { weekIndex: TOTAL_WEEKS, phase: 'Base' })
+    const { isError, text } = await resultOf('upsert_week', { weekIndex: totalWeeks(BLOCK), phase: 'Base' })
     expect(isError).toBe(true)
     expect(text).toContain('weekIndex')
   })
@@ -639,7 +689,7 @@ describe('write validation happens before the database does', () => {
  * throttles the status code and not the guessing.
  */
 describe('mcp · rate limiting', () => {
-  const limited = (): ToolRegistry => ({ ...stubRegistry(), withinLimit: async () => false })
+  const limited = (): McpServer => ({ ...stubRegistry(), withinLimit: async () => false })
 
   it('turns away a caller over the limit, with 429 rather than 401', async () => {
     const response = await handleMcp(post({ jsonrpc: '2.0', id: 1, method: 'tools/list' }), limited())
@@ -675,20 +725,18 @@ describe('mcp · rate limiting', () => {
   it('lets everything through when no limiter is configured', async () => {
     // A fork that dropped the binding, or local `wrangler dev`. No limiting beats no app:
     // the credential check behind it is still there either way.
-    const { serverInfo, instructions, secret, list, call } = stubRegistry()
+    const { serverInfo, instructions, resolve } = stubRegistry()
     const response = await handleMcp(post({ jsonrpc: '2.0', id: 1, method: 'tools/list' }), {
       serverInfo,
       instructions,
-      secret,
-      list,
-      call,
+      resolve,
     })
     expect(response.status).toBe(200)
   })
 
   it('is checked after the origin, so a cross-origin caller cannot spend the budget', async () => {
     let consulted = false
-    const registry: ToolRegistry = {
+    const server: McpServer = {
       ...stubRegistry(),
       withinLimit: async () => {
         consulted = true
@@ -699,9 +747,51 @@ describe('mcp · rate limiting', () => {
       post({ jsonrpc: '2.0', id: 1, method: 'tools/list' }, {
         headers: { origin: 'https://evil.example' },
       }),
-      registry,
+      server,
     )
     expect(response.status).toBe(403)
     expect(consulted).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Tenancy
+// ---------------------------------------------------------------------------
+
+/**
+ * Every database statement in `tools.ts` must name the athlete.
+ *
+ * This reads the shipped source rather than exercising a database, which is unusual and is
+ * the point: the bug it exists to catch does not throw, does not fail a type check and
+ * does not show up in any single-athlete test. A `where(eq(planSessions.id, id))` looks
+ * completely correct — `id` reads like a primary key — right up until a second athlete
+ * exists, at which point one agent silently rewrites another's plan. That is exactly what
+ * happened here: `update_session` and `delete_session` both shipped unscoped through a
+ * type check, a full unit suite and a build, and were only caught by two accounts and a
+ * curl.
+ *
+ * A real fixture would be better and needs a SQLite dependency this project does not carry
+ * for one test. Reading the source is the cheap version of the same guarantee, and it fails
+ * loudly the moment somebody adds a query and forgets — which is the whole failure mode.
+ */
+describe('tenancy · every query is scoped to one athlete', () => {
+  it('names userId in every database statement in tools.ts', async () => {
+    const source = await import('../../src/lib/mcp/tools.ts?raw').then((m) => m.default as string)
+
+    // Each statement runs from `db` up to the call that ends it.
+    const statements = source.match(/\bdb\s*\n?\s*\.(select|insert|update|delete)\b[\s\S]*?(?=\n\n|\n\s{0,6}\breturn\b|\n\s{0,6}\})/g)
+    expect(statements, 'no db statements found — has tools.ts moved?').toBeTruthy()
+    expect(statements!.length).toBeGreaterThan(5)
+
+    const unscoped = statements!.filter((statement) => !statement.includes('userId'))
+    expect(unscoped.map((s) => s.replace(/\s+/g, ' ').slice(0, 100))).toEqual([])
+  })
+
+  it('never keys an upsert on a bare id or week index', async () => {
+    // The primary keys are composite. A conflict target of `planSessions.id` alone either
+    // errors (no matching constraint) or, worse, would match across athletes.
+    const source = await import('../../src/lib/mcp/tools.ts?raw').then((m) => m.default as string)
+    expect(source).not.toMatch(/target:\s*planSessions\.id\b/)
+    expect(source).not.toMatch(/target:\s*planWeeks\.weekIndex\b/)
   })
 })

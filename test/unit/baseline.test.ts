@@ -1,120 +1,107 @@
 import { describe, expect, it } from 'vitest'
-import { isRun } from '@/lib/activity'
-import { BLOCK_START, RACE_DATE, TOTAL_WEEKS, WEEK_MS, weekIndex } from '@/lib/block'
 import {
-  BASELINE,
-  BASELINE_FIRST_WEEK,
+  BASELINE_KEY,
   BASELINE_RAW,
-  BASELINE_SHIFT_MS,
-  PRE_BLOCK,
   PREV_RACE_DATE,
+  baselineFor,
+  baselineShiftMs,
 } from '@/lib/baseline'
+import { DAY_MS, HALF_MARATHON_M, WEEK_MS, totalWeeks, weekIndex, type BlockConfig } from '@/lib/block'
 
 /**
- * The baseline is now whatever `docs/data/*.csv` holds, which for a fork may be its own
- * export or may be nothing at all. So the assertions split in two: the alignment rules,
- * which hold for any pair of race dates, and the row-level ones, which are skipped
- * cleanly when there are no rows — a fork that deleted the CSVs still has a green suite,
- * and this repository still checks its own data in full.
+ * The baseline is whatever `docs/personal/data/*.csv` holds, which for a fork may be its own export
+ * or nothing at all. So the shape is asserted unconditionally and the *values* only when
+ * this repository's own rows are present — a fork that deleted them still gets a green
+ * suite, which is the point of globbing the directory rather than naming two files.
+ *
+ * The block is written out here rather than imported from `config.ts`, for the reason
+ * `block.test.ts` gives: the real default is whatever `.env` the machine carries.
  */
+const OWNER: BlockConfig = {
+  startsOn: Date.UTC(2026, 7, 17),
+  raceOn: Date.UTC(2027, 0, 24),
+  goalTimeS: 4799,
+  raceDistanceM: HALF_MARATHON_M,
+  raceName: 'La Mitja',
+}
 
 const hasBaseline = BASELINE_RAW.length > 0
-const hasRunIn = PRE_BLOCK.length > 0
 
-describe('the shift onto this block', () => {
-  it('lands last season’s race on this season’s race day', () => {
-    expect(PREV_RACE_DATE + BASELINE_SHIFT_MS).toBe(RACE_DATE)
-    expect(BASELINE_SHIFT_MS).toBeGreaterThan(0)
+describe('the shift onto a block', () => {
+  it('lands last season’s race on this one’s', () => {
+    expect(PREV_RACE_DATE + baselineShiftMs(OWNER)).toBe(OWNER.raceOn)
+    expect(baselineShiftMs(OWNER)).toBeGreaterThan(0)
   })
 
-  it.skipIf(BASELINE_SHIFT_MS % WEEK_MS !== 0)(
-    'keeps every weekday when the two races are a whole number of weeks apart',
-    () => {
-      // The default pair — 18 Jan 2026 and 24 Jan 2027 — is 53 weeks, so last season's
-      // Sunday long run stays a Sunday. A fork whose races are not is still aligned on
-      // race day, which is the half of it the comparison actually reads.
-      expect(new Date(PREV_RACE_DATE).getUTCDay()).toBe(new Date(RACE_DATE).getUTCDay())
-    },
-  )
+  it('is a whole number of weeks, so every row keeps its weekday', () => {
+    // 371 days — 53 weeks exactly, for this repository's two editions of the same race.
+    // That is what makes "eleven weeks out" comparable *and* Sunday's long run a Sunday.
+    expect(baselineShiftMs(OWNER) % WEEK_MS).toBe(0)
+  })
 
-  it('moves the rows and nothing else', () => {
-    expect(BASELINE).toHaveLength(BASELINE_RAW.length)
-    for (const [i, shifted] of BASELINE.entries()) {
-      const raw = BASELINE_RAW[i]!
-      expect(shifted.startedOn - raw.startedOn).toBe(BASELINE_SHIFT_MS)
-      expect(shifted.distanceM).toBe(raw.distanceM)
-      expect(shifted.sportType).toBe(raw.sportType)
-    }
+  it('follows the block, so moving race day moves the overlay with it', () => {
+    // The owner can edit their dates on /ajustes. A shift computed once at module load
+    // would leave last season a fortnight out of step and still look plausible.
+    const moved = { ...OWNER, raceOn: OWNER.raceOn + 14 * DAY_MS }
+    expect(baselineShiftMs(moved) - baselineShiftMs(OWNER)).toBe(14 * DAY_MS)
   })
 })
 
-describe('the previous build', () => {
-  it.skipIf(!hasBaseline)('parses every row of the export', () => {
-    expect(BASELINE_RAW.every((a) => Number.isFinite(a.distanceM) && a.distanceM >= 0)).toBe(true)
-    expect(BASELINE_RAW.every((a) => Number.isFinite(a.startedOn))).toBe(true)
-    expect(BASELINE_RAW.every((a) => a.name.length > 0)).toBe(true)
+describe('baselineFor', () => {
+  it('gives every athlete but the owner nothing', () => {
+    // The gate is the whole privacy story here: `docs/personal/data` is one person's Strava export,
+    // and handing it to somebody else would draw a stranger's season across their charts
+    // and label it "la temporada pasada".
+    expect(baselineFor(null, OWNER)).toBeNull()
+    expect(baselineFor('someone-else', OWNER)).toBeNull()
+    expect(baselineFor('', OWNER)).toBeNull()
   })
 
-  it.skipIf(!hasBaseline)('lands entirely inside this block once shifted', () => {
-    for (const activity of BASELINE) {
-      expect(activity.startedOn).toBeGreaterThanOrEqual(BLOCK_START)
-      expect(activity.startedOn).toBeLessThanOrEqual(RACE_DATE)
-    }
+  it.skipIf(!hasBaseline)('gives the owner a season laid over their block', () => {
+    const baseline = baselineFor(BASELINE_KEY, OWNER)
+    expect(baseline).not.toBeNull()
+    expect(baseline!.activities.length).toBe(BASELINE_RAW.length)
+    expect(baseline!.shiftMs).toBe(baselineShiftMs(OWNER))
   })
 
-  it.skipIf(!hasBaseline)('opens where it opens and runs to race week', () => {
-    // This repository's own data opens three weeks in: a 20-week build against a 23-week
-    // one, so weeks 1–3 have no counterpart and read as absent rather than as zero.
-    expect(BASELINE_FIRST_WEEK).toBe(
-      Math.max(0, Math.min(...BASELINE.map((a) => weekIndex(a.startedOn)))),
+  it.skipIf(!hasBaseline)('shifts every row and leaves the raw ones alone', () => {
+    const { activities, shiftMs } = baselineFor(BASELINE_KEY, OWNER)!
+    activities.forEach((activity, i) => {
+      expect(activity.startedOn).toBe(BASELINE_RAW[i]!.startedOn + shiftMs)
+    })
+  })
+
+  it.skipIf(!hasBaseline)('lands inside the block and reaches race week', () => {
+    const { activities, firstWeek } = baselineFor(BASELINE_KEY, OWNER)!
+    // Never negative: a previous build longer than this block reaches back past the start,
+    // and the first block week it reaches is still week 0.
+    expect(firstWeek).toBeGreaterThanOrEqual(0)
+    expect(firstWeek).toBeLessThan(totalWeeks(OWNER))
+    expect(Math.max(...activities.map((a) => weekIndex(OWNER, a.startedOn)))).toBe(
+      totalWeeks(OWNER) - 1,
     )
-    // Never negative: a previous build longer than this block reaches back past
-    // BLOCK_START, and the first block week it reaches is still week 0.
-    expect(BASELINE_FIRST_WEEK).toBeGreaterThanOrEqual(0)
-    expect(BASELINE_FIRST_WEEK).toBeLessThan(TOTAL_WEEKS)
-    expect(Math.max(...BASELINE.map((a) => weekIndex(a.startedOn)))).toBe(TOTAL_WEEKS - 1)
-  })
-
-  it.skipIf(hasBaseline)('reads as a season the block never reaches when there are no CSVs', () => {
-    // `Math.min()` of nothing is Infinity, which orders correctly and then renders itself
-    // into the sentence on /progreso as the word "Infinity".
-    expect(BASELINE_FIRST_WEEK).toBe(TOTAL_WEEKS)
-    expect(Number.isFinite(BASELINE_FIRST_WEEK)).toBe(true)
-  })
-
-  it.skipIf(!hasBaseline)('carries the sports the comparison depends on telling apart', () => {
-    const sports = new Set(BASELINE_RAW.map((a) => a.sportType))
-    expect([...sports].every((sport) => sport.length > 0)).toBe(true)
-    expect([...sports].some((sport) => isRun(sport))).toBe(true)
-    // Everything that is not a `Run` is deliberately not counted as one — the default
-    // export carries hikes, and a hike is not a training kilometre.
-    expect([...sports].filter((sport) => isRun(sport))).toEqual(['Run'])
-  })
-
-  it('keeps ids negative and unique, so they can never be mistaken for Strava rows', () => {
-    const ids = [...BASELINE_RAW, ...PRE_BLOCK].map((a) => a.id)
-    expect(ids.every((id) => id < 0)).toBe(true)
-    expect(new Set(ids).size).toBe(ids.length)
   })
 
   it.skipIf(!hasBaseline)('reaches its own race day — the row every comparison is anchored on', () => {
-    const raceDay = BASELINE_RAW.filter((a) => a.startedOn === PREV_RACE_DATE)
-    expect(raceDay.length).toBeGreaterThan(0)
+    const race = BASELINE_RAW.find((a) => a.startedOn === PREV_RACE_DATE && a.distanceM > 21_000)
+    expect(race).toBeDefined()
     // This repository's own export: La Mitja 2026, 21,1 km in 1:23:57.
-    const race = raceDay.find((a) => a.distanceM > 21_000)
-    if (race) expect(race.movingS).toBe(5037)
-  })
-})
-
-describe('the pre-block ramp', () => {
-  it('is only what happened before the block opened', () => {
-    expect(PRE_BLOCK.every((a) => a.startedOn < BLOCK_START)).toBe(true)
+    expect(race!.movingS).toBe(5037)
   })
 
-  it.skipIf(!hasRunIn)('reaches back far enough to run in a 42-day average', () => {
-    // The whole reason it exists: a 42-day average that opens at zero reads as six weeks
-    // of gains that were really the average catching up with reality.
-    const earliest = Math.min(...PRE_BLOCK.map((a) => a.startedOn))
-    expect(BLOCK_START - earliest).toBeGreaterThan(42 * 86_400_000)
+  it.skipIf(!hasBaseline)('keeps the run-in strictly before the block opens', () => {
+    const { preBlock } = baselineFor(BASELINE_KEY, OWNER)!
+    expect(preBlock.every((a) => a.startedOn < OWNER.startsOn)).toBe(true)
+  })
+
+  it.skipIf(!hasBaseline)('reaches far enough back to warm a 42-day average', () => {
+    const { preBlock } = baselineFor(BASELINE_KEY, OWNER)!
+    const earliest = Math.min(...preBlock.map((a) => a.startedOn))
+    expect(OWNER.startsOn - earliest).toBeGreaterThan(42 * DAY_MS)
+  })
+
+  it.skipIf(!hasBaseline)('never lets a baseline row collide with a synced one', () => {
+    // Negative ids: these rows never touch the database, and a Strava id is positive.
+    expect(BASELINE_RAW.every((a) => a.id < 0)).toBe(true)
   })
 })

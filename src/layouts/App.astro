@@ -3,6 +3,7 @@ import Base from './Base.astro'
 import Boot from '../components/Boot.astro'
 import Dock from '../components/Dock.astro'
 import OfflineNotice from '../components/OfflineNotice.astro'
+import { HeaderAvatar } from '../components/useBlock'
 import type { Tab } from '../lib/nav'
 
 /**
@@ -27,6 +28,12 @@ import type { Tab } from '../lib/nav'
  * 24 de enero de 2027" — a line of chrome, repeated everywhere, naming the app to the one
  * person who installed it. iOS puts the title first and the app's name on the home-screen
  * icon; so does this now, and every screen starts ~16px higher for it.
+ *
+ * The header carries one more thing now: the athlete's own initials, top-right, linking to
+ * `/ajustes`. `HeaderAvatar` lives beside `useBlock` rather than as a component of its own,
+ * because this shell is prerendered and cannot know who is signed in at build time — it is
+ * a `client:load` island like every screen's own, and it shares `useBlock`'s module-scope
+ * cache, so it paints instantly on every tab but the first.
  *
  * ---
  *
@@ -67,9 +74,12 @@ const { title, heading, sub, tab } = Astro.props
   <main
     class="mx-auto flex min-h-full max-w-lg flex-col gap-2 px-gutter pt-3 pb-[calc(4.75rem+env(safe-area-inset-bottom))]"
   >
-    <header class="px-0.5 pb-0.5">
-      <h1 class="font-display text-title2 font-bold tracking-tight text-label">{heading}</h1>
-      {sub ? <p class="mt-0.5 text-footnote leading-relaxed text-label-2">{sub}</p> : null}
+    <header class="flex items-start justify-between gap-2 px-0.5 pb-0.5">
+      <div class="min-w-0">
+        <h1 class="font-display text-title2 font-bold tracking-tight text-label">{heading}</h1>
+        {sub ? <p class="mt-0.5 text-footnote leading-relaxed text-label-2">{sub}</p> : null}
+      </div>
+      <HeaderAvatar client:load />
     </header>
     {/*
       Under the heading rather than above it, so the screen still opens by saying where you

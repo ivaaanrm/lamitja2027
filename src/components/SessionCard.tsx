@@ -9,6 +9,7 @@ import {
   isEffort,
   paceBandLabel,
   stepHeadline,
+  type Bands,
   type Step,
 } from '@/lib/workout'
 import { ACCENT, Button, Chevron, DoneToggle, TypeChip } from './ui'
@@ -56,12 +57,18 @@ import { ACCENT, Button, Chevron, DoneToggle, TypeChip } from './ui'
  */
 export function SessionCard({
   match,
+  hrMax,
+  bands,
   onToggle,
   onEdit,
   defaultOpen = false,
   from = 'plan',
 }: {
   match: MatchedSession
+  /** The athlete's max HR, resolved once by the screen — `user.hrMax ?? DEFAULT_HR_MAX`. */
+  hrMax: number
+  /** The athlete's own six pace bands, resolved once by the screen from their goal pace. */
+  bands: Bands
   /** Absent for sessions a Strava activity already settled — there is nothing to tick. */
   onToggle?: () => void
   onEdit?: () => void
@@ -74,7 +81,7 @@ export function SessionCard({
   const accent = ACCENT[session.type]
 
   const steps = session.steps ?? null
-  const effort = sessionEffort(session)
+  const effort = sessionEffort(session, bands)
   // Strength and cycling are prescribed in minutes; everything that runs, in kilometres.
   const target =
     session.targetDistanceM != null
@@ -153,7 +160,7 @@ export function SessionCard({
                 <span className="mt-1 block text-caption tabular-nums text-label-3">{meta}</span>
               ) : null}
 
-              {detailed && !open ? <WorkoutLine steps={steps} /> : null}
+              {detailed && !open ? <WorkoutLine steps={steps} bands={bands} /> : null}
             </span>
 
             <span className="flex shrink-0 items-center gap-1.5">
@@ -181,7 +188,7 @@ export function SessionCard({
         // hairline above already says this is a different part of the cell, and a second
         // rule inside it was a frame around one paragraph.
         <div className="fade-up space-y-2.5 border-t border-line px-3.5 pb-2.5 pt-2.5">
-          {detailed ? <StepList steps={steps} type={session.type} /> : null}
+          {detailed ? <StepList steps={steps} type={session.type} bands={bands} /> : null}
           {session.notes ? (
             // Coaching prose, so it gets the one thing prose needs and data does not: a
             // step up in size and open leading.
@@ -204,7 +211,7 @@ export function SessionCard({
         </div>
       ) : null}
 
-      {activity ? <Result activity={activity} session={session} /> : null}
+      {activity ? <Result activity={activity} session={session} hrMax={hrMax} /> : null}
     </article>
   )
 }
@@ -221,14 +228,14 @@ export function SessionCard({
  * a `Z5` after every effort was the same fact printed twice on consecutive lines. The
  * per-step bands live in the breakdown, where there is room for them to differ.
  */
-function WorkoutLine({ steps }: { steps: Step[] }) {
+function WorkoutLine({ steps, bands }: { steps: Step[]; bands: Bands }) {
   const efforts = steps.filter(isEffort)
 
   return (
     <span className="mt-0.5 block text-caption tabular-nums leading-relaxed text-label-2">
       {efforts.length === 0
         ? // Warm-up and cool-down only — nothing to promote, so say the whole thing.
-          formatWorkout(steps)
+          formatWorkout(steps, bands)
         : efforts.map((step) => stepHeadline(step)).join(' · ')}
     </span>
   )
@@ -248,7 +255,7 @@ function WorkoutLine({ steps }: { steps: Step[] }) {
  * around a single line of text. They hang at `pl-3.5` — the dot's 6px plus the 8px gap
  * beside it — so the second line of a set starts under the first, not under its marker.
  */
-function StepList({ steps, type }: { steps: Step[]; type: SessionType }) {
+function StepList({ steps, type, bands }: { steps: Step[]; type: SessionType; bands: Bands }) {
   const accent = ACCENT[type]
 
   return (
@@ -256,7 +263,9 @@ function StepList({ steps, type }: { steps: Step[]; type: SessionType }) {
       {steps.map((step, i) => {
         const effort = isEffort(step)
         const zone = step.zone ? zoneTag(PACE_ZONE_NUMBER[step.zone]) : null
-        const detail = effort ? [zone, paceBandLabel(step.zone)].filter(Boolean).join(' · ') : zone
+        const detail = effort
+          ? [zone, paceBandLabel(step.zone, bands)].filter(Boolean).join(' · ')
+          : zone
 
         return (
           <li key={i}>
@@ -312,9 +321,11 @@ function StepList({ steps, type }: { steps: Step[]; type: SessionType }) {
 function Result({
   activity,
   session,
+  hrMax,
 }: {
   activity: NonNullable<MatchedSession['activity']>
   session: MatchedSession['session']
+  hrMax: number
 }) {
   const pace = isRun(activity.sportType) ? paceSKm(activity.distanceM, activity.movingS) : null
   const target = session.targetDistanceM
@@ -339,7 +350,7 @@ function Result({
   if (activity.averageHeartrate) {
     // The zone, never the number: 151 ppm means nothing without the day's heat, sleep and
     // strap behind it, and no decision in the plan is made on the exact figure.
-    context.push(zoneTag(hrZone(activity.averageHeartrate)))
+    context.push(zoneTag(hrZone(activity.averageHeartrate, hrMax)))
   }
 
   return (

@@ -14,8 +14,8 @@ import {
   number,
   text,
 } from '@/lib/config'
-import { TOTAL_WEEKS } from '@/lib/block'
-import { HR_MAX as HR_MAX_FROM_PACES, PACES } from '@/lib/paces'
+import { DEFAULT_BLOCK, totalWeeks } from '@/lib/block'
+import { DEFAULT_HR_MAX, PACES } from '@/lib/paces'
 
 /**
  * The helpers are tested with arguments rather than by moving `import.meta.env` around.
@@ -65,7 +65,7 @@ describe('the block the app actually runs on', () => {
    * of itself and still be plumbed to the wrong constant.
    *
    * These are assertions about the *example* block, exactly like `seed.test.ts`'s
-   * `TOTAL_WEEKS === 23` — they hold because `vitest.config.ts` sets no `envPrefix` and
+   * `totalWeeks(DEFAULT_BLOCK) === 23` — they hold because `vitest.config.ts` sets no `envPrefix` and
    * a fork's `.env` therefore does not reach the suite. Give it `envPrefix: 'PUBLIC_'`
    * and these fail on a fork, correctly, and belong with the example block when they do.
    */
@@ -76,13 +76,13 @@ describe('the block the app actually runs on', () => {
     expect(new Date(RACE_DATE).toISOString()).toBe('2027-01-24T00:00:00.000Z')
     expect(new Date(RACE_DATE).getUTCDay()).toBe(0) // Sunday
     expect(new Date(PREV_RACE_DATE).toISOString()).toBe('2026-01-18T00:00:00.000Z')
-    expect(TOTAL_WEEKS).toBe(23)
+    expect(totalWeeks(DEFAULT_BLOCK)).toBe(23)
     expect(GOAL_TIME_S).toBe(4799)
     expect(RACE_DISTANCE_M).toBe(21_097.5)
     expect(HR_MAX).toBe(192)
     // `paces.ts` re-exports it so a caller wanting zones never has to know where the
     // number came from; the re-export has to still be the same number.
-    expect(HR_MAX_FROM_PACES).toBe(192)
+    expect(DEFAULT_HR_MAX).toBe(192)
   })
 
   it('derives the six bands of docs/03 §4, to the second', () => {

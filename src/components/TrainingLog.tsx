@@ -1,14 +1,14 @@
 import { useMemo, useState } from 'react'
 import { formatDuration, formatKm, formatPace, isRun, paceSKm } from '@/lib/activity'
-import { BLOCK_START, DAY_MS, startOfDay, startOfWeek } from '@/lib/block'
-import { BASELINE } from '@/lib/baseline'
+import { DAY_MS, startOfDay, startOfWeek, weekDays, type BlockConfig } from '@/lib/block'
+import { baselineFor, type Baseline } from '@/lib/baseline'
 import { percentDelta, summarise, weeklyTotals } from '@/lib/analytics'
 import { cn } from '@/lib/cn'
 import type { Activity } from '@/lib/db/schema'
 import { decimal } from '@/lib/format'
-import { SESSION_META, weekDays, type SessionType, type WeekPlan } from '@/lib/plan'
+import { SESSION_META, type SessionType, type WeekPlan } from '@/lib/plan'
 import { ChartLegend } from './charts'
-import { useBlock } from './useBlock'
+import { NoBlockCard, useBlock } from './useBlock'
 import { island } from './Island'
 import {
   ACCENT,
@@ -49,6 +49,11 @@ import {
  *
  * Only weeks that have started are drawn on the grid. This is the log, not the plan; an
  * empty row for December is the planner's job, and `/plan` already does it.
+ *
+ * Every comparison against 2025-26 reads `baselineFor(user.baselineKey)` rather than a
+ * constant: only the owner carries that key, so an invited athlete with no season behind
+ * them sees this whole tab minus its "frente a" clauses — absent, not a comparison against
+ * zero.
  */
 function TrainingLogScreen() {
   const { data, now, error, reload, weeks, currentWeek } = useBlock()
@@ -56,11 +61,24 @@ function TrainingLogScreen() {
   if (error && !data)
     return <ErrorCard title="Sin datos del bloque" message={error} onRetry={() => void reload()} />
   if (!data) return <LogSkeleton />
+  // No dates yet — `/bienvenida` is the only thing that fixes it, and every number on
+  // this screen is counted from them.
+  if (!data.block) return <NoBlockCard />
+
+  const block = data.block
+  const baseline = baselineFor(data.user.baselineKey, block)
 
   return (
     <>
-      <SummaryCard activities={data.activities} now={now} />
-      <GridCard weeks={weeks} activities={data.activities} currentWeek={currentWeek} now={now} />
+      <SummaryCard activities={data.activities} now={now} block={block} baseline={baseline} />
+      <GridCard
+        weeks={weeks}
+        activities={data.activities}
+        currentWeek={currentWeek}
+        now={now}
+        block={block}
+        baseline={baseline}
+      />
       <ActivityListCard activities={data.activities} weeks={weeks} />
     </>
   )
@@ -149,10 +167,10 @@ const RANGE_LABEL: Record<Range, string> = {
 }
 
 /** Where each range opens. All three end today, so the comparison window is the same. */
-function rangeStart(range: Range, today: number): number {
-  if (range === 'week') return Math.max(BLOCK_START, startOfWeek(today))
-  if (range === 'month') return Math.max(BLOCK_START, today - 27 * DAY_MS)
-  return BLOCK_START
+function rangeStart(range: Range, today: number, blockStart: number): number {
+  if (range === 'week') return Math.max(blockStart, startOfWeek(today))
+  if (range === 'month') return Math.max(blockStart, today - 27 * DAY_MS)
+  return blockStart
 }
 
 /**
@@ -163,34 +181,53 @@ function rangeStart(range: Range, today: number): number {
  * rather than a column of its own, because a pace *is* time over distance and reads as
  * that number's context. Three columns is what is left, and three columns at 375px leave
  * every hint enough width to say what its number is measured against.
+ *
+ * `baseline` is `null` for an athlete with no season on file — the comparison clause drops
+ * out of the context sentence entirely rather than measuring the week against a zero.
  */
-function SummaryCard({ activities, now }: { activities: Activity[]; now: number }) {
+function SummaryCard({
+  activities,
+  now,
+  block,
+  baseline,
+}: {
+  activities: Activity[]
+  now: number
+  block: BlockConfig
+  baseline: Baseline | null
+}) {
   const [range, setRange] = useState<Range>('week')
   const today = startOfDay(now)
 
   const { season, last } = useMemo(() => {
-    const from = rangeStart(range, today)
+    const from = rangeStart(range, today, block.startsOn)
     return {
       season: summarise(activities, from, today),
       // The baseline already sits on this block's calendar, so the same dates cut the
       // same stretch out of last season.
-      last: summarise(BASELINE, from, today),
+      last: baseline ? summarise(baseline.activities, from, today) : null,
     }
-  }, [activities, range, today])
+  }, [activities, range, today, block.startsOn, baseline])
 
   const km = season.totals.distanceM / 1000
-  const lastKm = last.totals.distanceM / 1000
+  const lastKm = last == null ? null : last.totals.distanceM / 1000
   const ran = season.totals.runs > 0
 
   // One sentence, and it changes with what there is to say. A hero number with no context
-  // line is trivia; "0,0 km" with no explanation is a bug wearing a number's clothes.
-  const context = ran
-    ? lastKm > 0
-      ? `Frente a ${decimal(lastKm)} km en la misma ventana de 2025-26.`
-      : 'En 2025-26 el bloque todavía no había empezado a estas alturas.'
-    : lastKm > 0
-      ? `Sin salidas todavía; la temporada pasada llevaba ${decimal(lastKm)} km.`
-      : 'Todavía sin salidas en esta ventana.'
+  // line is trivia; "0,0 km" with no explanation is a bug wearing a number's clothes. No
+  // `baseline` at all drops the comparison clause rather than measuring against a zero.
+  const context =
+    last == null
+      ? ran
+        ? undefined
+        : 'Todavía sin salidas en esta ventana.'
+      : ran
+        ? lastKm! > 0
+          ? `Frente a ${decimal(lastKm!)} km en la misma ventana de 2025-26.`
+          : 'En 2025-26 el bloque todavía no había empezado a estas alturas.'
+        : lastKm! > 0
+          ? `Sin salidas todavía; la temporada pasada llevaba ${decimal(lastKm!)} km.`
+          : 'Todavía sin salidas en esta ventana.'
 
   return (
     <Card className="fade-up">
@@ -203,7 +240,9 @@ function SummaryCard({ activities, now }: { activities: Activity[]; now: number 
         // the sentence says against what. Lifted a step off `caption` so it holds its own
         // beside a 34px number without becoming a second focal point.
         trailing={
-          lastKm > 0 ? <Delta value={percentDelta(km, lastKm)} className="text-subhead" /> : undefined
+          lastKm != null && lastKm > 0 ? (
+            <Delta value={percentDelta(km, lastKm)} className="text-subhead" />
+          ) : undefined
         }
       />
 
@@ -245,8 +284,8 @@ interface DayCell {
   isToday: boolean
 }
 
-function cellsFor(week: WeekPlan, today: number): DayCell[] {
-  return weekDays(week.weekIndex).map((date) => {
+function cellsFor(week: WeekPlan, today: number, block: BlockConfig): DayCell[] {
+  return weekDays(block, week.weekIndex).map((date) => {
     const day = week.days.find((d) => d.date === date)
     const runs = [
       ...(day?.sessions.map((m) => m.activity).filter((a) => a !== null) ?? []),
@@ -273,20 +312,29 @@ function GridCard({
   activities,
   currentWeek,
   now,
+  block,
+  baseline,
 }: {
   weeks: WeekPlan[]
   activities: Activity[]
   currentWeek: number
   now: number
+  block: BlockConfig
+  baseline: Baseline | null
 }) {
   const today = startOfDay(now)
-  const lastWeekly = useMemo(() => weeklyTotals(BASELINE, weeks.length), [weeks.length])
+  // `[]` when there is no season on file — every lookup below then misses, which is what
+  // leaves the grey row under each week absent rather than a row of zeroes.
+  const lastWeekly = useMemo(
+    () => (baseline ? weeklyTotals(block, baseline.activities, weeks.length) : []),
+    [baseline, block, weeks.length],
+  )
 
   // Newest first: the page opens on the week being run, not on August.
   const rows = weeks
     .slice(0, currentWeek + 1)
     .reverse()
-    .map((week) => ({ week, cells: cellsFor(week, today) }))
+    .map((week) => ({ week, cells: cellsFor(week, today, block) }))
   const peak = Math.max(1, ...activities.filter((a) => isRun(a.sportType)).map((a) => a.distanceM))
   const drawn = new Set(rows.flatMap((r) => r.cells.filter((c) => c.distanceM > 0).map((c) => c.type)))
   const kinds = [...drawn].filter((type) => type !== null)
@@ -398,8 +446,10 @@ function GridCard({
           />
 
           <p className="mt-2 text-caption2 leading-relaxed text-label-3">
-            El área de cada punto son sus kilómetros. Debajo del total, en gris, la misma
-            semana de 2025-26 a la misma distancia del día de carrera.
+            El área de cada punto son sus kilómetros.
+            {baseline
+              ? ' Debajo del total, en gris, la misma semana de 2025-26 a la misma distancia del día de carrera.'
+              : ''}
           </p>
         </>
       ) : (

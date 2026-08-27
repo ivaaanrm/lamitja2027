@@ -1,5 +1,4 @@
-import { BLOCK_START, DAY_MS, RACE_DISTANCE_M, TOTAL_WEEKS, WEEK_MS } from './block'
-import { RACE_NAME } from './config'
+import { DAY_MS, DEFAULT_BLOCK, WEEK_MS, totalWeeks } from './block'
 import type { NewPlanSession, NewPlanWeek } from './db/schema'
 import { SESSION_META, type SessionType } from './plan'
 import { PACES, type PaceBand, type PaceZone } from './paces'
@@ -23,6 +22,12 @@ import {
 
 /**
  * The block, written out. Source: docs/03-training-plan-2027.md.
+ *
+ * This is the *owner's* plan against `DEFAULT_BLOCK` and nothing else — 23 named weeks on
+ * 23 real dates, with the Tast and the Behobia in the places the calendar puts them.
+ * Every other athlete starts with an empty plan and writes their own — in `/plan`, or by
+ * pointing an agent at their MCP endpoint, which builds the same shapes from
+ * their own block; nothing here generalises, and it is not meant to.
  *
  * Deterministic and hand-authored — not an engine. Every quality session below is a
  * designed workout with its repetitions, rep pace and recovery spelled out as data, so
@@ -51,6 +56,18 @@ import {
  * `POST /api/mcp`, which writes the same rows without going through `buildPlan` at all.
  * `slotsFor` below is what says so out loud when the two lengths disagree.
  */
+
+/**
+ * The block this file is the plan for, and the only one it is ever the plan for.
+ *
+ * `seed.ts` is the *owner's* hand-written block — 23 weeks of docs/03 typed out in
+ * Spanish, naming el Tast and la Behobia. Every other athlete on this deployment starts
+ * with an empty plan and writes their own, in `/plan` or by pointing an agent at their
+ * MCP endpoint. So this reads `DEFAULT_BLOCK` rather than a signed-in athlete's: it is a
+ * fixed document, not a generator, and `POST /api/plan/seed` is owner-only for that reason.
+ */
+const BLOCK = DEFAULT_BLOCK
+const TOTAL_WEEKS = totalWeeks(BLOCK)
 
 /**
  * The five phases, as *shares of the block* rather than as week numbers, with the volume
@@ -782,14 +799,14 @@ const WEEKS: Slot[][] = [
       type: 'race',
       // The one session title that is not written out: it is the race in `config.ts`,
       // which is the name on the bib and on every screen that counts down to it.
-      title: RACE_NAME,
+      title: BLOCK.raceName,
       notes:
         'El sub-1:20 son 3:47/km. Los primeros 10 km suben +140 m: mantén la franja de ritmo y deja que la segunda mitad lo devuelva entre −1 y −1,8 %. Cadencia 85+ en la bajada — la misma que se ensayó en la Behobia.',
       pace: PACES.race,
       steps: [
         warmup(km(1.5)),
         strides(4, 20, 'Tres o cuatro, justo antes de la salida.'),
-        steady(RACE_DISTANCE_M, 'race', '21,1 km a ritmo objetivo.'),
+        steady(BLOCK.raceDistanceM, 'race', '21,1 km a ritmo objetivo.'),
       ],
     },
   ],
@@ -867,9 +884,23 @@ function stepsFor(slot: Slot, sizes: Map<Slot, number>): Step[] | null {
   return stride ? [run, stride] : [run]
 }
 
+/**
+ * A plan row before it is stamped with the athlete it belongs to.
+ *
+ * `userId` is the route's to add, not the plan's: the same 183 rows are the owner's plan
+ * whoever is asked to insert them, and threading an id through 700 lines of prescription
+ * would put a tenant in a file that is otherwise pure arithmetic on dates.
+ *
+ * `targetVolumeM` goes the other way — the column is nullable, so drizzle's insert type
+ * makes it optional, but a week this file built always has one: it is the sum of what its
+ * own sessions prescribe. Saying so here is what lets a caller add the weeks up.
+ */
+export type SeedWeek = Omit<NewPlanWeek, 'userId' | 'targetVolumeM'> & { targetVolumeM: number }
+export type SeedSession = Omit<NewPlanSession, 'userId'>
+
 export interface PlanSeed {
-  weeks: NewPlanWeek[]
-  sessions: NewPlanSession[]
+  weeks: SeedWeek[]
+  sessions: SeedSession[]
 }
 
 /**
@@ -881,12 +912,12 @@ export interface PlanSeed {
  * that quietly stops meaning anything.
  */
 export function buildPlan(now: number): PlanSeed {
-  const sessions: NewPlanSession[] = []
+  const sessions: SeedSession[] = []
   const volumeByWeek = new Array<number>(TOTAL_WEEKS).fill(0)
 
   for (let week = 0; week < TOTAL_WEEKS; week++) {
     const slots = slotsFor(week)
-    const weekStart = BLOCK_START + week * WEEK_MS
+    const weekStart = BLOCK.startsOn + week * WEEK_MS
     const sizes = sizeEasyRuns(slots, weeklyVolumeM(week))
     // dayOrder disambiguates a double day — the run comes before the strength session.
     const orderByDay = new Map<number, number>()
@@ -921,7 +952,7 @@ export function buildPlan(now: number): PlanSeed {
     }
   }
 
-  const weeks: NewPlanWeek[] = Array.from({ length: TOTAL_WEEKS }, (_, week) => ({
+  const weeks: SeedWeek[] = Array.from({ length: TOTAL_WEEKS }, (_, week) => ({
     weekIndex: week,
     phase: phaseOf(week).phase,
     focus: phaseOf(week).focus,

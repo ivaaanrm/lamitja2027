@@ -1,16 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { BLOCK_START, DAY_MS } from '@/lib/block'
-import { buildWeek, effortLabel, matchDay, sessionEffort, weekDays, weekStart } from '@/lib/plan'
+import { type BlockConfig, DAY_MS, DEFAULT_BLOCK, WEEK_MS, weekDays } from '@/lib/block'
+import { buildBlock, buildWeek, effortLabel, matchDay, sessionEffort } from '@/lib/plan'
 import type { Activity, PlanSession } from '@/lib/db/schema'
 import { PACES } from '@/lib/paces'
 import { cooldown, jogFor, km, reps, steady, warmup } from '@/lib/workout'
 
-const MONDAY = BLOCK_START
+const BLOCK = DEFAULT_BLOCK
+const MONDAY = BLOCK.startsOn
 let nextId = 1
 
 function activity(overrides: Partial<Activity> = {}): Activity {
   return {
     id: nextId++,
+    userId: 'owner',
     name: 'Run',
     sportType: 'Run',
     startedOn: MONDAY + 8 * 3_600_000,
@@ -28,6 +30,7 @@ function activity(overrides: Partial<Activity> = {}): Activity {
 
 function session(overrides: Partial<PlanSession> = {}): PlanSession {
   return {
+    userId: 'owner',
     id: `s${nextId++}`,
     scheduledOn: MONDAY,
     dayOrder: 0,
@@ -125,26 +128,17 @@ describe('matchDay', () => {
   })
 })
 
-describe('weekDays', () => {
-  it('runs Monday to Sunday from the block start', () => {
-    const days = weekDays(2)
-    expect(days).toHaveLength(7)
-    expect(days[0]).toBe(weekStart(2))
-    expect(new Date(days[0]!).getUTCDay()).toBe(1)
-    expect(days[6]! - days[0]!).toBe(6 * DAY_MS)
-  })
-})
-
 describe('buildWeek', () => {
   it('always yields seven days, empty ones included', () => {
-    const week = buildWeek(0, [], [session()], [activity()])
+    const week = buildWeek(BLOCK, 0, [], [session()], [activity()])
     expect(week.days).toHaveLength(7)
-    expect(week.days.map((d) => d.date)).toEqual(weekDays(0))
+    expect(week.days.map((d) => d.date)).toEqual(weekDays(BLOCK, 0))
   })
 
   it('files each session and activity under the day it happened', () => {
     const wednesday = MONDAY + 2 * DAY_MS
     const week = buildWeek(
+      BLOCK,
       0,
       [],
       [session({ scheduledOn: wednesday })],
@@ -159,10 +153,39 @@ describe('buildWeek', () => {
 
   it('surfaces a run on an unplanned day rather than dropping it', () => {
     const friday = MONDAY + 4 * DAY_MS
-    const week = buildWeek(0, [], [], [activity({ startedOn: friday })])
+    const week = buildWeek(BLOCK, 0, [], [], [activity({ startedOn: friday })])
 
     expect(week.sessions).toEqual([])
     expect(week.extras).toHaveLength(1)
+  })
+})
+
+describe('buildBlock', () => {
+  /** A second athlete: ten weeks to a 10K, opening three weeks after the owner's block. */
+  const OTHER: BlockConfig = {
+    startsOn: Date.UTC(2026, 8, 7),
+    raceOn: Date.UTC(2026, 10, 15),
+    goalTimeS: 2400,
+    raceDistanceM: 10_000,
+    raceName: 'Cursa dels Nassos',
+  }
+
+  it('spans as many weeks as the block it is handed', () => {
+    expect(buildBlock(BLOCK, [], [], [])).toHaveLength(23)
+    expect(buildBlock(OTHER, [], [], [])).toHaveLength(10)
+  })
+
+  it('files a session by the week of the block it was given, not of the owner’s', () => {
+    // The same Monday is week 3 for the owner and week 0 for the other athlete. Reading it
+    // off a compiled-in start is exactly the bug the block value exists to make impossible.
+    const at = BLOCK.startsOn + 3 * WEEK_MS
+    const own = buildBlock(BLOCK, [], [session({ scheduledOn: at })], [])
+    const other = buildBlock(OTHER, [], [session({ scheduledOn: at })], [])
+
+    expect(own[3]!.sessions).toHaveLength(1)
+    expect(own[0]!.sessions).toEqual([])
+    expect(other[0]!.sessions).toHaveLength(1)
+    expect(other[0]!.startsOn).toBe(OTHER.startsOn)
   })
 })
 

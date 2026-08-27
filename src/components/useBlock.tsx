@@ -1,13 +1,27 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { TOTAL_WEEKS, startOfDay, wallClockNow, weekIndex } from '@/lib/block'
+import { startOfDay, totalWeeks, wallClockNow, weekIndex, type BlockConfig } from '@/lib/block'
 import { bootDone } from '@/lib/boot'
+import type { SessionUser } from '@/lib/auth'
 import { blockProgress, type BlockProgress } from '@/lib/metrics'
 import { setOffline } from '@/lib/net'
 import { buildBlock, type WeekPlan } from '@/lib/plan'
-import type { Activity, PlanSession, PlanWeek } from '@/lib/db/schema'
+import type { Activity, PlanSession, PlanWeek, StravaAthlete } from '@/lib/db/schema'
+import { Card, CardTitle, EmptyState, TextLink } from './ui'
 
 interface BlockData {
-  athlete: { firstname: string | null; lastname: string | null; profile: string | null } | null
+  user: SessionUser
+  /**
+   * `null` for an athlete who registered but has not finished `/bienvenida` yet: there is
+   * no `blocks` row to answer with, and every list below is scoped to one, so they come
+   * back empty rather than unfiltered. Nothing is synthesised in its place — a made-up
+   * start date would put every week index and every metric on a calendar nobody chose.
+   */
+  block: BlockConfig | null
+  /** Whether this athlete has a season to compare against — see `baselineFor`. */
+  baseline: boolean
+  /** `sessions.length > 0` — whether this athlete has written any plan yet. */
+  hasPlan: boolean
+  athlete: StravaAthlete | null
   stravaConnected: boolean
   lastSyncAt: number | null
   activities: Activity[]
@@ -26,6 +40,11 @@ export interface Block {
   progress: BlockProgress | null
   /** Clamped into the block, so the app has a sensible "this week" before it opens. */
   currentWeek: number
+  /** The signed-in athlete's block — `null` until the first payload lands. */
+  block: BlockConfig | null
+  user: SessionUser | null
+  baseline: boolean
+  hasPlan: boolean
 }
 
 /**
@@ -145,12 +164,19 @@ export function useBlock(nowInput?: number): Block {
     }
   }, [reload])
 
+  // Both are derived off the block, so both stay empty until there is one — every week
+  // here is counted from `startsOn`, and there is no honest week 0 without it.
   const weeks = useMemo(
     () =>
-      data ? buildBlock(TOTAL_WEEKS, data.weeks, data.sessions, data.activities) : ([] as WeekPlan[]),
+      data?.block
+        ? buildBlock(data.block, data.weeks, data.sessions, data.activities)
+        : ([] as WeekPlan[]),
     [data],
   )
-  const progress = useMemo(() => (data ? blockProgress(weeks, now) : null), [weeks, data, now])
+  const progress = useMemo(
+    () => (data?.block ? blockProgress(data.block, weeks, now) : null),
+    [weeks, data, now],
+  )
 
   return {
     data,
@@ -159,6 +185,73 @@ export function useBlock(nowInput?: number): Block {
     reload,
     weeks,
     progress,
-    currentWeek: Math.min(TOTAL_WEEKS - 1, Math.max(0, weekIndex(now))),
+    currentWeek: data?.block
+      ? Math.min(totalWeeks(data.block) - 1, Math.max(0, weekIndex(data.block, now)))
+      : 0,
+    block: data?.block ?? null,
+    user: data?.user ?? null,
+    baseline: data?.baseline ?? false,
+    hasPlan: data?.hasPlan ?? false,
   }
+}
+
+/**
+ * What every screen behind the dock draws for an athlete whose block is still `null`.
+ *
+ * The same state `hasPlan: false` describes, one step earlier: a plan needs dates
+ * to generate against, so the door here is `/bienvenida` rather than the wizard. One card
+ * with one way out, instead of six skeletons that would never fill.
+ *
+ * It lives beside the hook rather than in `ui/` because it is a reading of this payload,
+ * not a shape the design system repeats — same reason `HeaderAvatar` is here.
+ */
+export function NoBlockCard() {
+  return (
+    <Card className="fade-up">
+      <CardTitle>Tu bloque</CardTitle>
+      <EmptyState
+        action={
+          <TextLink href="/bienvenida" tone="primary">
+            Configurar ahora
+          </TextLink>
+        }
+      >
+        Todavía no has guardado tu carrera ni tus fechas. Sin ellas no hay semanas que contar.
+      </EmptyState>
+    </Card>
+  )
+}
+
+/** `Marc Vidal` → `MV`. Two letters is what fits a 44px circle; one alone reads as a typo. */
+function initialsOf(displayName: string): string {
+  const words = displayName.trim().split(/\s+/).filter(Boolean)
+  const first = words[0]?.[0] ?? ''
+  const last = words.length > 1 ? (words.at(-1)?.[0] ?? '') : ''
+  return (first + last).toUpperCase()
+}
+
+/**
+ * The one piece of per-athlete chrome that lives in the header rather than in a tab: the
+ * signed-in athlete's own initials, linking to `/ajustes`. Defined beside the hook it
+ * reads rather than as a page-level concern, because `App.astro` is prerendered and has no
+ * athlete to draw at build time — this mounts as its own tiny island instead, and it reads
+ * `useBlock`'s module-scope cache like every screen's own island does, so on every tab but
+ * the first it paints instantly rather than opening blank.
+ *
+ * No skeleton on the empty circle before the first payload lands: it is a corner mark, not
+ * a card, and the shimmer this app reserves for content that took a screen's worth of
+ * layout to promise would be a bigger claim than a name badge is worth.
+ */
+export function HeaderAvatar() {
+  const { user } = useBlock()
+
+  return (
+    <a
+      href="/ajustes"
+      aria-label="Ajustes"
+      className="tappable flex size-11 shrink-0 items-center justify-center rounded-full bg-fill text-caption font-semibold text-label-2"
+    >
+      {user ? initialsOf(user.displayName) : null}
+    </a>
+  )
 }

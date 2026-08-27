@@ -12,10 +12,10 @@ import { activityLoad } from '@/lib/analytics'
 import { cn } from '@/lib/cn'
 import type { Activity, PlanSession } from '@/lib/db/schema'
 import { decimal } from '@/lib/format'
-import { ZONE_FLOOR_BPM, ZONE_NAME, hrZone, zoneTag, type Zone } from '@/lib/paces'
+import { DEFAULT_HR_MAX, ZONE_NAME, hrZone, zoneFloorsBpm, zoneTag, type Zone } from '@/lib/paces'
 import type { ActivityDetail as Detail, Split, TracePoint } from '@/lib/streams'
 import { ChartScale, LineChart, Sparkline, SplitBars, StackedBar } from './charts'
-import { useBlock } from './useBlock'
+import { NoBlockCard, useBlock } from './useBlock'
 import { island } from './Island'
 import {
   ARROW_OUT,
@@ -145,6 +145,13 @@ function ActivityDetailScreen() {
   // the screen stands in for itself in grey. A spinner here would say "wait" and nothing
   // about what for.
   if (!data || id === undefined) return <ScreenSkeleton />
+  // No dates yet — `/bienvenida` is the only thing that fixes it, and every number on
+  // this screen is counted from them.
+  if (!data.block) return <NoBlockCard />
+
+  const block = data.block
+  const hrMax = data.user.hrMax ?? DEFAULT_HR_MAX
+
   if (id === null) {
     return (
       <Card className="fade-up">
@@ -160,8 +167,8 @@ function ActivityDetailScreen() {
       <Card className="fade-up">
         <CardTitle>Actividad</CardTitle>
         <EmptyState action={<BackLink />}>
-          Esa salida no está en el bloque: solo se sincroniza lo corrido desde el 17 de agosto
-          de 2026.
+          Esa salida no está en el bloque: solo se sincroniza lo corrido desde el{' '}
+          {blockStartFmt.format(new Date(block.startsOn))}.
         </EmptyState>
       </Card>
     )
@@ -174,6 +181,7 @@ function ActivityDetailScreen() {
         answered={answered}
         trace={detail?.trace ?? null}
         pending={detail === null && detailError === null}
+        hrMax={hrMax}
       />
 
       {detailError ? (
@@ -192,7 +200,7 @@ function ActivityDetailScreen() {
         />
       ) : detail ? (
         <>
-          <Traces activity={activity} trace={detail.trace} answered={answered} />
+          <Traces activity={activity} trace={detail.trace} answered={answered} hrMax={hrMax} />
           <Zones zoneS={detail.zoneS} />
           {detail.laps.length > 0 ? (
             <SplitTable
@@ -200,6 +208,7 @@ function ActivityDetailScreen() {
               rows={detail.laps}
               labelFor={(lap) => String(lap.index)}
               backdrop={detail.trace.map((p) => p.altitudeM)}
+              hrMax={hrMax}
             />
           ) : null}
           {detail.splits.length > 0 ? (
@@ -208,6 +217,7 @@ function ActivityDetailScreen() {
               rows={detail.splits}
               labelFor={(_, i) => String(i + 1)}
               backdrop={detail.trace.map((p) => p.altitudeM)}
+              hrMax={hrMax}
             />
           ) : null}
           {detail.description ? (
@@ -232,6 +242,14 @@ const dateFmt = new Intl.DateTimeFormat('es-ES', {
   month: 'long',
   hour: '2-digit',
   minute: '2-digit',
+  timeZone: 'UTC',
+})
+
+/** `17 de agosto de 2026` — the block's own opening day, said in full in the dead end below. */
+const blockStartFmt = new Intl.DateTimeFormat('es-ES', {
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
   timeZone: 'UTC',
 })
 
@@ -286,15 +304,17 @@ function Overview({
   answered,
   trace,
   pending,
+  hrMax,
 }: {
   activity: Activity
   answered: PlanSession | null
   /** `null` until the detail request lands — or for good, if it fails. */
   trace: TracePoint[] | null
   pending: boolean
+  hrMax: number
 }) {
   const run = isRun(activity.sportType)
-  const zone = activity.averageHeartrate == null ? null : hrZone(activity.averageHeartrate)
+  const zone = activity.averageHeartrate == null ? null : hrZone(activity.averageHeartrate, hrMax)
 
   // Negated, because a sparkline draws bigger values higher and a slower kilometre is a
   // bigger number. The axis is unlabelled, so the inversion costs nothing and the trace
@@ -430,10 +450,12 @@ function Traces({
   activity,
   trace,
   answered,
+  hrMax,
 }: {
   activity: Activity
   trace: TracePoint[]
   answered: PlanSession | null
+  hrMax: number
 }) {
   const [chosen, setChosen] = useState<Metric>('pace')
 
@@ -465,7 +487,7 @@ function Traces({
   // A ride has no pace segment, so the default has to be able to fall through. Derived
   // rather than corrected in an effect: the fallback is a function of the data.
   const metric = options.some((option) => option.value === chosen) ? chosen : options[0]!.value
-  const view = viewFor(metric, { activity, answered, pace, hr, cadence, altitude })
+  const view = viewFor(metric, { activity, answered, pace, hr, cadence, altitude, hrMax })
 
   return (
     <Card className="fade-up">
@@ -517,6 +539,7 @@ function viewFor(
     hr,
     cadence,
     altitude,
+    hrMax,
   }: {
     activity: Activity
     answered: PlanSession | null
@@ -524,6 +547,7 @@ function viewFor(
     hr: (number | null)[]
     cadence: (number | null)[]
     altitude: (number | null)[]
+    hrMax: number
   },
 ): { value: string; unit: string; span: string; legend: string; chart: React.ReactNode } {
   const steps = pace.length
@@ -556,12 +580,13 @@ function viewFor(
 
   if (metric === 'hr') {
     const present = hr.filter(isNumber)
+    const floors = zoneFloorsBpm(hrMax)
     return {
       // Never the bpm — the number drifts with heat, sleep and the strap, and no decision
       // in the plan is made on it.
-      value: activity.averageHeartrate == null ? '—' : zoneTag(hrZone(activity.averageHeartrate)),
+      value: activity.averageHeartrate == null ? '—' : zoneTag(hrZone(activity.averageHeartrate, hrMax)),
       unit: 'de media',
-      span: range(hr, (v) => zoneTag(hrZone(v))),
+      span: range(hr, (v) => zoneTag(hrZone(v, hrMax))),
       legend: 'umbrales Z2 a Z5',
       chart: (
         <LineChart
@@ -573,7 +598,7 @@ function viewFor(
           // No `baseline`: the floor here is "five under the lowest beat", not a zero.
           yMin={Math.min(...present) - 5}
           yMax={Math.max(...present) + 5}
-          rules={([2, 3, 4, 5] as const).map((zone) => ({ at: ZONE_FLOOR_BPM[zone] }))}
+          rules={([2, 3, 4, 5] as const).map((zone) => ({ at: floors[zone] }))}
         />
       ),
     }
@@ -765,12 +790,14 @@ function SplitTable<T extends Split>({
   rows,
   labelFor,
   backdrop,
+  hrMax,
 }: {
   title: string
   rows: T[]
   labelFor: (row: T, index: number) => string
   /** The altitude profile from the trace, on the same distance axis as the splits. */
   backdrop?: (number | null)[]
+  hrMax: number
 }) {
   // Anything under 200 m is the tail of a run, not a split worth winning — and with no
   // measured row at all, `Math.min()` is `Infinity`, so the fastest is `null` rather than
@@ -781,7 +808,7 @@ function SplitTable<T extends Split>({
   const hasHr = rows.some((r) => r.heartrate != null)
 
   const bars = rows.map((row, i) => {
-    const zone = row.heartrate == null ? null : hrZone(row.heartrate)
+    const zone = row.heartrate == null ? null : hrZone(row.heartrate, hrMax)
     return {
       key: i,
       // Speed, not pace: the bar has to be *taller* for a faster split, and pace runs the
@@ -834,7 +861,7 @@ function SplitTable<T extends Split>({
         </thead>
         <tbody>
           {rows.map((row, i) => {
-            const zone = row.heartrate == null ? null : hrZone(row.heartrate)
+            const zone = row.heartrate == null ? null : hrZone(row.heartrate, hrMax)
             const best = fastest != null && row.paceSKm === fastest
             const climb = row.elevationM == null ? null : Math.round(row.elevationM)
 

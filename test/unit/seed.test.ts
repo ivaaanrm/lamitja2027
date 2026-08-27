@@ -1,9 +1,22 @@
 import { describe, expect, it } from 'vitest'
-import { BLOCK_START, DAY_MS, RACE_DATE, TOTAL_WEEKS, WEEK_MS } from '@/lib/block'
+import { DAY_MS, DEFAULT_BLOCK, WEEK_MS, totalWeeks } from '@/lib/block'
 import { SESSION_META, isQuality } from '@/lib/plan'
-import { buildPlan, hardShare, isDownWeek, phaseFor, resolvePhases, weeklyVolumeM } from '@/lib/seed'
+import {
+  buildPlan,
+  hardShare,
+  isDownWeek,
+  phaseFor,
+  resolvePhases,
+  weeklyVolumeM,
+  type SeedSession,
+} from '@/lib/seed'
 import { hardDistanceM, workoutDistanceM } from '@/lib/workout'
-import type { NewPlanSession } from '@/lib/db/schema'
+
+// The hand-written plan is the owner's block and no one else's — it is checked against
+// those dates directly, the way docs/03 wrote them down.
+const BLOCK_START = DEFAULT_BLOCK.startsOn
+const RACE_DATE = DEFAULT_BLOCK.raceOn
+const TOTAL_WEEKS = totalWeeks(DEFAULT_BLOCK)
 
 const NOW = Date.UTC(2026, 7, 22)
 const { weeks, sessions } = buildPlan(NOW)
@@ -11,7 +24,7 @@ const { weeks, sessions } = buildPlan(NOW)
 const RUN = new Set(['easy', 'long', 'tempo', 'interval', 'fartlek', 'race'])
 
 const weekOf = (at: number) => Math.floor((at - BLOCK_START) / WEEK_MS)
-const byWeek = (week: number): NewPlanSession[] =>
+const byWeek = (week: number): SeedSession[] =>
   sessions.filter((s) => weekOf(s.scheduledOn) === week)
 
 /** Every week's running sessions, the ones that carry a distance. */

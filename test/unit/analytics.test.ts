@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { formatClock } from '@/lib/activity'
-import { BLOCK_START, DAY_MS, TOTAL_WEEKS, WEEK_MS } from '@/lib/block'
+import {
+  type BlockConfig,
+  DAY_MS,
+  HALF_MARATHON_M,
+  DEFAULT_BLOCK,
+  WEEK_MS,
+  totalWeeks,
+} from '@/lib/block'
+import { DEFAULT_HR_MAX } from '@/lib/paces'
 import {
   activityLoad,
   bestEfforts,
@@ -21,11 +29,17 @@ import {
 } from '@/lib/analytics'
 import type { Activity } from '@/lib/db/schema'
 
+const BLOCK = DEFAULT_BLOCK
+const BLOCK_START = BLOCK.startsOn
+const TOTAL_WEEKS = totalWeeks(BLOCK)
+/** The owner has no `hr_max` of his own, so the zones are read off the fallback. */
+const HR_MAX = DEFAULT_HR_MAX
 let nextId = 1
 
 function activity(overrides: Partial<Activity> = {}): Activity {
   return {
     id: nextId++,
+    userId: 'owner',
     name: 'Run',
     sportType: 'Run',
     startedOn: BLOCK_START,
@@ -147,6 +161,7 @@ describe('series', () => {
 describe('weekly totals', () => {
   it('is null outside the weeks the data reaches, and zero inside them', () => {
     const weeks = weeklyTotals(
+      BLOCK,
       [
         activity({ startedOn: BLOCK_START + 1 * WEEK_MS, distanceM: 30_000 }),
         activity({ startedOn: BLOCK_START + 3 * WEEK_MS, distanceM: 40_000 }),
@@ -162,7 +177,7 @@ describe('weekly totals', () => {
   })
 
   it('is all null for a season with nothing in it', () => {
-    expect(weeklyTotals([], TOTAL_WEEKS).every((w) => w === null)).toBe(true)
+    expect(weeklyTotals(BLOCK, [], TOTAL_WEEKS).every((w) => w === null)).toBe(true)
   })
 })
 
@@ -174,7 +189,7 @@ describe('best efforts', () => {
   ]
 
   it('takes the fastest run long enough to count', () => {
-    const [five, ten, fifteen, half] = bestEfforts(runs)
+    const [five, ten, fifteen, half] = bestEfforts(BLOCK, runs, HR_MAX)
     expect(five!.paceSKm).toBeCloseTo(1_200 / 5.2, 5)
     // Nothing shorter can claim the 10K: only the 12 km run is long enough.
     expect(ten!.paceSKm).toBeCloseTo(3_000 / 12, 5)
@@ -183,33 +198,52 @@ describe('best efforts', () => {
   })
 
   it('reports the time the benchmark itself would take at that pace', () => {
-    const ten = bestEfforts(runs)[1]!
+    const ten = bestEfforts(BLOCK, runs, HR_MAX)[1]!
     expect(ten.timeS).toBeCloseTo((3_000 / 12) * 10, 5)
   })
 
   it('ignores anything that is not a run', () => {
     const ride = activity({ sportType: 'Ride', distanceM: 40_000, movingS: 4_000 })
-    expect(bestEfforts([ride]).every((b) => b.activity === null)).toBe(true)
+    expect(bestEfforts(BLOCK, [ride], HR_MAX).every((b) => b.activity === null)).toBe(true)
   })
 
   it('will not let a long easy run claim a best', () => {
     // 10 km at 5:24/km with the heart rate in Z2 — a rodaje, not a 10K.
     const easy = activity({ distanceM: 10_000, movingS: 3_240, averageHeartrate: 140 })
-    expect(isEffortRun(easy)).toBe(false)
-    expect(bestEfforts([easy]).every((b) => b.activity === null)).toBe(true)
+    expect(isEffortRun(BLOCK, easy, HR_MAX)).toBe(false)
+    expect(bestEfforts(BLOCK, [easy], HR_MAX).every((b) => b.activity === null)).toBe(true)
   })
 
   it('counts a hard run the strap saw, even at a modest pace', () => {
     // 4:44/km is slower than steady, but 181 bpm is Z5 — an all-out effort on tired legs.
-    expect(isEffortRun(activity({ distanceM: 8_160, movingS: 2_316, averageHeartrate: 181 }))).toBe(
-      true,
-    )
+    expect(
+      isEffortRun(BLOCK, activity({ distanceM: 8_160, movingS: 2_316, averageHeartrate: 181 }), HR_MAX),
+    ).toBe(true)
   })
 
   it('counts a fast run from a season with no strap at all', () => {
     expect(
-      isEffortRun(activity({ distanceM: 10_033, movingS: 2_382, averageHeartrate: null })),
+      isEffortRun(BLOCK, activity({ distanceM: 10_033, movingS: 2_382, averageHeartrate: null }), HR_MAX),
     ).toBe(true)
+  })
+
+  it('measures the effort against the athlete’s own bands, not the owner’s', () => {
+    // 5:20/km is a rodaje for a sub-1:20 runner and a hard tempo for someone chasing
+    // 1:45. Held against the owner's 4:35 steady bound the second athlete would never
+    // record a best at all, and their projection would read as empty rather than as slow.
+    const modest: BlockConfig = { ...BLOCK, goalTimeS: 6300, raceName: 'Media' } // 1:45
+    const run = activity({ distanceM: 10_000, movingS: 3_200, averageHeartrate: null })
+
+    expect(isEffortRun(BLOCK, run, HR_MAX)).toBe(false)
+    expect(isEffortRun(modest, run, HR_MAX)).toBe(true)
+  })
+
+  it('reads Z4 off the athlete’s own maximum', () => {
+    // 168 bpm is Z4 against a 192 max and only Z3 against a 205 one — the same run, and
+    // the strap is the only thing that changed hands.
+    const run = activity({ distanceM: 10_000, movingS: 3_240, averageHeartrate: 168 })
+    expect(isEffortRun(BLOCK, run, 192)).toBe(true)
+    expect(isEffortRun(BLOCK, run, 205)).toBe(false)
   })
 })
 
@@ -222,16 +256,30 @@ describe('projection', () => {
 
   it('takes the strongest benchmark and says which one it was', () => {
     const projection = projectHalf(
-      bestEfforts([
-        activity({ distanceM: 10_000, movingS: 2_260 }), // a sharp 10K
-        activity({ distanceM: 16_000, movingS: 4_800 }), // a steady long run
-      ]),
+      bestEfforts(
+        BLOCK,
+        [
+          activity({ distanceM: 10_000, movingS: 2_260 }), // a sharp 10K
+          activity({ distanceM: 16_000, movingS: 4_800 }), // a steady long run
+        ],
+        HR_MAX,
+      ),
+      HALF_MARATHON_M,
     )
     expect(projection!.from.label).toBe('10K')
   })
 
+  it('projects onto the race the athlete actually entered', () => {
+    // The same 10K says one thing about a half and quite another about a 10K — where it
+    // *is* the benchmark, Riegel has nothing to extrapolate and the time comes through.
+    const efforts = bestEfforts(BLOCK, [activity({ distanceM: 10_000, movingS: 2_260 })], HR_MAX)
+    expect(formatClock(projectHalf(efforts, 10_000)!.timeS)).toBe('37:40')
+    expect(projectHalf(efforts, HALF_MARATHON_M)!.timeS).toBeGreaterThan(2_260 * 2.1)
+  })
+
   it('is null when nothing has been run far enough', () => {
-    expect(projectHalf(bestEfforts([activity({ distanceM: 3_000, movingS: 900 })]))).toBeNull()
+    const efforts = bestEfforts(BLOCK, [activity({ distanceM: 3_000, movingS: 900 })], HR_MAX)
+    expect(projectHalf(efforts, HALF_MARATHON_M)).toBeNull()
   })
 })
 
@@ -318,18 +366,21 @@ describe('percentDelta', () => {
 
 describe('zone shares', () => {
   it('files each run by the zone its heart rate puts it in', () => {
-    const shares = zoneShares([
-      activity({ averageHeartrate: 140, movingS: 3_000 }), // Z2
-      activity({ averageHeartrate: 141, movingS: 1_800 }), // Z2
-      activity({ averageHeartrate: 178, movingS: 1_200 }), // Z5
-    ])
+    const shares = zoneShares(
+      [
+        activity({ averageHeartrate: 140, movingS: 3_000 }), // Z2
+        activity({ averageHeartrate: 141, movingS: 1_800 }), // Z2
+        activity({ averageHeartrate: 178, movingS: 1_200 }), // Z5
+      ],
+      HR_MAX,
+    )
     expect(shares.find((s) => s.zone === 2)!.movingS).toBe(4_800)
     expect(shares.find((s) => s.zone === 5)!.movingS).toBe(1_200)
     expect(shares.find((s) => s.zone === 3)!.runs).toBe(0)
   })
 
   it('leaves out runs with no strap rather than guessing at them', () => {
-    const shares = zoneShares([activity({ averageHeartrate: null })])
+    const shares = zoneShares([activity({ averageHeartrate: null })], HR_MAX)
     expect(shares.every((s) => s.runs === 0)).toBe(true)
   })
 
@@ -344,6 +395,6 @@ describe('zone shares', () => {
   })
 
   it('always returns all five zones, so a legend never changes shape', () => {
-    expect(zoneShares([]).map((s) => s.zone)).toEqual([1, 2, 3, 4, 5])
+    expect(zoneShares([], HR_MAX).map((s) => s.zone)).toEqual([1, 2, 3, 4, 5])
   })
 })

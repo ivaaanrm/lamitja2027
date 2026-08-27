@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { BLOCK_START, TOTAL_WEEKS, WEEK_MS, startOfDay } from './block'
+import { WEEK_MS, startOfDay, totalWeeks, type BlockConfig } from './block'
 import { PACE_ZONES } from './paces'
 import { SESSION_TYPES } from './plan'
 import { RECOVERY_KINDS, STEP_KINDS, type Step } from './workout'
@@ -8,15 +8,11 @@ import { RECOVERY_KINDS, STEP_KINDS, type Step } from './workout'
  * Validation for every plan write. Kept apart from `plan.ts` because that module ships to
  * the browser and this one only ever runs in the Worker — the editor posts, the server
  * decides.
+ *
+ * The session schemas are built per athlete rather than declared once: "the date falls
+ * outside the block" is the whole point of `scheduledOn`, and whose block it is is not
+ * something a module-level constant can know any more.
  */
-/** Half-open: the block's last day is race day itself. */
-const inBlock = (at: number) => at >= BLOCK_START && at < BLOCK_START + TOTAL_WEEKS * WEEK_MS
-
-const scheduledOn = z
-  .number()
-  .int()
-  .transform(startOfDay)
-  .refine(inBlock, 'La fecha cae fuera del bloque')
 
 /** Metres and seconds, matching how everything else is stored. */
 const positive = z.number().positive().nullable()
@@ -52,8 +48,8 @@ type _StepsMatch = z.infer<typeof stepInput> extends Step ? true : never
 const _stepsMatch: _StepsMatch = true as const
 void _stepsMatch
 
-const sessionFields = {
-  scheduledOn,
+/** Everything a session carries that does not depend on which block it belongs to. */
+const commonFields = {
   dayOrder: z.number().int().min(0).max(9),
   type: z.enum(SESSION_TYPES),
   title: z.string().trim().min(1).max(120),
@@ -67,26 +63,52 @@ const sessionFields = {
   activityId: z.number().int().nullable(),
 }
 
-/** A new session needs a day, a type and a name; everything else has a sensible blank. */
-export const createSessionInput = z.object({
-  ...sessionFields,
-  dayOrder: sessionFields.dayOrder.default(0),
-  notes: sessionFields.notes.default(null),
-  steps: sessionFields.steps.default(null),
-  targetDistanceM: sessionFields.targetDistanceM.default(null),
-  targetDurationS: sessionFields.targetDurationS.default(null),
-  targetPaceLoSKm: sessionFields.targetPaceLoSKm.default(null),
-  targetPaceHiSKm: sessionFields.targetPaceHiSKm.default(null),
-  doneAt: sessionFields.doneAt.default(null),
-  activityId: sessionFields.activityId.default(null),
-})
+/**
+ * The two session schemas for one athlete's block.
+ *
+ * A factory rather than a pair of constants because the only block-dependent rule —
+ * `scheduledOn` has to land inside the block — needs the athlete's own dates. Build it
+ * once per request from `context.locals.user`'s block; it is a handful of object
+ * literals, not something worth caching.
+ */
+export function sessionInputs(block: BlockConfig) {
+  /** Half-open: the block's last day is race day itself. */
+  const inBlock = (at: number) =>
+    at >= block.startsOn && at < block.startsOn + totalWeeks(block) * WEEK_MS
 
-/** Every field optional — an absent key means "leave it alone", `null` means "clear it". */
-export const updateSessionInput = z
-  .object(sessionFields)
-  .partial()
-  .refine((patch) => Object.keys(patch).length > 0, 'No hay nada que actualizar')
+  const sessionFields = {
+    ...commonFields,
+    scheduledOn: z
+      .number()
+      .int()
+      .transform(startOfDay)
+      .refine(inBlock, 'La fecha cae fuera del bloque'),
+  }
 
+  /** A new session needs a day, a type and a name; everything else has a sensible blank. */
+  const createSessionInput = z.object({
+    ...sessionFields,
+    dayOrder: sessionFields.dayOrder.default(0),
+    notes: sessionFields.notes.default(null),
+    steps: sessionFields.steps.default(null),
+    targetDistanceM: sessionFields.targetDistanceM.default(null),
+    targetDurationS: sessionFields.targetDurationS.default(null),
+    targetPaceLoSKm: sessionFields.targetPaceLoSKm.default(null),
+    targetPaceHiSKm: sessionFields.targetPaceHiSKm.default(null),
+    doneAt: sessionFields.doneAt.default(null),
+    activityId: sessionFields.activityId.default(null),
+  })
+
+  /** Every field optional — an absent key means "leave it alone", `null` means "clear it". */
+  const updateSessionInput = z
+    .object(sessionFields)
+    .partial()
+    .refine((patch) => Object.keys(patch).length > 0, 'No hay nada que actualizar')
+
+  return { createSessionInput, updateSessionInput }
+}
+
+/** A week carries no dates of its own — its Monday is derived — so it needs no block. */
 export const updateWeekInput = z
   .object({
     phase: z.string().trim().max(60).nullable(),
@@ -98,7 +120,9 @@ export const updateWeekInput = z
   .partial()
   .refine((patch) => Object.keys(patch).length > 0, 'No hay nada que actualizar')
 
+export type SessionInputs = ReturnType<typeof sessionInputs>
+
 /** `z.input`, not `z.infer` — these describe what the editor sends, before defaults land. */
-export type CreateSessionInput = z.input<typeof createSessionInput>
-export type UpdateSessionInput = z.input<typeof updateSessionInput>
+export type CreateSessionInput = z.input<SessionInputs['createSessionInput']>
+export type UpdateSessionInput = z.input<SessionInputs['updateSessionInput']>
 export type UpdateWeekInput = z.input<typeof updateWeekInput>

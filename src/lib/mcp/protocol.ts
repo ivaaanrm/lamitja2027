@@ -95,29 +95,36 @@ export interface ToolDefinition {
   inputSchema: Record<string, unknown>
 }
 
+/** One athlete's tools, built after their token has been resolved. */
+export interface ToolRegistry {
+  list(): ToolDefinition[]
+  call(name: string, args: Record<string, unknown>): Promise<ToolResult>
+}
+
 /**
  * Everything `handleMcp` needs that is not the request itself.
  *
- * The credential lives here rather than being read from `cloudflare:workers` inside this
- * module, which is the whole reason the transport is testable in Node: the route reads
- * `env.APP_PASSWORD` and hands it over, and a test hands over a string.
+ * Nothing here reads `cloudflare:workers`, which is the whole reason the transport is
+ * testable in Node: the route wires the real database and limiter in, and a test wires
+ * stubs in.
+ *
+ * The shape of `resolve` is the security model. There is no shared secret to compare
+ * against any more — a bearer token is *looked up*, and what comes back is one athlete's
+ * registry with their id already bound into every query behind it. A token that belongs to
+ * nobody resolves to `null` and the request is refused before its body is read. That also
+ * removes a whole class of mistake: there is no way to obtain a registry without having
+ * proved whose it is.
  */
-export interface ToolRegistry {
+export interface McpServer {
   serverInfo: { name: string; version: string }
   /** How an agent should approach this server. Returned by `initialize` and `server/discover`. */
   instructions: string
-  /** The one credential the whole deployment has — `APP_PASSWORD`, as a bearer token. */
-  secret: string
+  resolve(token: string): Promise<ToolRegistry | null>
   /**
-   * `false` when this caller has asked too often and should be turned away unread.
-   *
-   * Injected for the same reason `secret` is: the binding behind it lives in
-   * `cloudflare:workers`, and this module has to run in Node under vitest. Omitted
-   * entirely — by a test, or by a fork with no limiter configured — means no limiting.
+   * `false` when this caller has asked too often and should be turned away unread. Omitted
+   * — by a test, or by a fork with no limiter configured — means no limiting.
    */
   withinLimit?: (request: Request) => Promise<boolean>
-  list(): ToolDefinition[]
-  call(name: string, args: Record<string, unknown>): Promise<ToolResult>
 }
 
 // ---------------------------------------------------------------------------
@@ -179,40 +186,25 @@ function checkOrigin(request: Request): Response | null {
   return fail(null, RPC.INVALID_REQUEST, 'Origin not allowed', 403)
 }
 
-/**
- * `Authorization: Bearer <APP_PASSWORD>` — the same single password the app signs in with.
- *
- * A second secret just for this endpoint would be a second thing to rotate and a second
- * thing to leak, and the endpoint reaches exactly the data the password already unlocks.
- * There is no cookie here because an MCP client has no cookie jar: `src/middleware.ts`
- * lets `/api/mcp` past the session gate precisely so this can do the checking instead.
- */
-function authenticate(request: Request, secret: string): Response | null {
-  if (!secret) {
-    return fail(
-      null,
-      RPC.INTERNAL_ERROR,
-      'APP_PASSWORD is not configured on this deployment, so the MCP endpoint cannot authenticate anyone.',
-      500,
-    )
-  }
-
+/** The bearer token as presented, or `''` when the header is missing or not a bearer. */
+function bearerToken(request: Request): string {
   const header = request.headers.get('authorization') ?? ''
   const space = header.indexOf(' ')
   const scheme = space < 0 ? header : header.slice(0, space)
-  const token = space < 0 ? '' : header.slice(space + 1).trim()
+  if (scheme.toLowerCase() !== 'bearer') return ''
+  return space < 0 ? '' : header.slice(space + 1).trim()
+}
 
-  if (scheme.toLowerCase() !== 'bearer' || token === '' || !timingSafeEqual(token, secret)) {
-    const response = fail(
-      null,
-      RPC.UNAUTHORIZED,
-      'Send `Authorization: Bearer <APP_PASSWORD>`.',
-      401,
-    )
-    response.headers.set('www-authenticate', 'Bearer')
-    return response
-  }
-  return null
+/** One sentence for every way a token can fail, so none of them is an oracle. */
+function unauthorized(): Response {
+  const response = fail(
+    null,
+    RPC.UNAUTHORIZED,
+    'Send `Authorization: Bearer <token>` with the MCP token from /ajustes.',
+    401,
+  )
+  response.headers.set('www-authenticate', 'Bearer')
+  return response
 }
 
 /**
@@ -230,7 +222,7 @@ const disagree = (header: string | null, body: string | null, label: string): st
 // The one entry point
 // ---------------------------------------------------------------------------
 
-export async function handleMcp(request: Request, tools: ToolRegistry): Promise<Response> {
+export async function handleMcp(request: Request, server: McpServer): Promise<Response> {
   if (request.method !== 'POST') {
     const response = fail(
       null,
@@ -249,7 +241,7 @@ export async function handleMcp(request: Request, tools: ToolRegistry): Promise<
   // limiter that throttles the status code and not the guessing — see
   // `src/lib/ratelimit.ts`. The ceiling is set for an agent writing a whole block in a
   // burst, so a legitimate caller does not meet it.
-  if (tools.withinLimit && !(await tools.withinLimit(request))) {
+  if (server.withinLimit && !(await server.withinLimit(request))) {
     return fail(
       null,
       RPC.UNAUTHORIZED,
@@ -258,8 +250,12 @@ export async function handleMcp(request: Request, tools: ToolRegistry): Promise<
     )
   }
 
-  const denied = authenticate(request, tools.secret)
-  if (denied) return denied
+  // Looked up, not compared. `resolve` hashes the token and finds the athlete it belongs
+  // to; what comes back is *their* tools, with their id already bound into every query.
+  // A token belonging to nobody is refused here, before the body is even read.
+  const token = bearerToken(request)
+  const tools = token === '' ? null : await server.resolve(token)
+  if (!tools) return unauthorized()
 
   let body: unknown
   try {
@@ -320,8 +316,8 @@ export async function handleMcp(request: Request, tools: ToolRegistry): Promise<
         protocolVersion:
           typeof asked === 'string' && isSupported(asked) ? asked : LATEST_PROTOCOL_VERSION,
         capabilities: { tools: {} },
-        serverInfo: tools.serverInfo,
-        instructions: tools.instructions,
+        serverInfo: server.serverInfo,
+        instructions: server.instructions,
       })
     }
 
@@ -339,8 +335,8 @@ export async function handleMcp(request: Request, tools: ToolRegistry): Promise<
         resultType: 'complete',
         supportedVersions: [...PROTOCOL_VERSIONS],
         capabilities: { tools: {} },
-        instructions: tools.instructions,
-        _meta: { [SERVER_INFO_META_KEY]: tools.serverInfo },
+        instructions: server.instructions,
+        _meta: { [SERVER_INFO_META_KEY]: server.serverInfo },
       })
 
     case 'tools/list':

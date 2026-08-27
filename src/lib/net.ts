@@ -25,3 +25,31 @@ export function isOffline(): boolean {
   if (typeof document === 'undefined') return false
   return document.documentElement.hasAttribute(FLAG)
 }
+
+/**
+ * Drops the service worker's copy of `/api/data`.
+ *
+ * The offline layer keeps the last block payload so the plan survives a dead connection,
+ * in a cache scoped to the *origin* — which was exactly right while a deployment was one
+ * athlete, and is a leak the moment it is several. Two friends on one laptop, or a phone
+ * handed over for a minute: without this, signing in as the second one paints the first
+ * one's block from cache before the network answers, and if there is no network it never
+ * stops painting it.
+ *
+ * So it is cleared on the way out *and* on the way in. Out, because a signed-out device
+ * should hold nothing; in, because the athlete arriving cannot know what the device was
+ * holding before them. `sw.js` also drops it on any 401, which covers the third case —
+ * a session that expired rather than ended.
+ *
+ * Best-effort by design: no Cache API (old browser, private mode) simply means there was
+ * no cached payload to leak either.
+ */
+export async function clearCachedBlock(): Promise<void> {
+  if (typeof caches === 'undefined') return
+  try {
+    const names = await caches.keys()
+    await Promise.all(names.filter((name) => name.startsWith('lm-data-')).map((n) => caches.delete(n)))
+  } catch {
+    // Nothing to do: an unavailable cache is an absent one.
+  }
+}
