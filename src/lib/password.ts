@@ -5,14 +5,24 @@ import { base64ToBytes, bytesToBase64, timingSafeEqual } from './crypto'
  * argon2 would mean carrying a WASM build into a bundle that is otherwise a few tens of
  * KB — not a trade worth making for a handful of accounts on an invite-only app.
  *
- * The iteration count is spent on the login path only, roughly 100 ms of CPU on a request
+ * The iteration count is spent on the login path only, roughly 50 ms of CPU on a request
  * a person made deliberately, which is well inside a Worker's budget.
+ *
+ * It is capped at 100k not by choice but by the platform: Cloudflare Workers' WebCrypto
+ * rejects a PBKDF2 `deriveBits`/`deriveKey` above 100,000 iterations outright — the call
+ * throws *immediately* (not a CPU-time kill), so a higher number does not run slower, it
+ * does not run at all. `workerd`/miniflare does not enforce the cap, so 210k passed every
+ * local test and unit run and then threw on the first real request in production, turning
+ * both `/api/login` and `/api/bootstrap` into blank 500s. There is no compatibility flag
+ * to raise it; 100k is the ceiling, and OWASP's higher PBKDF2 targets are simply not
+ * reachable on this runtime — the honest mitigation is the password-length floor in
+ * `auth-input.ts`, not iterations this platform will not run.
  *
  * Length rules live in the zod schemas, not here: this module hashes whatever it is given
  * so that the one place that decides what a valid password is stays the one place a route
  * validates against.
  */
-export const PBKDF2_ITERATIONS = 210_000 // OWASP 2023 for PBKDF2-HMAC-SHA256
+export const PBKDF2_ITERATIONS = 100_000 // Cloudflare Workers' hard maximum for PBKDF2
 const SALT_BYTES = 16
 const KEY_BITS = 256
 
