@@ -45,6 +45,7 @@
  *
  * `role="status"` and not `role="alert"`: it is polite, and it is announced once.
  */
+import { APP_NAME } from '../lib/config'
 ---
 
 <div
@@ -90,7 +91,7 @@
     </span>
 
     <p class="mt-4 text-caption2 font-semibold uppercase tracking-[0.16em] text-label-3">
-      La Mitja 2027
+      {APP_NAME}
     </p>
 
     {/*

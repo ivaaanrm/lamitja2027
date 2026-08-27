@@ -1,4 +1,4 @@
-import { GOAL_TIME_S, HALF_MARATHON_M, TOTAL_WEEKS, weekIndex } from './block'
+import { GOAL_TIME_S, RACE_DISTANCE_M, TOTAL_WEEKS, weekIndex } from './block'
 import { isRun, paceSKm } from './activity'
 import type { WeekPlan } from './plan'
 import type { Activity } from './db/schema'
@@ -13,7 +13,7 @@ import type { Activity } from './db/schema'
  */
 
 /** Goal race pace, s/km — 3:47/km for 1:19:59 over the half. */
-export const GOAL_PACE_S_KM = GOAL_TIME_S / (HALF_MARATHON_M / 1000)
+export const GOAL_PACE_S_KM = GOAL_TIME_S / (RACE_DISTANCE_M / 1000)
 
 export interface Totals {
   runs: number

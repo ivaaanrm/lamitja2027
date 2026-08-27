@@ -1,13 +1,16 @@
 ---
 import '../styles/global.css'
 import { ClientRouter } from 'astro:transitions'
+import { APP_DESCRIPTION, APP_SHORT_NAME } from '../lib/config'
 
 interface Props {
   title: string
   description?: string
 }
-const { title, description = 'Entrenamiento hacia una media maratón por debajo de 1:20 en La Mitja, el 24 de enero de 2027.' } =
-  Astro.props
+// One sentence for the meta description, the Open Graph card and the manifest alike —
+// `APP_DESCRIPTION`, so a fork writes it once. A page passes its own only to say something
+// this one cannot.
+const { title, description = APP_DESCRIPTION } = Astro.props
 
 // Absolute, because Open Graph rejects relative URLs. `site` is set in astro.config.mjs.
 const ogImage = new URL('/og.png', Astro.site)
@@ -48,17 +51,30 @@ const ogImage = new URL('/og.png', Astro.site)
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
 
+    <!--
+      `mobile-web-app-capable` is the standardised name and the one Chrome reads;
+      `apple-mobile-web-app-capable` is the deprecated original and is still the only one
+      iOS honours, so both are here rather than either.
+    -->
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="La Mitja" />
+    {/* The home-screen label on iOS, and the one name somebody else truncates: about
+        twelve characters before it ellipsises, which is why it is the short form. */}
+    <meta name="apple-mobile-web-app-title" content={APP_SHORT_NAME} />
     <!--
       `--color-surface`, written out. A meta tag cannot read a custom property, so this is
       the one place in the app besides Strava's orange where a colour is a literal — keep
       it in step with the token in global.css or Android paints its address bar a shade the
-      page never uses. iOS ignores it entirely: the status bar there is `black-translucent`
-      above, with `body`'s `env(safe-area-inset-top)` holding the content out from under it.
+      page never uses. It had drifted to #191b21 against a `--color-surface` of #12151a,
+      which is exactly the failure this comment was written to prevent; `background_color`
+      and `theme_color` in the manifest are the same value again for the same reason, and
+      they are what Android and iOS 16.4+ paint the launch screen with — left at #000 they
+      opened every cold start on a black field the app never shows.
+      iOS ignores the meta entirely: the status bar there is `black-translucent` above, with
+      `body`'s `env(safe-area-inset-top)` holding the content out from under it.
     -->
-    <meta name="theme-color" content="#191b21" />
+    <meta name="theme-color" content="#12151a" />
     <meta name="color-scheme" content="dark" />
 
     <meta property="og:type" content="website" />
@@ -81,3 +97,18 @@ const ogImage = new URL('/og.png', Astro.site)
     <slot />
   </body>
 </html>
+
+<script>
+  /**
+   * The offline layer, hung off every page in the app.
+   *
+   * A bundled module script, so it runs exactly once per *document* — which is once per
+   * launch, since `ClientRouter` swaps the body and keeps the document. Registering the
+   * worker from here rather than from an island is deliberate: `/login` and `/404` have no
+   * island at all, and they are precisely the two screens someone lands on with a bad
+   * connection.
+   */
+  import { initPwa } from '../lib/pwa'
+
+  initPwa()
+</script>

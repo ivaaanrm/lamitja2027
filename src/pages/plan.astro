@@ -2,15 +2,16 @@
 import App from '../layouts/App.astro'
 import { Planner } from '../components/Planner'
 import { TOTAL_WEEKS } from '../lib/block'
+import { APP_NAME, APP_SHORT_NAME } from '../lib/config'
 
 // Prerendered app shell, same as the home page — the plan itself arrives from /api/data.
 export const prerender = true
 ---
 
 <App
-  title="Plan · La Mitja 2027"
+  title={`Plan · ${APP_NAME}`}
   heading="Plan"
-  sub={`${TOTAL_WEEKS} semanas hasta La Mitja`}
+  sub={`${TOTAL_WEEKS} semanas hasta ${APP_SHORT_NAME}`}
   tab="plan"
 >
   <Planner client:load />

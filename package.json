@@ -1,5 +1,7 @@
 {
-  "name": "lamitja2027",
+  "name": "strideai",
+  "description": "Training tracker for one runner and one race block: Strava in, a hand-written plan, everything else derived on read.",
+  "license": "MIT",
   "type": "module",
   "version": "0.0.1",
   "packageManager": "pnpm@11.1.2",
@@ -13,12 +15,13 @@
     "deploy": "astro build && wrangler deploy -c dist/server/wrangler.json",
     "cf-typegen": "wrangler types",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "wrangler d1 migrations apply lamitja2027 --remote",
-    "db:migrate:local": "wrangler d1 migrations apply lamitja2027 --local",
+    "db:migrate": "wrangler d1 migrations apply DB --remote",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "test": "vitest run",
     "astro": "astro",
     "typecheck": "astro check",
-    "db:reset": "wrangler d1 execute lamitja2027 --remote --file scripts/reset-db.sql && wrangler d1 migrations apply lamitja2027 --remote"
+    "typecheck:ci": "astro sync && tsc --noEmit",
+    "db:reset": "wrangler d1 execute DB --remote --file scripts/reset-db.sql && wrangler d1 migrations apply DB --remote"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^14.2.3",

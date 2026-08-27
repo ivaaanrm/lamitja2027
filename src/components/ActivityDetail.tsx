@@ -16,6 +16,7 @@ import { ZONE_FLOOR_BPM, ZONE_NAME, hrZone, zoneTag, type Zone } from '@/lib/pac
 import type { ActivityDetail as Detail, Split, TracePoint } from '@/lib/streams'
 import { ChartScale, LineChart, Sparkline, SplitBars, StackedBar } from './charts'
 import { useBlock } from './useBlock'
+import { island } from './Island'
 import {
   ARROW_OUT,
   CHEVRON_LEFT,
@@ -53,9 +54,32 @@ import {
  * splits underneath. This is the most trace-led screen in the app, so the plot is given
  * the room three small ones were sharing.
  */
-export function ActivityDetail() {
+
+/**
+ * The traces read so far in this document, the way `useBlock` keeps the last block payload
+ * — and for a sharper reason than speed.
+ *
+ * Every open of this screen costs *three* calls against Strava's 100-per-15-minutes read
+ * limit, and the gesture this screen invites is browsing: tap a run, back, tap the next
+ * one, back to the first to compare. Without this, thirty-odd taps through the log spend
+ * the whole quarter-hour budget and the traces simply stop arriving — a rate limit reached
+ * by reading, which is the one way this app was never meant to hit one. Held for the life
+ * of the document only: a tab tap keeps it, a reload drops it, and a corrected activity is
+ * therefore never more than one document load away.
+ */
+const traces = new Map<number, Detail>()
+
+function ActivityDetailScreen() {
   const { data, weeks, error, reload } = useBlock()
-  const [id, setId] = useState<number | null>(null)
+  /**
+   * `undefined` is "the query string has not been read yet" and `null` is "there is no
+   * usable id in it" — the same tri-state `SessionDetail` carries, and for the same
+   * reason. Collapsing the two flashed the dead-end card for a frame on every open from
+   * `/registro`: `useBlock` keeps the last payload in module scope, so on a tab-to-tab
+   * navigation `data` is already there on the first render while this id is not, and
+   * effects run *after* the browser has painted.
+   */
+  const [id, setId] = useState<number | null | undefined>(undefined)
   const [detail, setDetail] = useState<Detail | null>(null)
   const [detailError, setDetailError] = useState<string | null>(null)
   /** Bumped to ask Strava again — the retry after a rate limit or a dropped connection. */
@@ -69,6 +93,15 @@ export function ActivityDetail() {
   useEffect(() => {
     if (id == null) return
     let cancelled = false
+
+    // Already read once in this document — the run tapped, backed out of and tapped again,
+    // which is how a log gets browsed. See `traces`.
+    const held = traces.get(id)
+    if (held && attempt === 0) {
+      setDetail(held)
+      return
+    }
+
     fetch(`/api/activities/${id}`)
       .then(async (response) => {
         if (response.status === 401) {
@@ -81,6 +114,7 @@ export function ActivityDetail() {
           setDetailError('error' in body ? body.error : `No se pudo cargar la actividad (${response.status})`)
           return
         }
+        traces.set(id, body)
         setDetail(body)
       })
       .catch((cause: unknown) => {
@@ -110,7 +144,7 @@ export function ActivityDetail() {
   // The block payload carries the summary the first card is built from, so until it lands
   // the screen stands in for itself in grey. A spinner here would say "wait" and nothing
   // about what for.
-  if (!data) return <ScreenSkeleton />
+  if (!data || id === undefined) return <ScreenSkeleton />
   if (id === null) {
     return (
       <Card className="fade-up">
@@ -436,7 +470,7 @@ function Traces({
   return (
     <Card className="fade-up">
       {options.length > 1 ? (
-        <Segmented options={options} value={metric} onChange={setChosen} />
+        <Segmented options={options} value={metric} onChange={setChosen} label="Qué trazar" />
       ) : (
         <CardTitle>{options[0]!.label}</CardTitle>
       )}
@@ -828,3 +862,9 @@ function SplitTable<T extends Split>({
     </Card>
   )
 }
+
+/**
+ * The screen as the page mounts it: wrapped so a render that throws leaves a card with a
+ * way out on it rather than an empty column under the heading. See `Island.tsx`.
+ */
+export const ActivityDetail = island(ActivityDetailScreen)

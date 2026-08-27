@@ -1,5 +1,8 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
+  // Replace with your own — this is the Worker's name and therefore its address,
+  // `https://<name>.<your-subdomain>.workers.dev`, which is the host Strava's app-wide
+  // callback domain has to match. See docs/setup.md.
   "name": "lamitja2027",
   // Custom entrypoint: the Astro adapter honours `main` when we set it, which is
   // how the app's fetch handler and the cron `scheduled` handler share one Worker.
@@ -8,6 +11,11 @@
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
 
+  // Replace both `database_name` and `database_id` with your own — `wrangler d1 create
+  // <name>` prints the pair, and these are inert against any other Cloudflare account.
+  // The `db:*` scripts in package.json address the database by its *binding* (`DB`), which
+  // wrangler accepts wherever it takes a database name, so nothing outside this block has
+  // to know what you called it. See docs/setup.md.
   "d1_databases": [
     {
       "binding": "DB",
@@ -17,18 +25,47 @@
     }
   ],
 
-  // CACHE holds one thing: the single-use OAuth state token.
+  // Every link in the app is written without a trailing slash (`src/lib/nav.ts`), and the
+  // build emits `plan/index.html`. Workers Assets' default `auto-trailing-slash` answers
+  // `/plan` with a 307 to `/plan/` — so every tab tap, on the app's most-repeated
+  // interaction, spent a round trip before the first byte of HTML, and the service worker
+  // cached the shell under a path none of the app's own links ask for. Dropping the slash
+  // makes `/plan` the canonical address and serves it directly.
+  "assets": { "html_handling": "drop-trailing-slash" },
+
+  // CACHE holds one thing: the single-use OAuth state token. Replace the id with your own
+  // — `wrangler kv namespace create CACHE`, and see docs/setup.md.
   "kv_namespaces": [{ "binding": "CACHE", "id": "ddbcc843b1204d3cb0df5d8581af8d53" }],
+
+  // Two speed bumps, in front of the two endpoints that take a credential. See
+  // `src/lib/ratelimit.ts` for what they are and are not — in short, per-location and
+  // eventually consistent, so the real defence is still a long `APP_PASSWORD`.
+  //
+  // A WAF rate-limiting rule would be the obvious alternative and is not available here:
+  // those are configured per zone, and `workers.dev` is not a zone you own. `period` may
+  // only be 10 or 60.
+  "ratelimits": [
+    // A person signs in once per device per year. Eight a minute is generous for the
+    // fat-fingered and ruinous for a script.
+    { "name": "LOGIN_RATE_LIMIT", "namespace_id": "1001", "simple": { "limit": 8, "period": 60 } },
+    // Higher, because a legitimate caller here is an agent: writing a block through
+    // `create_sessions` and reading it back is tens of calls in a burst, not one.
+    { "name": "MCP_RATE_LIMIT", "namespace_id": "1002", "simple": { "limit": 60, "period": 60 } }
+  ],
 
   "triggers": {
     // Nightly safety net; the webhook handles the common case.
     "crons": ["0 3 * * *"]
   },
 
-  // The race, the goal and the block dates are constants in `src/lib/block.ts`, not
-  // config — they are compiled into the training maths and never differ per environment.
+  // The race, the goal and the block dates are *not* here. They are build-time values —
+  // `PUBLIC_*` in `.env`, read by `src/lib/config.ts` and compiled into the bundle — because
+  // they differ per fork rather than per environment, and because the pure training maths
+  // must not need a binding to answer how many weeks the block has. See `.env.example`.
   "vars": {
-    // Not secret: the client ID is public in every OAuth redirect.
+    // Not secret: the client ID is public in every OAuth redirect. Replace it with your
+    // own Strava application's — every deployment has one, and this one's callback domain
+    // points at the author's host. docs/setup.md §b.
     "STRAVA_CLIENT_ID": "183487"
   }
 }

@@ -1,6 +1,7 @@
 ---
 import App from '../layouts/App.astro'
 import { Progress } from '../components/Progress'
+import { APP_NAME } from '../lib/config'
 
 // Prerendered shell. Both seasons are derived on the client: this one from /api/data, the
 // 2025-26 baseline from the CSVs bundled into `lib/baseline.ts`.
@@ -8,7 +9,7 @@ export const prerender = true
 ---
 
 <App
-  title="Progreso · La Mitja 2027"
+  title={`Progreso · ${APP_NAME}`}
   heading="Progreso"
   sub="Contra la temporada 2025-26, a la misma distancia de la carrera"
   tab="progress"

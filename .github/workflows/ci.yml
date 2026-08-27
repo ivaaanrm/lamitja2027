@@ -1,0 +1,49 @@
+# Tests, types and a build, on every push and pull request.
+#
+# There is deliberately no deploy step and no secret in this file. Deployment belongs to
+# Cloudflare Workers Builds, whose build and deploy commands live in the dashboard
+# (docs/setup.md §c) — and it has to, because a deploy from here would need an account
+# token in GitHub and would still have to run `wrangler deploy -c dist/server/wrangler.json`
+# against the config the Astro adapter *generates*, which only exists after a build.
+#
+# Nothing here needs a `.env`. Every `PUBLIC_*` value has a default in `src/lib/config.ts`,
+# so a checkout with no configuration builds this repository's own block — which is also
+# what makes "the defaults did not move" something CI can notice.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # No version pinned here on purpose: `packageManager` in package.json is the single
+      # source of it, for the same reason Workers Builds needs that field (AGENTS.md §12).
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Tests
+        run: pnpm test
+
+      # `pnpm typecheck` is `astro check`, which needs `@astrojs/check` — not a dependency
+      # of this repository, and `--frozen-lockfile` plus a non-interactive shell means it
+      # cannot install itself. `typecheck:ci` is `astro sync && tsc --noEmit`: it checks
+      # every `.ts`/`.tsx` file with the TypeScript that *is* installed, and `astro sync`
+      # is what writes the `.astro/types.d.ts` the tsconfig includes. Templates inside
+      # `.astro` files are covered by `pnpm typecheck` locally, and by the build here.
+      - name: Types
+        run: pnpm typecheck:ci
+
+      - name: Build
+        run: pnpm build

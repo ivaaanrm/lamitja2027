@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { formatDuration, formatKm, formatPace, isRun, paceSKm } from '@/lib/activity'
-import { BLOCK_START, HALF_MARATHON_M, TOTAL_WEEKS, daysToRace, startOfDay } from '@/lib/block'
+import { BLOCK_START, RACE_DISTANCE_M, TOTAL_WEEKS, daysToRace, startOfDay } from '@/lib/block'
 import { cn } from '@/lib/cn'
 import type { Activity } from '@/lib/db/schema'
 import { decimal } from '@/lib/format'
@@ -11,6 +11,7 @@ import { setDone } from '@/lib/plan-client'
 import { ThisWeek } from './ThisWeek'
 import { WeekCalendar } from './WeekCalendar'
 import { useBlock } from './useBlock'
+import { island } from './Island'
 import {
   CHEVRON_RIGHT,
   Card,
@@ -67,7 +68,7 @@ const syncFmt = new Intl.DateTimeFormat('es-ES', {
   minute: '2-digit',
 })
 
-export function Dashboard() {
+function DashboardScreen() {
   const { data, error, now, reload, weeks, progress, currentWeek } = useBlock()
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -437,7 +438,7 @@ function RaceCard({ progress, now }: { progress: BlockProgress; now: number }) {
         <Stat
           label="Más larga"
           value={block.longestM ? `${formatKm(block.longestM)} km` : '—'}
-          hint={`de ${decimal(HALF_MARATHON_M / 1000)} km`}
+          hint={`de ${decimal(RACE_DISTANCE_M / 1000)} km`}
         />
         <Stat
           label="Cadencia"
@@ -499,3 +500,9 @@ function DashboardSkeleton() {
     </>
   )
 }
+
+/**
+ * The screen as the page mounts it: wrapped so a render that throws leaves a card with a
+ * way out on it rather than an empty column under the heading. See `Island.tsx`.
+ */
+export const Dashboard = island(DashboardScreen)

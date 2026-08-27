@@ -1,6 +1,7 @@
 ---
 import App from '../layouts/App.astro'
 import { SessionDetail } from '../components/SessionDetail'
+import { APP_NAME } from '../lib/config'
 export const prerender = true
 ---
 
@@ -13,6 +14,6 @@ export const prerender = true
 
   The dock lights `plan`: a session belongs to the plan wherever it was tapped from.
 */}
-<App title="Sesión · La Mitja 2027" heading="Sesión" tab="plan">
+<App title={`Sesión · ${APP_NAME}`} heading="Sesión" tab="plan">
   <SessionDetail client:load />
 </App>

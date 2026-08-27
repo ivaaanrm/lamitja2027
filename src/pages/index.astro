@@ -1,13 +1,23 @@
 ---
 import App from '../layouts/App.astro'
 import { Dashboard } from '../components/Dashboard'
+import { RACE_DATE } from '../lib/block'
+import { APP_NAME, APP_SHORT_NAME, GOAL_LABEL } from '../lib/config'
 export const prerender = true
+
+// Dates are UTC midnight of the local day; formatting in another zone slides them.
+const raceDay = new Intl.DateTimeFormat('es-ES', {
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+  timeZone: 'UTC',
+}).format(new Date(RACE_DATE))
 ---
 
 <App
-  title="La Mitja 2027"
-  heading="Media sub-1:20"
-  sub="La Mitja · 24 de enero de 2027"
+  title={APP_NAME}
+  heading={GOAL_LABEL}
+  sub={`${APP_SHORT_NAME} · ${raceDay}`}
   tab="today"
 >
   <Dashboard client:load />

@@ -1,5 +1,26 @@
-# Copy to .dev.vars and fill in. Production values go in `wrangler secret put`.
+# The four secrets, for local development. Copy to `.dev.vars` (gitignored) and fill in.
+# On the deployed Worker the same four go in one at a time with `wrangler secret put <NAME>`.
+#
+# Not here: the race, the block and the goal — those are not secret and live in `.env`
+# (see `.env.example`), and the Strava *client id*, which is public and sits in
+# `wrangler.jsonc`. Full walkthrough: docs/setup.md.
+
+# The single login password, shared across your devices — exchanged once for a signed
+# cookie good for a year. Rotating it signs every device out. Pick something long.
+APP_PASSWORD=""
+
+# From your own Strava application at https://www.strava.com/settings/api → Client Secret.
+# Every deployment uses its own application; the client id in wrangler.jsonc is the
+# author's and is bound to the author's callback domain. See docs/setup.md §b.
 STRAVA_CLIENT_SECRET=""
-STRAVA_WEBHOOK_VERIFY=""       # any random string; echoed back during subscription setup
-TOKEN_ENC_KEY=""               # openssl rand -base64 32
-APP_PASSWORD=""              # the single login password, shared across your devices
+
+# Any random string you invent. Strava echoes it back once, when you create the webhook
+# subscription, and the callback compares it in constant time before accepting one.
+# `openssl rand -hex 16` is as good as anything.
+STRAVA_WEBHOOK_VERIFY=""
+
+# AES-GCM key for the Strava refresh token at rest, so a database dump is not a stolen
+# Strava account. Must decode to exactly 32 bytes: `openssl rand -base64 32`.
+# Treat it as permanent — regenerate it on a live deployment and the stored token stops
+# decrypting, so Strava has to be reconnected from the home screen.
+TOKEN_ENC_KEY=""

@@ -9,6 +9,7 @@ import type { PlanSession } from '@/lib/db/schema'
 import { SessionForm } from './SessionForm'
 import { ExtraCard, SessionCard } from './SessionCard'
 import { useBlock } from './useBlock'
+import { island } from './Island'
 import {
   Button,
   Card,
@@ -160,7 +161,7 @@ function CollapsiblePanel({
   )
 }
 
-export function Planner() {
+function PlannerScreen() {
   const { data, error, now, reload, weeks, progress, currentWeek } = useBlock()
   const [open, setOpen] = useState<number | null>(null)
   const [editing, setEditing] = useState<{ weekIndex: number; day?: number; session?: PlanSession } | null>(null)
@@ -742,3 +743,9 @@ function PlannerSkeleton() {
     </>
   )
 }
+
+/**
+ * The screen as the page mounts it: wrapped so a render that throws leaves a card with a
+ * way out on it rather than an empty column under the heading. See `Island.tsx`.
+ */
+export const Planner = island(PlannerScreen)

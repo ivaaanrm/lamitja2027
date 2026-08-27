@@ -33,3 +33,6 @@ pnpm-debug.log*
 .wrangler/
 
 .claude/*
+
+docs/personal/
+docs/plan/

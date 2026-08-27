@@ -1,0 +1,49 @@
+---
+/**
+ * The one line that stops a cached block from being a lie.
+ *
+ * With a service worker in front of `/api/data`, a phone with no signal no longer gets an
+ * error card — it gets the block, exactly as it looked the last time there was a
+ * connection. That is the right answer at a trailhead and the wrong one to leave unlabelled:
+ * "42 km esta semana" and "42 km the last time this phone had signal" are the same pixels
+ * and different facts, and the sync stamp at the foot of `/` is three cards away.
+ *
+ * Server-rendered into every page that wears the dock and hidden by CSS, for the same
+ * reason `Boot.astro` is: a notice a script has to *insert* arrives after the screen it
+ * was meant to qualify. What reveals it is `html[data-offline]`, which `src/lib/net.ts`
+ * owns and two things set — the browser's `offline` event, and a block payload the worker
+ * answered from its cache.
+ *
+ * In flow rather than pinned. It pushes the cards down by one line when it appears, which
+ * is a layout shift and is the honest one: an overlay above the dock would cover the row
+ * a thumb is reaching for, and a state that changes what every number below it means is
+ * not chrome to be floated over the top.
+ *
+ * `role="status"`: it is polite, it is announced once, and it is never the only carrier —
+ * amber is the qualifier hue in this app, and the sentence says the whole thing in words.
+ */
+---
+
+<p
+  id="offline-notice"
+  role="status"
+  class="flex items-center gap-2 rounded-xl bg-amber/12 px-3 py-2 text-caption leading-relaxed text-amber"
+>
+  <span aria-hidden class="size-1.5 shrink-0 rounded-full bg-amber"></span>
+  Sin conexión. Estás viendo el bloque tal y como estaba en la última sincronización.
+</p>
+
+<style>
+  /**
+   * Hidden by default and revealed by an attribute on the document root, so nothing here
+   * costs a hydration or a frame of JavaScript. `:global()` because the selector reaches
+   * *up* out of this component to `<html>`, which Astro's scoping attribute never lands on.
+   */
+  #offline-notice {
+    display: none;
+  }
+
+  :global(html[data-offline]) #offline-notice {
+    display: flex;
+  }
+</style>
