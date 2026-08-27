@@ -22,23 +22,37 @@
  */
 const FLOOR_MS = 480
 
-let dismissed = false
-
-function hide() {
-  dismissed = true
-  document.getElementById('boot')?.setAttribute('data-done', '')
+function hide(el: Element) {
+  el.setAttribute('data-done', '')
 }
 
-/** Called once the block is in hand — or once it is known that it is not coming. */
+/**
+ * Called once the block is in hand — or once it is known that it is not coming.
+ *
+ * The "already dismissed" state lives on the `#boot` node, not in a module variable, and
+ * that is load-bearing. `ClientRouter` keeps this module's realm alive across every
+ * client-side navigation, but the overlay node does not survive a hop through a page that
+ * has none of its own: `/ajustes` wears `Base` and carries no `#boot`, so it breaks the
+ * `transition:persist="boot"` chain, and arriving at a dock page from there renders a
+ * *fresh*, visible overlay. A module-level latch set true on the first launch would then
+ * suppress dismissing that new node — the app stuck on the launch screen until a full
+ * reload reset the module. Reading the node's own `data-done`/`data-dismissing` instead
+ * means every overlay is judged on its own state.
+ */
 export function bootDone() {
-  if (dismissed || typeof document === 'undefined') return
+  if (typeof document === 'undefined') return
+  const el = document.getElementById('boot')
+  // Nothing to hide, already hidden, or a hide already scheduled for this node.
+  if (!el || el.hasAttribute('data-done') || el.hasAttribute('data-dismissing')) return
+  // `performance.now()` counts from the original document load, not from this navigation,
+  // so the floor only ever delays the cold start — later arrivals clear it at once.
   const remaining = FLOOR_MS - performance.now()
   if (remaining <= 0) {
-    hide()
+    hide(el)
     return
   }
-  // Claimed now rather than in the callback, so a second `reload()` landing inside the
+  // Marked on the node rather than in a closure, so a second `reload()` landing inside the
   // floor cannot queue a second timer.
-  dismissed = true
-  setTimeout(hide, remaining)
+  el.setAttribute('data-dismissing', '')
+  setTimeout(() => hide(el), remaining)
 }

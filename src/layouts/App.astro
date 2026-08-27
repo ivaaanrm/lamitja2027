@@ -76,7 +76,11 @@ const { title, heading, sub, tab } = Astro.props
   >
     <header class="flex items-start justify-between gap-2 px-0.5 pb-0.5">
       <div class="min-w-0">
-        <h1 class="font-display text-title2 font-bold tracking-tight text-label">{heading}</h1>
+        {
+          heading ? (
+            <h1 class="font-display text-title2 font-bold tracking-tight text-label">{heading}</h1>
+          ) : null
+        }
         {sub ? <p class="mt-0.5 text-footnote leading-relaxed text-label-2">{sub}</p> : null}
       </div>
       <HeaderAvatar client:load />

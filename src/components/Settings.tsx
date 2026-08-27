@@ -292,6 +292,16 @@ function McpCard({ hasToken, onChanged }: { hasToken: boolean; onChanged: () => 
             {copied ? 'Copiado' : 'Copiar token'}
           </Button>
         </>
+      ) : hasToken ? (
+        // Resting state: a token exists but its plaintext is gone. The database keeps only
+        // `sha256(token)`, so there is nothing to re-display — the honest thing is to say so
+        // and point at the only way to hold one again, rather than leave the card looking
+        // like it forgot to render the token.
+        <p className="mt-3 text-caption leading-relaxed text-label-2">
+          Ya tienes un token activo. Por seguridad solo se muestra una vez, así que no puede
+          volver a verse. Si lo has perdido, genera uno nuevo para copiarlo — el anterior
+          dejará de funcionar.
+        </p>
       ) : null}
 
       {error ? (

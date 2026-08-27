@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { formatDuration, formatKm, formatPace, isRun, paceSKm } from '@/lib/activity'
+import { formatClock, formatDuration, formatKm, formatPace, isRun, paceSKm } from '@/lib/activity'
 import { daysToRace, goalPaceSKm, startOfDay, totalWeeks, type BlockConfig } from '@/lib/block'
 import { cn } from '@/lib/cn'
 import type { Activity } from '@/lib/db/schema'
@@ -230,29 +230,74 @@ function DashboardScreen() {
  * Rendered from the island rather than from `App.astro`, which is prerendered — a
  * countdown baked at build time is a number that is wrong the next morning.
  */
+/**
+ * Two filled glyphs, drawn here rather than through `Icon` (ui/index.tsx) because that
+ * wrapper is stroke-only — an outlined flag beside an outlined ring reads as chrome, and
+ * the point of these two is that they are the block's *destination*, so they are solid and
+ * mint. `evenodd` is what carves the ring out of the target's disc in one path.
+ */
+const FLAG_SOLID =
+  'M6 2a1 1 0 0 1 1 1v18a1 1 0 0 1-2 0V3a1 1 0 0 1 1-1ZM7 3h11a.5.5 0 0 1 .4.8L16 8l2.4 4.2a.5.5 0 0 1-.4.8H7V3Z'
+const TARGET_SOLID =
+  'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 4a6 6 0 1 0 0 12 6 6 0 0 0 0-12Zm0 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z'
+
+function SolidIcon({ path, className }: { path: string; className?: string }) {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      fillRule="evenodd"
+      clipRule="evenodd"
+      className={cn('size-3.5 shrink-0', className)}
+    >
+      <path d={path} />
+    </svg>
+  )
+}
+
+/**
+ * The block's target line, folded into the countdown it counts toward: how many days are
+ * left, and — under it — the two things those days are *for*, the race and the goal time.
+ * Both carry a filled mint glyph because mint here is not decoration but the destination
+ * the whole screen is oriented at; the values stay `text-label` so the colour is the
+ * marker and the fact is the ink.
+ */
 function RaceCountdown({ block, now }: { block: BlockConfig; now: number }) {
   const days = daysToRace(block, now)
   const weeks = Math.floor(days / 7)
 
   return (
-    <div className="flex items-baseline justify-between gap-2 rounded-xl bg-fill px-3 py-2">
-      <p className="text-caption2 font-semibold uppercase tracking-[0.16em] text-label-3">
-        Cuenta atrás
-      </p>
-      {days === 0 ? (
-        <p className="shrink-0 text-footnote font-semibold text-mint">Hoy es la carrera</p>
-      ) : (
-        <p className="shrink-0 text-caption text-label-3">
-          <span className="data-number text-body font-semibold text-label">{days}</span>
-          <span className="ml-1">{days === 1 ? 'día' : 'días'}</span>
-          {weeks > 0 ? (
-            <span>
-              {' · '}
-              <span className="tabular-nums">{weeks}</span> {weeks === 1 ? 'semana' : 'semanas'}
-            </span>
-          ) : null}
+    <div className="rounded-xl bg-fill px-3 py-2.5">
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="text-caption2 font-semibold uppercase tracking-[0.16em] text-label-3">
+          Cuenta atrás
         </p>
-      )}
+        {days === 0 ? (
+          <p className="shrink-0 text-footnote font-semibold text-mint">Hoy es la carrera</p>
+        ) : (
+          <p className="shrink-0 text-caption text-label-3">
+            <span className="data-number text-body font-semibold text-label">{days}</span>
+            <span className="ml-1">{days === 1 ? 'día' : 'días'}</span>
+            {weeks > 0 ? (
+              <span>
+                {' · '}
+                <span className="tabular-nums">{weeks}</span> {weeks === 1 ? 'semana' : 'semanas'}
+              </span>
+            ) : null}
+          </p>
+        )}
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-caption text-label-2">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <SolidIcon path={FLAG_SOLID} className="text-mint" />
+          <span className="truncate font-medium text-label">{block.raceName}</span>
+        </span>
+        <span className="flex items-center gap-1.5">
+          <SolidIcon path={TARGET_SOLID} className="text-mint" />
+          <span className="data-number font-semibold text-label">{formatClock(block.goalTimeS)}</span>
+        </span>
+      </div>
     </div>
   )
 }

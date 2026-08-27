@@ -61,8 +61,18 @@ export const prerender = true
 
     {/* 30ms behind the header — the stagger the rest of the app reveals lists at, so the
         first thing anyone sees moves the way everything after it will. */}
+    {/*
+      `method`/`action` are defense-in-depth, not the path anyone takes. The script below
+      calls `preventDefault` and POSTs JSON to `/api/login`; this is only reached if that
+      script never runs. Without them the form's default is a *GET to this same URL*, which
+      serialises the password into the query string — into history, access logs and the
+      `Referer` header. A native POST here fails auth (the endpoint parses JSON, not a form
+      body) but keeps the credential in the request body where it belongs.
+    */}
     <form
       id="login"
+      method="post"
+      action="/api/login"
       novalidate
       class="performance-shadow fade-up rounded-2xl border border-line bg-surface-raised p-4"
       style="animation-delay: 30ms"
