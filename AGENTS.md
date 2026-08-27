@@ -16,8 +16,9 @@ athlete's `HR_MAX`, and every name the app calls itself by — is eleven `PUBLIC
 with this block as their defaults; see
 **The block's edges are configuration** below — eleven `PUBLIC_*` values covering both the
 block and every name the app calls itself by. Everything a forker follows once lives in
-`README.md` and `docs/setup.md`, and belongs there rather than here: this file is for
-whoever is changing the code. The project is *StrideAI*; *La Mitja 2027* is the reference
+`README.md`, `docs/setup.md` and `LLM.md` — the same procedure as an executable runbook,
+for an agent standing the project up on somebody's machine — and belongs there rather than
+here: this file is for whoever is changing the code. The project is *StrideAI*; *La Mitja 2027* is the reference
 instance it ships configured as.
 
 Training design (phases, volumes, paces, knee protocol): `docs/03-training-plan-2027.md`.

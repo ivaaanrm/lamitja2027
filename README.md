@@ -17,13 +17,35 @@ The block it ships with is the author's — *La Mitja 2027*: La Mitja de Granoll
 it at your own Strava API application, name it after your own race, and the paces, the
 phases and the length of the block all follow.
 
-## Deploy it on Cloudflare
+**Setting it up with an agent?** Hand it [`LLM.md`](LLM.md) — everything below as a
+runbook, local first, with a deliberate stop to ask you before anything is created on your
+Cloudflare account.
+
+## Run it locally
 
 ```bash
 pnpm install
-wrangler d1 create my-training       # paste name + database_id into wrangler.jsonc
-wrangler kv namespace create CACHE   # paste id into wrangler.jsonc
-wrangler secret put APP_PASSWORD     # and STRAVA_CLIENT_SECRET, TOKEN_ENC_KEY, STRAVA_WEBHOOK_VERIFY
+cp .dev.vars.example .dev.vars   # four secrets — APP_PASSWORD is the one you sign in with
+pnpm db:migrate:local            # the four tables, into .wrangler/state
+pnpm dev                         # http://localhost:4321
+```
+
+That is the whole local loop. Strava stays disconnected until there is a deployed URL to
+point its callback domain at — the app signs in, takes a plan and runs without it.
+
+## Deploy it on Cloudflare
+
+Set `name` in `wrangler.jsonc` first: it is the Worker's address, and it is what Strava's
+app-wide callback domain has to match.
+
+```bash
+pnpm install
+pnpm exec wrangler login                      # wrangler is a devDependency, not a global
+pnpm exec wrangler whoami                     # which account you just signed in to
+pnpm exec wrangler d1 create my-training      # paste database_name + database_id into wrangler.jsonc
+pnpm exec wrangler kv namespace create CACHE  # paste id into wrangler.jsonc
+pnpm cf-typegen                               # regenerate the binding types you just changed
+pnpm exec wrangler secret put APP_PASSWORD    # and STRAVA_CLIENT_SECRET, TOKEN_ENC_KEY, STRAVA_WEBHOOK_VERIFY
 pnpm db:migrate
 pnpm deploy
 ```
@@ -37,7 +59,7 @@ domain is app-wide and OAuth cannot complete against localhost.
 ## Make it your race
 
 ```bash
-cp .env.example .env      # seven values: the race, the block's Monday, the goal, HR max
+cp .env.example .env      # eleven: four names, the race, the block's Monday, the goal, HR max
 ```
 
 The pace bands, the phase boundaries and the length of the block are all derived from
@@ -65,6 +87,7 @@ the block brief, what is planned, what was run, what it adds up to, and the writ
 
 | | |
 |---|---|
+| [`LLM.md`](LLM.md) | The setup runbook, written for an agent: local first, then a gate, then the deploy. |
 | [`AGENTS.md`](AGENTS.md) | The architecture. Every decision and why, plus the platform gotchas not to re-derive. Symlinked as `CLAUDE.md`. |
 | [`docs/setup.md`](docs/setup.md) | Strava application, Cloudflare deploy, configuration, local development, the MCP server. |
 | [`docs/03-training-plan-2027.md`](docs/03-training-plan-2027.md) | The plan `src/lib/seed.ts` encodes: phases, volumes, paces, checkpoints, knee protocol. |

@@ -3,6 +3,10 @@
 Everything needed to run this app as your own: a Strava application, a Cloudflare Worker,
 your race in a `.env`, and an agent authoring your plan through the MCP server.
 
+This is the version written for a person, with the reasoning attached. The same ground as
+a checklist an agent can execute — local first, then a deliberate stop before anything is
+created on your Cloudflare account — is [`../LLM.md`](../LLM.md).
+
 Follow it in order. The one step that cannot be reordered is the first: Strava's
 authorization callback domain is a single app-wide field, so you have to know the address
 your Worker will answer on before you can connect Strava to it at all — and that means
@@ -134,17 +138,28 @@ full-block fetch, so any event just means "something changed, refresh".
 
 ## c. Deploying to Cloudflare
 
-### 1. Install
+### 1. Install, and log in
 
 ```bash
 pnpm install
+pnpm exec wrangler login   # opens a browser; approve, then come back
+pnpm exec wrangler whoami  # which account everything below will land on
 ```
+
+`pnpm exec`, not a bare `wrangler`: it is a devDependency of this repository rather than a
+global, so a fresh clone has it in `node_modules/.bin` and nowhere else. The `pnpm` scripts
+(`db:migrate`, `deploy`, `cf-typegen`) resolve it the same way, which is why they are
+written without the prefix.
+
+`wrangler login` is a browser OAuth flow and has no non-interactive form. On a headless
+machine, export a `CLOUDFLARE_API_TOKEN` instead — scoped to *Workers Scripts: Edit*,
+*D1: Edit* and *Workers KV Storage: Edit* — and skip the login entirely.
 
 ### 2. Create the database and the KV namespace
 
 ```bash
-wrangler d1 create my-training
-wrangler kv namespace create CACHE
+pnpm exec wrangler d1 create my-training
+pnpm exec wrangler kv namespace create CACHE
 ```
 
 Each prints a config block. Copy the ids into `wrangler.jsonc`:
@@ -174,11 +189,15 @@ pnpm cf-typegen
 ### 3. The four secrets
 
 ```bash
-wrangler secret put APP_PASSWORD           # the login. One password, all your devices.
-wrangler secret put STRAVA_CLIENT_SECRET   # from the Strava application page
-wrangler secret put STRAVA_WEBHOOK_VERIFY  # any random string; used once, at subscribe time
-wrangler secret put TOKEN_ENC_KEY          # openssl rand -base64 32 — exactly 32 bytes
+pnpm exec wrangler secret put APP_PASSWORD           # the login. One password, all your devices.
+pnpm exec wrangler secret put STRAVA_CLIENT_SECRET   # from the Strava application page
+pnpm exec wrangler secret put STRAVA_WEBHOOK_VERIFY  # any random string; used once, at subscribe time
+pnpm exec wrangler secret put TOKEN_ENC_KEY          # openssl rand -base64 32 — exactly 32 bytes
 ```
+
+Each prompts for the value; each also reads standard input, so
+`printf '%s' "$SECRET" | pnpm exec wrangler secret put APP_PASSWORD` works when a prompt
+would not — in a script, or with an agent driving.
 
 `TOKEN_ENC_KEY` must decode to 32 bytes or the app refuses it at the point of use;
 `openssl rand -base64 32` produces exactly that. If wrangler says there is no Worker by
@@ -199,7 +218,7 @@ things follow.
 costs you nothing and costs an attacker everything:
 
 ```bash
-openssl rand -base64 24 | wrangler secret put APP_PASSWORD
+openssl rand -base64 24 | pnpm exec wrangler secret put APP_PASSWORD
 ```
 
 **The rate limits are already there, and they are only a speed bump.** `/api/login` is
@@ -255,10 +274,14 @@ deliberately destructive — session ids derive from week and weekday, so re-see
 
 ```bash
 HOST=https://your-worker-host
-# `-H Origin` because Astro's CSRF check rejects a cross-site form POST with a 403.
+# `-H Origin` on BOTH, and the second is the one that surprises: Astro's CSRF check
+# forbids any POST whose Origin does not match, and only exempts it when the request
+# carries a *non*-form content-type. A bodyless POST carries none, so `/api/plan/seed`
+# answers `403 Cross-site POST form submissions are forbidden` — before the cookie is
+# so much as looked at — unless the header is there.
 curl -s -c /tmp/lm.cookies -X POST "$HOST/api/login" \
   -H "Origin: $HOST" --data-urlencode "password=$APP_PASSWORD"
-curl -s -b /tmp/lm.cookies -X POST "$HOST/api/plan/seed"
+curl -s -b /tmp/lm.cookies -X POST "$HOST/api/plan/seed" -H "Origin: $HOST"
 ```
 
 The same thing is one call on the MCP server (`seed_plan`), which needs no cookie.
