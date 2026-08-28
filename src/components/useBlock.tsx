@@ -245,13 +245,18 @@ function initialsOf(displayName: string): string {
 export function HeaderAvatar() {
   const { user } = useBlock()
 
+  return <HeaderAvatarLink displayName={user?.displayName ?? null} />
+}
+
+/** The avatar face when a parent island already has the athlete and needs no second hook. */
+export function HeaderAvatarLink({ displayName }: { displayName: string | null }) {
   return (
     <a
       href="/ajustes"
       aria-label="Ajustes"
       className="tappable flex size-11 shrink-0 items-center justify-center rounded-full bg-fill text-caption font-semibold text-label-2"
     >
-      {user ? initialsOf(user.displayName) : null}
+      {displayName ? initialsOf(displayName) : null}
     </a>
   )
 }

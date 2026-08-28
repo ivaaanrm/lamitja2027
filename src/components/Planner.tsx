@@ -8,9 +8,10 @@ import { setDone, updateWeek } from '@/lib/plan-client'
 import type { MatchedSession, WeekPlan } from '@/lib/plan'
 import type { PlanSession } from '@/lib/db/schema'
 import type { Bands } from '@/lib/workout'
+import { PlanAnalysis } from './PlanAnalysis'
 import { SessionForm } from './SessionForm'
 import { ExtraCard, SessionCard } from './SessionCard'
-import { NoBlockCard, useBlock } from './useBlock'
+import { HeaderAvatarLink, NoBlockCard, useBlock } from './useBlock'
 import { island } from './Island'
 import {
   Button,
@@ -165,6 +166,7 @@ function CollapsiblePanel({
 
 function PlannerScreen() {
   const { data, error, now, reload, weeks, progress, currentWeek } = useBlock()
+  const [view, setView] = useState<'weeks' | 'analysis'>('weeks')
   const [open, setOpen] = useState<number | null>(null)
   const [editing, setEditing] = useState<{ weekIndex: number; day?: number; session?: PlanSession } | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -194,12 +196,46 @@ function PlannerScreen() {
     document.getElementById(`semana-${currentWeek}`)?.scrollIntoView({ block: 'start' })
   }, [jumped, data, open, currentWeek])
 
+  const navigation = (
+    <nav aria-label="Plan" className="fade-up flex items-center gap-2 border-b border-line px-0.5">
+      <Segmented<'weeks' | 'analysis'>
+        options={[
+          { value: 'weeks', label: 'Semanas' },
+          { value: 'analysis', label: 'Análisis' },
+        ]}
+        value={view}
+        onChange={setView}
+        label="Vista del plan"
+        variant="underline"
+        className="flex-1"
+      />
+      <HeaderAvatarLink displayName={data?.user.displayName ?? null} />
+    </nav>
+  )
+
   if (error && !data)
-    return <ErrorCard title="Sin datos del bloque" message={error} onRetry={() => void reload()} />
-  if (!data || !progress) return <PlannerSkeleton />
+    return (
+      <>
+        {navigation}
+        <ErrorCard title="Sin datos del bloque" message={error} onRetry={() => void reload()} />
+      </>
+    )
+  if (!data || !progress)
+    return (
+      <>
+        {navigation}
+        <PlannerSkeleton />
+      </>
+    )
   // No dates yet — `/bienvenida` is the only thing that fixes it, and every number on
   // this screen is counted from them.
-  if (!data.block) return <NoBlockCard />
+  if (!data.block)
+    return (
+      <>
+        {navigation}
+        <NoBlockCard />
+      </>
+    )
 
   const block = data.block
   const hrMax = data.user.hrMax ?? DEFAULT_HR_MAX
@@ -241,71 +277,83 @@ function PlannerScreen() {
 
   return (
     <>
-      <BlockHeader block={block} week={weeks[currentWeek]!} metrics={weekly[currentWeek]!} />
+      {navigation}
 
-      <div className="flex flex-col gap-2">
-        {phases.map(({ phase, from, to }) => (
-          <section
-            key={`${from}-${phase ?? 'sin-fase'}`}
-            aria-labelledby={phase ? `fase-${from}` : undefined}
-            className="overflow-hidden rounded-2xl bg-fill"
-          >
-            {/* A phase name repeated down seven consecutive rows is six rows of noise; said
-                once, inside the surface it owns, it is the map of the whole 23 weeks. */}
-            {phase ? <PhaseHeading id={`fase-${from}`} phase={phase} from={from} to={to} /> : null}
+      {view === 'analysis' ? (
+        <PlanAnalysis weeks={weeks} />
+      ) : (
+        <>
+          <BlockHeader block={block} week={weeks[currentWeek]!} metrics={weekly[currentWeek]!} />
 
-            <div className="divide-y divide-line">
-              {weeks.slice(from, to + 1).map((week, offset) => {
-                const i = from + offset
-                const metrics = weekly[i]!
-                return (
-                  <WeekRow
-                    key={week.weekIndex}
-                    week={week}
-                    metrics={metrics}
-                    index={i}
-                    today={today}
-                    hrMax={hrMax}
-                    bands={bands}
-                    state={
-                      week.weekIndex === currentWeek
-                        ? 'current'
-                        : week.weekIndex < currentWeek
-                          ? 'past'
-                          : 'future'
-                    }
-                    isOpen={week.weekIndex === expanded}
-                    onOpen={() => toggleWeek(week.weekIndex)}
-                    onOpened={() => scrollToWeek(week.weekIndex)}
-                    onReload={reload}
-                    onToggle={toggle}
-                    onEdit={(session) => setEditing({ weekIndex: week.weekIndex, session })}
-                    onAdd={(day) => setEditing({ weekIndex: week.weekIndex, day })}
-                    onError={setActionError}
-                  />
-                )
-              })}
-            </div>
-          </section>
-        ))}
-      </div>
+          <div className="flex flex-col gap-2">
+            {phases.map(({ phase, from, to }) => (
+              <section
+                key={`${from}-${phase ?? 'sin-fase'}`}
+                aria-labelledby={phase ? `fase-${from}` : undefined}
+                className="overflow-hidden rounded-2xl bg-fill"
+              >
+                {/* A phase name repeated down seven consecutive rows is six rows of noise; said
+                    once, inside the surface it owns, it is the map of the whole 23 weeks. */}
+                {phase ? (
+                  <PhaseHeading id={`fase-${from}`} phase={phase} from={from} to={to} />
+                ) : null}
 
-      {actionError ? (
-        <p role="alert" className="text-center text-caption text-red">
-          {actionError}
-        </p>
-      ) : null}
+                <div className="divide-y divide-line">
+                  {weeks.slice(from, to + 1).map((week, offset) => {
+                    const i = from + offset
+                    const metrics = weekly[i]!
+                    return (
+                      <WeekRow
+                        key={week.weekIndex}
+                        week={week}
+                        metrics={metrics}
+                        index={i}
+                        today={today}
+                        hrMax={hrMax}
+                        bands={bands}
+                        state={
+                          week.weekIndex === currentWeek
+                            ? 'current'
+                            : week.weekIndex < currentWeek
+                              ? 'past'
+                              : 'future'
+                        }
+                        isOpen={week.weekIndex === expanded}
+                        onOpen={() => toggleWeek(week.weekIndex)}
+                        onOpened={() => scrollToWeek(week.weekIndex)}
+                        onReload={reload}
+                        onToggle={toggle}
+                        onEdit={(session) =>
+                          setEditing({ weekIndex: week.weekIndex, session })
+                        }
+                        onAdd={(day) => setEditing({ weekIndex: week.weekIndex, day })}
+                        onError={setActionError}
+                      />
+                    )
+                  })}
+                </div>
+              </section>
+            ))}
+          </div>
 
-      {editing ? (
-        <SessionForm
-          block={block}
-          weekIndex={editing.weekIndex}
-          session={editing.session}
-          defaultDay={editing.day}
-          onSaved={reload}
-          onClose={() => setEditing(null)}
-        />
-      ) : null}
+          {actionError ? (
+            <p role="alert" className="text-center text-caption text-red">
+              {actionError}
+            </p>
+          ) : null}
+
+          {editing ? (
+            <SessionForm
+              block={block}
+              weekIndex={editing.weekIndex}
+              session={editing.session}
+              defaultDay={editing.day}
+              onSaved={reload}
+              onClose={() => setEditing(null)}
+            />
+          ) : null}
+        </>
+      )}
     </>
   )
 }

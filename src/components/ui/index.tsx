@@ -369,7 +369,8 @@ export function Delta({
 }
 
 /**
- * An iOS segmented control: one row of mutually exclusive filters, thumb-sized.
+ * One row of mutually exclusive choices, thumb-sized. Filled is the iOS segmented
+ * control used inside cards; underline is the quieter treatment used by page navigation.
  *
  * A `radiogroup`, not a `tablist`. It read as tabs before, and that is a promise the
  * control cannot keep: a tab owns a `tabpanel`, points at it with `aria-controls`, and is
@@ -392,6 +393,7 @@ export function Segmented<T extends string>({
   value,
   onChange,
   className,
+  variant = 'filled',
   /** Spanish, and worth writing whenever the card's title does not already say it. */
   label,
 }: {
@@ -399,13 +401,19 @@ export function Segmented<T extends string>({
   value: T
   onChange: (value: T) => void
   className?: string
+  /** `underline` is the quiet navigation treatment; cards keep the filled control. */
+  variant?: 'filled' | 'underline'
   label?: string
 }) {
   return (
     <div
       role="radiogroup"
       aria-label={label}
-      className={cn('flex gap-0.5 rounded-lg bg-surface-deep/55 p-0.5', className)}
+      className={cn(
+        'flex',
+        variant === 'filled' ? 'gap-0.5 rounded-lg bg-surface-deep/55 p-0.5' : 'gap-0',
+        className,
+      )}
     >
       {options.map((option, i) => {
         const selected = option.value === value
@@ -439,10 +447,18 @@ export function Segmented<T extends string>({
               if (sibling instanceof HTMLElement) sibling.focus()
             }}
             className={cn(
-              'motion-standard h-11 flex-1 rounded-[0.375rem] text-footnote font-medium transition-colors',
-              selected
-                ? 'bg-surface-raised text-label shadow-sm'
-                : 'text-label-3 active:bg-fill active:text-label-2',
+              'motion-standard h-11 flex-1 text-footnote font-medium transition-colors',
+              variant === 'filled' && 'rounded-[0.375rem]',
+              variant === 'underline' &&
+                'relative rounded-none after:absolute after:-bottom-px after:inset-x-2 after:h-0.5 after:rounded-t-full after:bg-transparent after:transition-colors after:content-[""]',
+              variant === 'filled' &&
+                (selected
+                  ? 'bg-surface-raised text-label shadow-sm'
+                  : 'text-label-3 active:bg-fill active:text-label-2'),
+              variant === 'underline' &&
+                (selected
+                  ? 'font-semibold text-label after:bg-label'
+                  : 'text-label-3 active:text-label-2'),
             )}
           >
             {option.label}
