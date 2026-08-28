@@ -88,5 +88,5 @@ export const toSessionUser = (user: User): SessionUser => ({
   hrMax: user.hrMax,
   baselineKey: user.baselineKey,
   hasMcpToken: user.mcpTokenHash !== null,
+  avatarKey: user.avatarKey,
 })
-

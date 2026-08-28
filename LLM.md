@@ -30,7 +30,7 @@ say so rather than picking silently.
 | | |
 |---|---|
 | **The app** | A training tracker for one runner and one race block. Astro 7 PWA, prerendered shells + `/api/*` routes, all on a single Cloudflare Worker. |
-| **Storage** | One D1 database, four tables (`activities`, `plan_weeks`, `plan_sessions`, `app_state`). One KV namespace holding one OAuth state token. |
+| **Storage** | One D1 database for athlete-owned rows, one KV namespace holding one OAuth state token, and one private R2 bucket for optimized profile avatars. |
 | **Auth** | One password (`APP_PASSWORD`) exchanged for a year-long signed cookie. No accounts, no multi-tenancy. |
 | **Data in** | Strava, via OAuth + webhook + a nightly cron. Nothing before the block's start date is ever fetched. |
 | **Agent surface** | The same data as an MCP server on `POST /api/mcp`, bearer-authenticated with that same password. Eleven tools. |
@@ -328,17 +328,19 @@ Edit `name` in `wrangler.jsonc`. The deployed address becomes
 `$HOST`. Also update `site:` in `astro.config.mjs` — it is what builds the absolute Open
 Graph URL at prerender time.
 
-### 3.3 Create the database and the KV namespace
+### 3.3 Create the database, KV namespace and avatar bucket
 
 ```bash
 pnpm exec wrangler d1 create <your-db-name>
 pnpm exec wrangler kv namespace create CACHE
+pnpm exec wrangler r2 bucket create <your-worker-name>-avatars
 ```
 
 Each prints a config block. Copy into `wrangler.jsonc`, replacing the author's values:
 
 - `d1_databases[0].database_name` **and** `database_id`
 - `kv_namespaces[0].id`
+- `r2_buckets[0].bucket_name` (keep the binding named `AVATARS` and the bucket private)
 
 Those ids are not secret and not reusable — against another account they resolve to
 nothing and the deploy fails on a missing binding. Name the database anything: the `db:*`

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { formatClock } from '@/lib/activity'
+import { optimizeAvatar } from '@/lib/avatar-client'
 import { MAX_BLOCK_WEEKS, MIN_BLOCK_WEEKS, WEEK_MS, startOfDay, startOfWeek } from '@/lib/block'
 import { decimal } from '@/lib/format'
 import { DEFAULT_HR_MAX } from '@/lib/paces'
@@ -16,7 +17,7 @@ import {
   TextLink,
 } from './ui'
 import { clearCachedBlock } from '@/lib/net'
-import { useBlock } from './useBlock'
+import { AvatarFace, useBlock } from './useBlock'
 import { island } from './Island'
 
 /** Same UTC-as-wall-clock round trip every date field in this app uses. */
@@ -57,6 +58,144 @@ interface InviteRow {
   expiresAt: number
   usedAt: number | null
   usedBy: string | null
+}
+
+function ProfilePhoto({
+  displayName,
+  avatarUrl,
+  onChanged,
+}: {
+  displayName: string
+  avatarUrl: string | null
+  onChanged: () => Promise<void>
+}) {
+  const [stage, setStage] = useState<'processing' | 'uploading' | 'removing' | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  // A preview only lives while its upload is in flight. Revoke the old URL on every
+  // replacement and on unmount so trying several photos does not retain their blobs.
+  useEffect(
+    () => () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl)
+    },
+    [previewUrl],
+  )
+
+  async function upload(file: File) {
+    setStage('processing')
+    setError(null)
+    setPreviewUrl(null)
+    try {
+      const blob = await optimizeAvatar(file)
+      setPreviewUrl(URL.createObjectURL(blob))
+      setStage('uploading')
+
+      const response = await fetch('/api/avatar', {
+        method: 'PUT',
+        headers: { 'content-type': 'image/webp' },
+        body: blob,
+      })
+      if (response.status === 401) {
+        location.href = '/login'
+        return
+      }
+      if (!response.ok) throw new Error(await errorMessage(response, 'No se pudo guardar la foto'))
+
+      await onChanged()
+      setPreviewUrl(null)
+    } catch (cause) {
+      setPreviewUrl(null)
+      setError(cause instanceof Error ? cause.message : 'No se pudo preparar la foto')
+    } finally {
+      setStage(null)
+    }
+  }
+
+  async function remove() {
+    setStage('removing')
+    setError(null)
+    try {
+      const response = await fetch('/api/avatar', { method: 'DELETE' })
+      if (response.status === 401) {
+        location.href = '/login'
+        return
+      }
+      if (!response.ok) throw new Error(await errorMessage(response, 'No se pudo eliminar la foto'))
+      await onChanged()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'No se pudo eliminar la foto')
+    } finally {
+      setStage(null)
+    }
+  }
+
+  const busy = stage !== null
+  const status =
+    stage === 'processing'
+      ? 'Preparando la foto…'
+      : stage === 'uploading'
+        ? 'Subiendo la foto…'
+        : stage === 'removing'
+          ? 'Eliminando la foto…'
+          : null
+
+  return (
+    <div className="mb-3 flex items-center gap-3 border-b border-line pb-3">
+      <AvatarFace
+        displayName={displayName}
+        avatarUrl={previewUrl ?? avatarUrl}
+        className="size-20 text-title3 ring-1 ring-inset ring-line-strong"
+      />
+      <div className="min-w-0 flex-1">
+        <p className="text-footnote font-semibold text-label">Foto de perfil</p>
+        <p className="mt-0.5 text-caption leading-relaxed text-label-3">
+          Se recorta al centro y se optimiza antes de subir.
+        </p>
+        <div className="mt-2 flex gap-2">
+          <Button
+            variant="ghost"
+            className="flex-1 px-3"
+            disabled={busy}
+            onClick={() => document.getElementById('stg-avatar')?.click()}
+          >
+            {avatarUrl ? 'Cambiar' : 'Elegir foto'}
+          </Button>
+          {avatarUrl ? (
+            <Button
+              variant="danger"
+              className="px-3"
+              disabled={busy}
+              onClick={() => void remove()}
+            >
+              Quitar
+            </Button>
+          ) : null}
+        </div>
+        <input
+          id="stg-avatar"
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/avif,image/heic,image/heif"
+          hidden
+          disabled={busy}
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0]
+            event.currentTarget.value = ''
+            if (file) void upload(file)
+          }}
+        />
+        {status ? (
+          <p role="status" className="mt-1.5 text-caption text-accent">
+            {status}
+          </p>
+        ) : error ? (
+          <p role="alert" className="mt-1.5 text-caption leading-relaxed text-red">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  )
 }
 
 function SettingsSkeleton() {
@@ -575,6 +714,11 @@ function SettingsScreen() {
     <>
       <Card className="fade-up">
         <CardTitle>Perfil</CardTitle>
+        <ProfilePhoto
+          displayName={data.user.displayName}
+          avatarUrl={data.user.avatarUrl}
+          onChanged={reload}
+        />
         <Field label="Nombre">
           <TextInput
             id="stg-name"

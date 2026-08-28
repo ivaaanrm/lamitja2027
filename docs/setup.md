@@ -20,7 +20,7 @@ deploying before you develop, not after.
 |---|---|
 | **Node** | 22.12 or newer (`engines` in `package.json`). |
 | **pnpm** | Do not install a version — `packageManager` pins `pnpm@11.1.2` and any pnpm 10+ self-installs it. Never npm or yarn: `pnpm-workspace.yaml` carries the `allowBuilds` entry that lets `workerd` unpack its binary. |
-| **Cloudflare** | A free account is enough. Workers, one D1 database, one KV namespace and a cron trigger all fit inside the free plan at this size. `wrangler login` once. |
+| **Cloudflare** | A free account is enough. Workers, one D1 database, one KV namespace, one private R2 bucket and a cron trigger fit this app's small scale. `wrangler login` once. |
 | **Strava** | An ordinary athlete account. The developer application below is created from it. |
 
 ---
@@ -153,13 +153,15 @@ written without the prefix.
 
 `wrangler login` is a browser OAuth flow and has no non-interactive form. On a headless
 machine, export a `CLOUDFLARE_API_TOKEN` instead — scoped to *Workers Scripts: Edit*,
-*D1: Edit* and *Workers KV Storage: Edit* — and skip the login entirely.
+*D1: Edit*, *Workers KV Storage: Edit* and *Workers R2 Storage: Edit* — and skip the login
+entirely.
 
-### 2. Create the database and the KV namespace
+### 2. Create the database, KV namespace and avatar bucket
 
 ```bash
 pnpm exec wrangler d1 create my-training
 pnpm exec wrangler kv namespace create CACHE
+pnpm exec wrangler r2 bucket create my-training-avatars
 ```
 
 Each prints a config block. Copy the ids into `wrangler.jsonc`:
@@ -168,6 +170,9 @@ Each prints a config block. Copy the ids into `wrangler.jsonc`:
   printed the pair.
 - `kv_namespaces[0].id` — replace `ddbcc843…`. KV holds exactly one thing: the single-use
   OAuth state token.
+- `r2_buckets[0].bucket_name` — replace `lamitja2027-avatars` with the bucket name from the
+  command. Keep the binding named `AVATARS`; the bucket stays private and needs no public
+  domain or CORS rule.
 - `name` — the Worker's name, and therefore its address:
   `https://<name>.<your-subdomain>.workers.dev`. This is the host that has to match the
   Strava callback domain from section b.

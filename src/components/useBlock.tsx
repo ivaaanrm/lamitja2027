@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { startOfDay, totalWeeks, wallClockNow, weekIndex, type BlockConfig } from '@/lib/block'
 import { bootDone } from '@/lib/boot'
-import type { SessionUser } from '@/lib/auth'
+import type { ClientUser } from '@/lib/auth'
 import { blockProgress, type BlockProgress } from '@/lib/metrics'
 import { setOffline } from '@/lib/net'
+import { cn } from '@/lib/cn'
 import { buildBlock, type WeekPlan } from '@/lib/plan'
 import type { Activity, PlanSession, PlanWeek, StravaAthlete } from '@/lib/db/schema'
 import { Card, CardTitle, EmptyState, TextLink } from './ui'
 
 interface BlockData {
-  user: SessionUser
+  user: ClientUser
   /**
    * `null` for an athlete who registered but has not finished `/bienvenida` yet: there is
    * no `blocks` row to answer with, and every list below is scoped to one, so they come
@@ -42,7 +43,7 @@ export interface Block {
   currentWeek: number
   /** The signed-in athlete's block — `null` until the first payload lands. */
   block: BlockConfig | null
-  user: SessionUser | null
+  user: ClientUser | null
   baseline: boolean
   hasPlan: boolean
 }
@@ -334,18 +335,65 @@ function initialsOf(displayName: string): string {
 export function HeaderAvatar() {
   const { data } = useBlockSource()
 
-  return <HeaderAvatarLink displayName={data?.user.displayName ?? null} />
+  return (
+    <HeaderAvatarLink
+      displayName={data?.user.displayName ?? null}
+      avatarUrl={data?.user.avatarUrl ?? null}
+    />
+  )
+}
+
+/** Initials are painted first and stay underneath the photo as its zero-layout-shift fallback. */
+export function AvatarFace({
+  displayName,
+  avatarUrl,
+  className,
+}: {
+  displayName: string | null
+  avatarUrl: string | null
+  className?: string
+}) {
+  const [failedUrl, setFailedUrl] = useState<string | null>(null)
+  const showPhoto = avatarUrl !== null && failedUrl !== avatarUrl
+
+  return (
+    <span
+      className={cn(
+        'relative flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-fill text-caption font-semibold text-label-2',
+        className,
+      )}
+    >
+      <span aria-hidden>{displayName ? initialsOf(displayName) : null}</span>
+      {showPhoto ? (
+        <img
+          src={avatarUrl}
+          alt=""
+          width={512}
+          height={512}
+          decoding="async"
+          className="absolute inset-0 size-full object-cover"
+          onError={() => setFailedUrl(avatarUrl)}
+        />
+      ) : null}
+    </span>
+  )
 }
 
 /** The avatar face when a parent island already has the athlete and needs no second hook. */
-export function HeaderAvatarLink({ displayName }: { displayName: string | null }) {
+export function HeaderAvatarLink({
+  displayName,
+  avatarUrl,
+}: {
+  displayName: string | null
+  avatarUrl: string | null
+}) {
   return (
     <a
       href="/ajustes"
       aria-label="Ajustes"
-      className="tappable flex size-11 shrink-0 items-center justify-center rounded-full bg-fill text-caption font-semibold text-label-2"
+      className="tappable shrink-0 rounded-full"
     >
-      {displayName ? initialsOf(displayName) : null}
+      <AvatarFace displayName={displayName} avatarUrl={avatarUrl} className="size-11" />
     </a>
   )
 }

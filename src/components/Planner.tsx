@@ -211,7 +211,10 @@ function PlannerScreen() {
         variant="underline"
         className="flex-1"
       />
-      <HeaderAvatarLink displayName={data?.user.displayName ?? null} />
+      <HeaderAvatarLink
+        displayName={data?.user.displayName ?? null}
+        avatarUrl={data?.user.avatarUrl ?? null}
+      />
     </nav>
   )
 

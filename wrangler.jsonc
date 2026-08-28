@@ -25,6 +25,11 @@
     }
   ],
 
+  // Private profile photos. The browser sends one already-cropped 512 px WebP, and the
+  // Worker reads/writes it through this binding — no public bucket domain and no REST hop.
+  // Forks create their own bucket and replace this name; see docs/setup.md.
+  "r2_buckets": [{ "binding": "AVATARS", "bucket_name": "lamitja2027-avatars" }],
+
   // Every link in the app is written without a trailing slash (`src/lib/nav.ts`), and the
   // build emits `plan/index.html`. Workers Assets' default `auto-trailing-slash` answers
   // `/plan` with a 307 to `/plan/` — so every tab tap, on the app's most-repeated

@@ -14,18 +14,27 @@ import { timingSafeEqual } from './crypto'
  * key every device's cookie hangs from. Rotating `SESSION_SECRET` signs everyone out,
  * which is the panic button; there is no session table to revoke from.
  */
-export interface SessionUser {
+export interface ClientUser {
   id: string
   isAdmin: boolean
   displayName: string
   email: string
   hrMax: number | null
+  /** Which frozen comparison season this athlete may read; null for everyone but its owner. */
   baselineKey: string | null
   /**
    * Whether this athlete has minted an MCP token — a boolean, never the hash and never the
    * token. `/ajustes` needs to know which of "mint" and "rotate" to offer and nothing more.
    */
   hasMcpToken: boolean
+  /** Authenticated app URL for the current immutable avatar object, never its R2 key. */
+  avatarUrl: string | null
+}
+
+/** The database-backed identity middleware closes over for one authenticated request. */
+export interface SessionUser extends Omit<ClientUser, 'avatarUrl'> {
+  /** Private storage detail used only by the authenticated avatar routes. */
+  avatarKey: string | null
 }
 
 const COOKIE = 'lm_session'

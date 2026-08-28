@@ -3,6 +3,7 @@ import { env } from 'cloudflare:workers'
 import { eq } from 'drizzle-orm'
 import { invalid, json, readJson } from '@/lib/api'
 import { profileInput } from '@/lib/auth-input'
+import { avatarUrl } from '@/lib/avatar'
 import type { BlockConfig } from '@/lib/block'
 import { createDb } from '@/lib/db/client'
 import { type Block, blocks, users } from '@/lib/db/schema'
@@ -72,6 +73,8 @@ export const PATCH: APIRoute = async ({ request, locals }) => {
       email: updatedUser.email,
       isAdmin: updatedUser.isAdmin,
       hrMax: updatedUser.hrMax,
+      baselineKey: updatedUser.baselineKey,
+      avatarUrl: avatarUrl(updatedUser.id, updatedUser.avatarKey),
     },
     block: blockRow ? toBlockConfig(blockRow) : null,
   })

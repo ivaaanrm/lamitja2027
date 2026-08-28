@@ -63,6 +63,14 @@ export const users = sqliteTable('users', {
    * another's plan.
    */
   mcpTokenHash: text('mcp_token_hash').unique(),
+  /**
+   * The exact private R2 key of this athlete's current 512 px WebP avatar.
+   *
+   * A new random key is written for every replacement, so the app can expose a long-lived
+   * immutable URL without a stale object ever changing underneath it. Null keeps initials
+   * as the zero-storage fallback.
+   */
+  avatarKey: text('avatar_key'),
   createdAt: integer('created_at').notNull().default(now),
 })
 

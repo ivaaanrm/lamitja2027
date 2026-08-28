@@ -23,7 +23,7 @@ yours.
 
 ## Under the hood
 
-Astro + React islands · Cloudflare Workers + D1 · Strava · MCP · PWA
+Astro + React islands · Cloudflare Workers + D1 + R2 · Strava · MCP · PWA
 
 One Worker, one small database, one command to deploy.
 

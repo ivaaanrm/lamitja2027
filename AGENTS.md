@@ -1,7 +1,7 @@
 # La Mitja 2027
 
 Training tracker for a sub-1:20 half marathon at La Mitja on **24 January 2027**.
-Astro PWA on a single Cloudflare Worker, D1 for storage.
+Astro PWA on a single Cloudflare Worker, D1 for rows and private R2 for profile avatars.
 
 **Scope is deliberately narrow: several athletes, invite-only, still small.** A handful of
 friends, not a product — no teams, no roles beyond `is_admin`, no password reset by email
@@ -83,13 +83,27 @@ parse an object rather than a multipart body of strings.
 
 | Table | Holds |
 |---|---|
-| `users` | One row per athlete: email, PBKDF2 password hash, display name, `is_admin`, HR max, baseline key. |
+| `users` | One row per athlete: email, PBKDF2 password hash, display name, `is_admin`, HR max, baseline key, current avatar key. |
 | `invites` | Single-use invite tokens (hashed), minted by an admin, redeemed once. |
 | `blocks` | One row per athlete: block start, race date, goal time, race distance/name. |
 | `strava_accounts` | One row per athlete who connected Strava: encrypted refresh token, athlete id, last sync time. |
 | `activities` | Runs and rides inside an athlete's block, owned by `user_id`. Strava units, one row per activity. |
 | `plan_weeks` | One row per athlete per week of their block: phase, volume target, down-week flag. |
 | `plan_sessions` | The prescribed plan, one row per athlete per session, each with its workout as structured steps. |
+
+**An avatar is one optimized object, not a second photo library** (`src/lib/avatar.ts`,
+`PUT /api/avatar`). The browser respects the source orientation, centre-crops it once to a
+512 × 512 WebP and uploads only that bounded representation; the original never reaches the
+Worker and is never stored. The private R2 key is
+`avatars/<authenticated-user-id>/<random-version>.webp`, and `users.avatar_key` names the
+one current object. Every replacement gets a new key, so `/api/avatar/:version` can stream it
+with a year-long private immutable browser cache; it checks that the requested version is
+the one on `locals.user` before touching R2, so knowing another athlete's version still
+cannot read it. Initials remain under the `<img>` as the no-photo and failed-load fallback.
+Writes never take a user id. They update the caller's row optimistically against its previous
+key, clean up a losing upload, and only delete an old object after the database points at the
+new one — a cleanup failure can leave an unreachable object but never a broken current
+avatar.
 
 **The block's edges are configuration; everything else about it is code**
 (`src/lib/config.ts`). Ten values are read from `import.meta.env.PUBLIC_*` with this

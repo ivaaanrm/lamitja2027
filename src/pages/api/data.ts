@@ -5,6 +5,7 @@ import { getAccount } from '@/lib/accounts'
 import { json } from '@/lib/api'
 import { baselineFor } from '@/lib/baseline'
 import type { BlockConfig } from '@/lib/block'
+import { avatarUrl } from '@/lib/avatar'
 import { createDb } from '@/lib/db/client'
 import { activities, type Block, blocks, planSessions, planWeeks } from '@/lib/db/schema'
 
@@ -52,9 +53,13 @@ export const GET: APIRoute = async ({ locals }) => {
       email: user.email,
       isAdmin: user.isAdmin,
       hrMax: user.hrMax,
+      baselineKey: user.baselineKey,
       // A boolean, never the hash: `/ajustes` only needs to know whether to offer "mint"
       // or "rotate", and the token itself exists in one response body and nowhere else.
       hasMcpToken: user.hasMcpToken,
+      // The authenticated app URL, not the private R2 key. A new key means a new immutable
+      // URL, so replacing a photo never has to invalidate the browser's old cache entry.
+      avatarUrl: avatarUrl(user.id, user.avatarKey),
     },
     block: block ? toBlockConfig(block) : null,
     baseline: block ? baselineFor(user.baselineKey, toBlockConfig(block)) !== null : false,
