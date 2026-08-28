@@ -30,8 +30,8 @@ export const prerender = true
  * fills it from `config.ts`: `APP_NAME` and `APP_DESCRIPTION`, which are what the whole
  * *deployment* is called rather than what anybody is training for. Set them in `.env`.
  *
- * Ink, not mint. Mint is state in this app — done, now, ahead, the primary action — and a
- * wordmark is none of those. The mint on this screen is spent once, on the button, which is
+ * Ink, not orange. Accent is state in this app — done, now, ahead, the primary action — and
+ * a wordmark is none of those. The accent on this screen is spent once, on the button, which is
  * also why the invitation link under the form is quiet: signing in is what this screen is
  * for, and creating an account is the other door.
  */
@@ -74,7 +74,7 @@ export const prerender = true
       method="post"
       action="/api/login"
       novalidate
-      class="performance-shadow fade-up rounded-2xl border border-line bg-surface-raised p-4"
+      class="fade-up rounded-2xl bg-fill p-4"
       style="animation-delay: 30ms"
     >
       <label class="block">
@@ -129,7 +129,7 @@ export const prerender = true
       <button
         id="submit"
         type="submit"
-        class="tappable mt-3 flex h-12 w-full items-center justify-center rounded-xl bg-mint text-body font-semibold text-surface disabled:opacity-40"
+        class="tappable mt-3 flex h-12 w-full items-center justify-center rounded-xl bg-accent text-body font-semibold text-surface disabled:opacity-40"
       >
         Entrar al bloque
       </button>

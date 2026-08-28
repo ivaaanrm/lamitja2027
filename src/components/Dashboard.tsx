@@ -140,11 +140,11 @@ function DashboardScreen() {
         ) : null}
         <EmptyState
           action={
-            // Strava's own orange is the one hex in the repo: their brand guidelines own
-            // this button, and `text-ink` is the token that reads as the white on it.
+            // The application accent is Strava's own orange, so this connection action
+            // and every primary state resolve through the same token.
             <a
               href="/api/strava/connect"
-              className="tappable inline-flex h-11 items-center justify-center rounded-xl bg-[#fc4c02] px-5 text-footnote font-semibold text-ink"
+              className="tappable inline-flex h-11 items-center justify-center rounded-xl bg-accent px-5 text-footnote font-semibold text-surface"
             >
               Conectar con Strava
             </a>
@@ -234,7 +234,7 @@ function DashboardScreen() {
  * Two filled glyphs, drawn here rather than through `Icon` (ui/index.tsx) because that
  * wrapper is stroke-only — an outlined flag beside an outlined ring reads as chrome, and
  * the point of these two is that they are the block's *destination*, so they are solid and
- * mint. `evenodd` is what carves the ring out of the target's disc in one path.
+ * accent. `evenodd` is what carves the ring out of the target's disc in one path.
  */
 const FLAG_SOLID =
   'M6 2a1 1 0 0 1 1 1v18a1 1 0 0 1-2 0V3a1 1 0 0 1 1-1ZM7 3h11a.5.5 0 0 1 .4.8L16 8l2.4 4.2a.5.5 0 0 1-.4.8H7V3Z'
@@ -259,7 +259,7 @@ function SolidIcon({ path, className }: { path: string; className?: string }) {
 /**
  * The block's target line, folded into the countdown it counts toward: how many days are
  * left, and — under it — the two things those days are *for*, the race and the goal time.
- * Both carry a filled mint glyph because mint here is not decoration but the destination
+ * Both carry a filled accent glyph because accent here is not decoration but the destination
  * the whole screen is oriented at; the values stay `text-label` so the colour is the
  * marker and the fact is the ink.
  */
@@ -274,7 +274,7 @@ function RaceCountdown({ block, now }: { block: BlockConfig; now: number }) {
           Cuenta atrás
         </p>
         {days === 0 ? (
-          <p className="shrink-0 text-footnote font-semibold text-mint">Hoy es la carrera</p>
+          <p className="shrink-0 text-footnote font-semibold text-accent">Hoy es la carrera</p>
         ) : (
           <p className="shrink-0 text-caption text-label-3">
             <span className="data-number text-body font-semibold text-label">{days}</span>
@@ -290,11 +290,11 @@ function RaceCountdown({ block, now }: { block: BlockConfig; now: number }) {
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-caption text-label-2">
         <span className="flex min-w-0 items-center gap-1.5">
-          <SolidIcon path={FLAG_SOLID} className="text-mint" />
+          <SolidIcon path={FLAG_SOLID} className="text-accent" />
           <span className="truncate font-medium text-label">{block.raceName}</span>
         </span>
         <span className="flex items-center gap-1.5">
-          <SolidIcon path={TARGET_SOLID} className="text-mint" />
+          <SolidIcon path={TARGET_SOLID} className="text-accent" />
           <span className="data-number font-semibold text-label">{formatClock(block.goalTimeS)}</span>
         </span>
       </div>
@@ -509,12 +509,12 @@ function RaceCard({
         />
         <div className="min-w-0 flex-1">
           {/* The verdict carries its own words, so the hue is never the only thing saying
-              it — mint for on plan, amber for behind, and neither when there is no plan to
+              it — accent for on plan, amber for behind, and neither when there is no plan to
               be behind. */}
           <p
             className={cn(
               'text-subhead font-semibold',
-              shortfallKm == null ? 'text-label' : shortfallKm === 0 ? 'text-mint' : 'text-amber',
+              shortfallKm == null ? 'text-label' : shortfallKm === 0 ? 'text-accent' : 'text-amber',
             )}
           >
             {shortfallKm == null

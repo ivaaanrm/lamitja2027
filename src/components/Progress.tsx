@@ -285,7 +285,7 @@ function VolumeCard({
       ghost: view.lastWeekly[i] == null ? null : view.lastWeekly[i]!.distanceM / 1000,
       target,
       // Mint is state: the week being run now. Behind it is history, ahead of it is room.
-      className: i === currentWeek ? 'bg-mint' : i < currentWeek ? 'bg-label-2' : 'bg-fill',
+      className: i === currentWeek ? 'bg-accent' : i < currentWeek ? 'bg-label-2' : 'bg-fill',
       title:
         target > 0
           ? `S${i + 1}: ${decimal(value)} de ${decimal(target, 0)} km`
@@ -331,7 +331,7 @@ function VolumeCard({
             values={view.cumulative}
             width={88}
             height={34}
-            areaClassName="fill-mint/10"
+            areaClassName="fill-accent/10"
             label="Kilómetros acumulados en el bloque, día a día"
           />
         }
@@ -349,7 +349,7 @@ function VolumeCard({
         />
         {/* The two things the bars encode that a bar cannot say on its own. The week
             colours are not in here: which bar is "now" is read off its position on a
-            left-to-right week axis, not off the mint. */}
+            left-to-right week axis, not off the accent. */}
         <ChartScale start="S1" end={`S${weeks}`}>
           {compared ? 'sombra = 2025-26 · discontinua = objetivo' : 'discontinua = objetivo'}
         </ChartScale>
@@ -439,8 +439,8 @@ function FormCard({ view }: { view: View }) {
             { values: view.fatigueLine, className: 'stroke-coral', strokeWidth: 1.5 },
             {
               values: view.fitnessLine,
-              className: 'stroke-mint',
-              areaClassName: 'fill-mint/10',
+              className: 'stroke-accent',
+              areaClassName: 'fill-accent/10',
             },
           ]}
         />
@@ -451,7 +451,7 @@ function FormCard({ view }: { view: View }) {
           <ChartLegend
             dense
             items={[
-              { label: 'Forma', className: 'bg-mint' },
+              { label: 'Forma', className: 'bg-accent' },
               { label: 'Fatiga', className: 'bg-coral' },
             ]}
           />
@@ -522,7 +522,7 @@ function ProjectionCard({ block, view }: { block: BlockConfig; view: View }) {
             </span>
           </p>
           <p className="mt-2 text-footnote leading-relaxed">
-            <span className={cn(goalDelta <= 0 ? 'text-mint' : 'text-amber')}>
+            <span className={cn(goalDelta <= 0 ? 'text-accent' : 'text-amber')}>
               {goalDelta <= 0
                 ? `${formatClock(Math.abs(goalDelta))} por dentro del objetivo`
                 : `a ${formatClock(goalDelta)} del objetivo`}

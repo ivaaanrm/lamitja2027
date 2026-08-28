@@ -221,7 +221,7 @@ function DayColumn({ stats, weekday, peak }: { stats: DayStats; weekday: string;
       <span
         className={cn(
           'flex size-5 items-center justify-center rounded-full text-caption2 uppercase',
-          stats.isToday ? 'bg-mint font-semibold text-surface' : 'font-medium text-label-3',
+          stats.isToday ? 'bg-accent font-semibold text-surface' : 'font-medium text-label-3',
         )}
       >
         {weekday}

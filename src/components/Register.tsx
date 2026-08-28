@@ -113,7 +113,7 @@ export function Register() {
       noValidate
       onSubmit={submit}
       aria-busy={busy}
-      className="performance-shadow fade-up rounded-2xl border border-line bg-surface-raised p-4"
+      className="fade-up rounded-2xl bg-fill p-4"
       style={{ animationDelay: '30ms' }}
     >
       {/* 44px controls rather than `/login`'s 48: four fields and a button, and 44 is the

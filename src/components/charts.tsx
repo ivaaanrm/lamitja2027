@@ -541,7 +541,7 @@ export function Sparkline({
   values,
   width = 96,
   height = 28,
-  className = 'stroke-mint',
+  className = 'stroke-accent',
   areaClassName,
   dot = true,
   dotClassName,

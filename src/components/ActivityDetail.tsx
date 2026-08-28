@@ -257,7 +257,7 @@ const blockStartFmt = new Intl.DateTimeFormat('es-ES', {
  * The way back out of a dead end.
  *
  * `quiet`, not `primary`: an escape from a screen that cannot show anything is not the
- * same offer as "here is the thing to do next", and mint is reserved for the second.
+ * same offer as "here is the thing to do next", and accent is reserved for the second.
  */
 function BackLink() {
   return <TextLink href="/registro">Volver al registro</TextLink>
@@ -403,7 +403,7 @@ function Overview({
               // The knee protocol's primary marker: 170 spm is the floor, so meeting it is
               // a state and gets the state colour. The trace card draws the same 170 as a
               // rule, which is where the number to compare against is spelled out.
-              <span className={activity.cadenceSpm >= 170 ? 'text-mint' : 'text-amber'}>
+              <span className={activity.cadenceSpm >= 170 ? 'text-accent' : 'text-amber'}>
                 {activity.cadenceSpm}
               </span>
             )
@@ -434,7 +434,7 @@ type Metric = 'pace' | 'hr' | 'cadence'
 function paceRules(session: PlanSession | null): { at: number; className?: string }[] {
   return [session?.targetPaceLoSKm, session?.targetPaceHiSKm]
     .filter(isNumber)
-    .map((at) => ({ at, className: 'stroke-mint/60' }))
+    .map((at) => ({ at, className: 'stroke-accent/60' }))
 }
 
 /**
@@ -619,7 +619,7 @@ function viewFor(
         series={[{ values: cadence, className: 'stroke-blue' }]}
         yMin={Math.min(...present) - 5}
         yMax={Math.max(...present) + 5}
-        rules={[{ at: 170, className: 'stroke-mint/60' }]}
+        rules={[{ at: 170, className: 'stroke-accent/60' }]}
       />
     ),
   }
@@ -776,7 +776,7 @@ function Zones({ zoneS }: { zoneS: Record<Zone, number> }) {
  *
  * A table rather than a list of rows, because every column here is a comparison down the
  * page — the fourth rep against the first, the kilometre the hill was on. The fastest one
- * is called out in mint, and its pace is repeated in the card's header so the colour is
+ * is called out in accent, and its pace is repeated in the card's header so the colour is
  * never the only thing saying which row won; a screen reader gets the same fact said in
  * words on the row itself.
  *
@@ -821,7 +821,7 @@ function SplitTable<T extends Split>({
 
   return (
     <Card className="fade-up">
-      {/* Naming the fastest split in the header is what keeps the mint row from being
+      {/* Naming the fastest split in the header is what keeps the accent row from being
           colour on its own: the number up here is the one highlighted down there. */}
       <CardTitle
         action={
@@ -869,7 +869,7 @@ function SplitTable<T extends Split>({
               <tr key={i} className="border-t border-line">
                 <td className="py-1.5 text-left text-label-3">{labelFor(row, i)}</td>
                 <td className="py-1.5 text-right text-label-2">{formatKm(row.distanceM)}</td>
-                <td className={cn('py-1.5 text-right', best ? 'font-semibold text-mint' : 'text-label')}>
+                <td className={cn('py-1.5 text-right', best ? 'font-semibold text-accent' : 'text-label')}>
                   {row.paceSKm > 0 ? formatPace(row.paceSKm) : '—'}
                   {best ? <span className="sr-only"> (el más rápido)</span> : null}
                 </td>

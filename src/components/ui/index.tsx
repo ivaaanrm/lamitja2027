@@ -9,7 +9,8 @@ import { SESSION_META, type SessionType } from '@/lib/plan'
  * jittering as they update.
  *
  * Cards establish one clear level of grouping without inventing colours or hiding data.
- * The surface, radius and shadow are shared, so dense analytics still read as one app.
+ * The flat fill and radius are shared, so dense analytics still read as one app without
+ * every section pretending to float above the page.
  */
 
 /**
@@ -175,11 +176,11 @@ export function DoneToggle({
   onToggle?: () => void
 }) {
   // Heavier than the icon default: this one is drawn *inside* a filled 24px disc, where a
-  // 2-weight tick disappears into the mint.
+  // 2-weight tick disappears into the accent.
   const face = <Icon path={CHECK} strokeWidth={3.5} className="size-3.5" />
   const shape = cn(
     'motion-standard flex size-6 shrink-0 items-center justify-center rounded-full border transition-colors',
-    done ? 'border-mint bg-mint text-surface' : 'border-line-strong text-transparent',
+    done ? 'border-accent bg-accent text-surface' : 'border-line-strong text-transparent',
   )
 
   if (!onToggle)
@@ -204,6 +205,10 @@ export function DoneToggle({
 /**
  * One grouped surface, sized to keep useful data above the fold on a 375 px phone.
  *
+ * Flat by design: the same translucent fill as a week group and the countdown, with no
+ * outline or shadow. Grouping comes from the change of ground and the radius; drawing a
+ * second edge around both was framing every section twice.
+ *
  * `px-3 py-2.5` rather than a symmetric `p-4`: the horizontal inset is doing less work
  * here because the page gutter already holds the card off the bezel, so spending 16px on
  * both is spending it twice. The radius comes down with the padding — a 24px corner on a
@@ -218,10 +223,7 @@ export function Card({
   return (
     <section
       {...rest}
-      className={cn(
-        'performance-shadow rounded-2xl border border-line bg-surface-raised px-3 py-2.5',
-        className,
-      )}
+      className={cn('rounded-2xl bg-fill px-3 py-2.5', className)}
     >
       {children}
     </section>
@@ -297,7 +299,7 @@ export function ProgressBar({
 }: {
   value: number
   target: number
-  /** Override the fill — a session-type hue, say. Defaults to ink, mint once complete. */
+  /** Override the fill — a session-type hue, say. Defaults to ink, accent once complete. */
   barClassName?: string
   className?: string
 }) {
@@ -307,7 +309,7 @@ export function ProgressBar({
       <div
         className={cn(
           'h-full w-full origin-left rounded-full transition-transform duration-[var(--duration-sheet)] ease-ios',
-          barClassName ?? (pct >= 100 ? 'bg-mint' : 'bg-label'),
+          barClassName ?? (pct >= 100 ? 'bg-accent' : 'bg-label'),
         )}
         style={{ transform: `scaleX(${Math.min(1, Math.max(0, pct / 100))})` }}
       />
@@ -320,7 +322,7 @@ export function Chip({ children, tone = 'neutral' }: { children: ReactNode; tone
     <span
       className={cn(
         'inline-flex items-center rounded-full px-2 py-0.5 text-caption2 font-medium',
-        tone === 'done' && 'bg-mint/15 text-mint',
+        tone === 'done' && 'bg-accent/15 text-accent',
         tone === 'down' && 'bg-amber/15 text-amber',
         tone === 'neutral' && 'bg-fill text-label-2',
       )}
@@ -357,7 +359,7 @@ export function Delta({
       className={cn(
         'text-caption font-medium tabular-nums',
         good === null && 'text-label-3',
-        good === true && 'text-mint',
+        good === true && 'text-accent',
         good === false && 'text-amber',
         className,
       )}
@@ -492,7 +494,7 @@ export function Button({
     // surface with no panels behind it a border is the only box left on the screen.
     // h-11 is 44px — the touch-target floor, not a number to shave further.
     'tappable inline-flex h-11 items-center justify-center rounded-xl px-4 text-footnote font-semibold disabled:opacity-40',
-    variant === 'primary' && 'bg-mint text-surface',
+    variant === 'primary' && 'bg-accent text-surface',
     variant === 'ghost' && 'bg-fill text-label',
     variant === 'danger' && 'bg-red/15 text-red',
     className,
@@ -521,8 +523,8 @@ export function Button({
  * apart, and `CardTitle`'s action slot is the one place every screen touches.
  *
  * Two tones and no more: `quiet` for a secondary action sitting next to content that
- * matters more, `primary` when the link *is* the fix an empty card is offering — mint,
- * because mint is state and "here is what to do next" is the state that card reports.
+ * matters more, `primary` when the link *is* the fix an empty card is offering — accent,
+ * because accent is state and "here is what to do next" is the state that card reports.
  *
  * `inset` is the pull-back a 44px target needs when it shares a row with a 12px heading:
  * the hit area stays 44px and the row keeps the height of its text.
@@ -548,7 +550,7 @@ export function TextLink({
   const shape = cn(
     'tappable inline-flex min-h-11 items-center underline underline-offset-4',
     tone === 'quiet' && 'text-caption text-label-2',
-    tone === 'primary' && 'text-footnote font-semibold text-mint',
+    tone === 'primary' && 'text-footnote font-semibold text-accent',
     inset && '-my-2 px-2',
     className,
   )
@@ -591,7 +593,7 @@ export function Field({ label, children }: { label: string; children: ReactNode 
  * corner proportional to the inset, and less horizontal padding.
  *
  * Borderless at rest and bordered on focus, rather than a hairline that is always on. A
- * field is already a well — `surface-deep/35` against the `surface-raised` it sits on — so
+ * field is already a well — `surface-deep/35` against the content fill it sits on — so
  * the rule was a second edge drawn around an edge, and eight of them stacked down a form
  * read as a grid of boxes. `border-transparent` rather than no border at all, so the box
  * does not resize by two pixels the moment it takes focus.
@@ -745,7 +747,7 @@ export function ProgressRing({
   label?: ReactNode
   /** One quiet word under it: `km`, `sesiones`, `días`. */
   sublabel?: ReactNode
-  /** Defaults to ink, mint once the target is met — the same state colour as the bar. */
+  /** Defaults to ink, accent once the target is met — the same state colour as the bar. */
   arcClassName?: string
   trackClassName?: string
   className?: string
@@ -790,7 +792,7 @@ export function ProgressRing({
           strokeDashoffset={1 - drawn}
           className={cn(
             'transition-[stroke-dashoffset] duration-[var(--duration-sheet)] ease-ios',
-            arcClassName ?? (share >= 1 ? 'stroke-mint' : 'stroke-label'),
+            arcClassName ?? (share >= 1 ? 'stroke-accent' : 'stroke-label'),
           )}
         />
       </svg>

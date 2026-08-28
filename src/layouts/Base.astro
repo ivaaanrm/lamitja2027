@@ -64,7 +64,7 @@ const ogImage = new URL('/og.png', Astro.site)
     <meta name="apple-mobile-web-app-title" content={APP_SHORT_NAME} />
     <!--
       `--color-surface`, written out. A meta tag cannot read a custom property, so this is
-      the one place in the app besides Strava's orange where a colour is a literal — keep
+      the one place outside the token file where a colour is a literal — keep
       it in step with the token in global.css or Android paints its address bar a shade the
       page never uses. It had drifted to #191b21 against a `--color-surface` of #12151a,
       which is exactly the failure this comment was written to prevent; `background_color`
