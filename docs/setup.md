@@ -292,29 +292,12 @@ Then press **Conectar con Strava** on the home screen and accept the consent scr
 the private-activities box ticked. The callback stores the token and runs a first sync;
 activities before `PUBLIC_BLOCK_START` are never fetched.
 
-The plan is a separate thing from the activities, and nothing writes it for you. Either
-seed the example block or author your own (section f). Seeding is one endpoint, and it is
-deliberately destructive — session ids derive from week and weekday, so re-seeding is
-"reset to the plan", not "merge with it":
-
-```bash
-HOST=https://your-worker-host
-# `-H Origin` on BOTH, and the second is the one that surprises: Astro's CSRF check
-# forbids any POST whose Origin does not match, and only exempts it when the request
-# carries a *non*-form content-type. A bodyless POST carries none, so `/api/plan/seed`
-# answers `403 Cross-site POST form submissions are forbidden` — before the cookie is
-# so much as looked at — unless the header is there.
-curl -s -c /tmp/lm.cookies -X POST "$HOST/api/login" -H 'content-type: application/json' \
-  -H "Origin: $HOST" -d '{"email":"you@example.com","password":"'"$PASSWORD"'"}'
-curl -s -b /tmp/lm.cookies -X POST "$HOST/api/plan/seed" -H "Origin: $HOST"
-```
-
-Seeding is **owner-only**: `src/lib/seed.ts` is one athlete's hand-written 23 weeks, in
-Spanish, naming races they entered — it is a document, not a generator, so handing it to
-somebody training for a different race would be worse than an empty plan. Everyone else
-writes their own, by hand or through their agent.
-
-The same thing is one call on the MCP server (`seed_plan`), which needs no cookie.
+The plan is a separate thing from the activities, and nothing writes it for you: every
+athlete authors their own, by hand in `/plan` or — the way that scales past a handful of
+sessions — through the MCP server (section f). Mint a token in `/ajustes`, point an agent
+at `POST /api/mcp`, and `create_sessions` writes a whole block in one call. Give sessions
+stable ids (`w03-tue-1`, week and weekday) so re-running an authoring call rewrites the
+plan instead of duplicating it.
 
 ### CI: Cloudflare Workers Builds
 
@@ -371,7 +354,7 @@ login screen, `404`, the meta description, the Open Graph card and
 
 | Variable | Means | Format | Default |
 |---|---|---|---|
-| `PUBLIC_RACE_NAME` | The race as it is printed on the bib. Becomes the title of the final session in the seeded plan. | free text | `La Mitja de Granollers` |
+| `PUBLIC_RACE_NAME` | The race as it is printed on the bib — the name to give the block's final session. | free text | `La Mitja de Granollers` |
 | `PUBLIC_RACE_DATE` | Race day. The block ends on it and every countdown points at it. | `YYYY-MM-DD` | `2027-01-24` |
 | `PUBLIC_RACE_DISTANCE_M` | Race distance, metres (Strava units). `42195` for a marathon, `10000` for a 10K. | number > 0 | `21097.5` |
 | `PUBLIC_BLOCK_START` | The Monday the block opens on. Nothing before it is synced or counted. | `YYYY-MM-DD`, **must be a Monday** | `2026-08-17` |
@@ -401,7 +384,7 @@ the reasoning at length.
 > for variables matching its configured `envPrefix`, which defaults to `VITE_`, and
 > `vitest.config.ts` does not set `envPrefix: 'PUBLIC_'` — so `pnpm test` runs against
 > the defaults regardless of what you configure. Adding that line makes the tests follow
-> your block; `test/unit/seed.test.ts` and the *"the block the app actually runs on"*
+> your block; the *"the block the app actually runs on"*
 > block in `test/unit/config.test.ts` then fail, correctly, because their assertions
 > (`TOTAL_WEEKS === 23`, the race session's title, the six pace bands) are assertions
 > about the *example* block and belong with it.
@@ -415,7 +398,6 @@ two files that cannot read a build-time value at all.
 
 | Where | What is hard-coded | Why it cannot be a setting |
 |---|---|---|
-| `src/lib/seed.ts` | **The plan itself** — 23 hand-written weeks, all Spanish: session titles, coaching notes, the cadence and knee-protocol prose, `DOWN_WEEKS = [3, 8, 12, 15, 20]`, the four checkpoint `marker(…)` paces (absolute s/km from docs/03 §5, *not* ratios of the goal like the pace bands are), and the `startKm`/`endKm` ramp in kilometres per week. Its `focus` lines name *el Tast*, *la Behobia* and `3:47/km`. | It is a training design, not a value. Rewrite it, or skip it entirely and author your block through the MCP server (§f). |
 | The whole interface | Spanish (es-ES) throughout — every label, button, empty state and error. `<html lang="es">` and every `Intl` formatter is built with `'es-ES'`. | Translating means editing strings; there is no locale switch and adding one is a real project. |
 | `public/favicon.svg` + every PNG beside it | The mark is La Mitja's course profile — the climb through 10 km, then the descent that steepens to the finish. | It is a drawing. Edit the SVG and re-rasterise all of them together (`qlmanage -t -s <px> -o . favicon.svg` on macOS); they drift otherwise. |
 | `public/sw.js` | The offline page's Spanish copy, and three colours written out as hex. | `public/` is copied byte-for-byte into the build, so nothing in it sees a build-time value. Its `<title>` is deliberately nameless for that reason. The colours are copies of `--color-surface`, `--color-label` and `--color-mint`; a service worker cannot import the stylesheet. Also bump its `VERSION` when you change the precached files or the caching rules, or phones keep serving the old ones. |
@@ -474,7 +456,7 @@ pnpm dev
 | `pnpm deploy` | build, then deploy the generated config |
 
 The local D1 is a different database from the remote one. It starts empty: run
-`db:migrate:local`, then seed a plan into it (`POST /api/plan/seed`, section c step 5,
+`db:migrate:local`, then author a plan into it (the MCP server, section f,
 against `localhost`). It will have no activities unless you connect Strava against
 localhost, which the callback domain in section b decides.
 
@@ -553,7 +535,7 @@ and no session to delete. A `401` means the bearer token is wrong; a `500` sayin
 belongs to an athlete who has not finished `/bienvenida` — a block is required before any
 tool will answer.
 
-### The eleven tools
+### The ten tools
 
 | Tool | Does | Key arguments |
 |---|---|---|
@@ -564,10 +546,9 @@ tool will answer.
 | `get_training_summary` | The derived picture: totals, distance per week, consistency, 42/7-day fitness and fatigue, best efforts, the half-marathon time they project to, zone shares. | `from`, `to` (default: last 28 days) |
 | `upsert_week` | Write one week. Absent field = leave alone, explicit `null` = clear. | `weekIndex`, `phase`, `focus`, `targetVolumeM`, `isDownWeek`, `notes` |
 | `create_session` | Add one session. A client-chosen `id` makes it idempotent. | `scheduledOn`, `type`, `title`, `steps`, targets, … |
-| `create_sessions` | A whole week or a whole plan in one call. Every row is validated before any is written; failures are reported by array index. | `sessions[]` |
+| `create_sessions` | A whole week or a whole plan in one call. Every row is validated before any is written; failures are reported by array index. A session with `steps` gets its stored distance derived from them. | `sessions[]` |
 | `update_session` | Patch by id. Does **not** drop `steps` when you change a target — pass `steps: null` yourself. | `id` + any field |
 | `delete_session` | Remove one session. Does not touch the week's target volume. | `id` |
-| `seed_plan` | Reset to the built-in example plan. **Overwrites** everything, including anything you wrote. | — |
 
 Boundary types are the ones a person would write: dates `YYYY-MM-DD`, paces `mm:ss` per
 kilometre, distances metres, durations seconds. Tool names and descriptions are English

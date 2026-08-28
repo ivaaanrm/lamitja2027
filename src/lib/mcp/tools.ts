@@ -48,10 +48,10 @@ import {
   SESSION_TYPES,
   buildBlock,
   type MatchedSession,
+  type SessionType,
   type WeekPlan,
 } from '../plan'
-import { buildPlan } from '../seed'
-import { RECOVERY_KINDS, STEP_KINDS, formatWorkout } from '../workout'
+import { RECOVERY_KINDS, STEP_KINDS, formatWorkout, workoutDistanceM, type Bands, type Step } from '../workout'
 import type { ToolDefinition, ToolRegistry, ToolResult } from './protocol'
 
 /**
@@ -201,7 +201,7 @@ export interface McpCtx {
  * `plan_weeks.targetVolumeM` is the ramp figure the sessions were *sized from*; this is
  * what they prescribe, and where the two disagree the sessions are the truth. `SESSION_META`
  * decides which types count — a strength session is not running volume — which is the same
- * filter `WeekCalendar` draws its week bar from and the same one `seed.ts` sums a week's
+ * filter `WeekCalendar` draws its week bar from and the same one the app sums a week's
  * target with.
  */
 const prescribedVolumeM = (matched: MatchedSession[]): number =>
@@ -480,11 +480,34 @@ function parseSession(
 }
 
 /**
+ * The stored distance of a session that carries steps is what those steps add up to.
+ *
+ * `targetDistanceM` is the column every screen sums and the one the activity matcher
+ * measures against, and this boundary is the write time — the seed used to compute it
+ * with `workoutDistanceM` before inserting, and a session written here without it is
+ * invisible to the week bars and unmatchable to a run. Derived with the athlete's own
+ * bands so a timed step is costed at their paces, never the owner's table. An explicit
+ * `steps: null` leaves a hand-set distance alone, which is what keeps update_session's
+ * two documented modes — "change the number, drop the steps" and "rewrite the steps" —
+ * both true.
+ */
+export function withDerivedDistance(
+  data: Record<string, unknown>,
+  bands: Bands,
+): Record<string, unknown> {
+  const steps = data.steps as Step[] | null | undefined
+  if (!Array.isArray(steps) || steps.length === 0) return data
+  const type = data.type as SessionType | undefined
+  if (type && !SESSION_META[type].countsAsVolume) return data
+  return { ...data, targetDistanceM: workoutDistanceM(steps, bands) }
+}
+
+/**
  * A session id an agent may choose.
  *
  * The HTTP surface generates ids server-side so that a stale browser tab cannot overwrite
  * a session it never saw; an agent authoring a plan is the opposite case. A stable slug
- * (`w03-tue-1`, the shape `seed.ts` uses) makes "write me a 16-week plan" idempotent —
+ * (`w03-tue-1`, derived from week and weekday) makes "write me a 16-week plan" idempotent —
  * running it twice rewrites the plan instead of leaving two of every session behind. That
  * is why this validator lives here and not in `plan-input.ts`: the id is not part of what
  * either surface considers a valid *session*, it is a property of who is doing the writing.
@@ -527,7 +550,7 @@ const columnsOf = (table: typeof planWeeks | typeof planSessions) =>
 /**
  * Rows per statement, derived from the column count rather than hardcoded, so a column
  * added to the schema cannot silently push a statement over D1's limit. Same derivation as
- * `src/lib/sync.ts` and `src/pages/api/plan/seed.ts`.
+ * `src/lib/sync.ts`.
  */
 const chunkSize = (table: typeof planWeeks | typeof planSessions) =>
   Math.max(1, Math.floor(D1_MAX_BOUND_PARAMS / columnsOf(table)))
@@ -578,54 +601,6 @@ async function assertOwnsActivities(
       `No activity of yours with id ${missing.join(', ')}. Pin only activities from list_activities.`,
     )
   }
-}
-
-/**
- * The plan-seeding write, mirroring `POST /api/plan/seed`.
- *
- * It is copied rather than imported because that route is an Astro endpoint module: it
- * pulls `env` from `cloudflare:workers` at module scope, and importing it here would drag
- * a binding into a file whose whole point is that it takes its database as an argument and
- * runs in plain Node under vitest. If the seeding write ever grows a third caller, it
- * should move into a module of its own and both should call that.
- */
-async function writePlan({ db, userId }: McpCtx, now: number) {
-  const built = buildPlan(now)
-  // Stamped with the owner of the plan on the way in. `buildPlan` is the owner's document
-  // and knows nothing about accounts, so this is the only place the rows gain an athlete.
-  const weeks = built.weeks.map((week) => ({ ...week, userId }))
-  const sessions = built.sessions.map((session) => ({ ...session, userId }))
-
-  const weekStmts = []
-  for (let i = 0; i < weeks.length; i += chunkSize(planWeeks)) {
-    weekStmts.push(
-      db
-        .insert(planWeeks)
-        .values(weeks.slice(i, i + chunkSize(planWeeks)))
-        .onConflictDoUpdate({
-          target: [planWeeks.userId, planWeeks.weekIndex],
-          set: excludedSet(planWeeks, ['userId', 'weekIndex']),
-        }),
-    )
-  }
-
-  const sessionStmts = []
-  for (let i = 0; i < sessions.length; i += chunkSize(planSessions)) {
-    sessionStmts.push(
-      db
-        .insert(planSessions)
-        .values(sessions.slice(i, i + chunkSize(planSessions)))
-        .onConflictDoUpdate({
-          target: [planSessions.userId, planSessions.id],
-          set: excludedSet(planSessions, ['userId', 'id']),
-        }),
-    )
-  }
-
-  await db.batch(weekStmts as [(typeof weekStmts)[number], ...typeof weekStmts])
-  await db.batch(sessionStmts as [(typeof sessionStmts)[number], ...typeof sessionStmts])
-
-  return { weeks: weeks.length, sessions: sessions.length }
 }
 
 // ---------------------------------------------------------------------------
@@ -1025,7 +1000,7 @@ const TOOLS: Tool[] = [
 
       const [row] = await db
         .insert(planSessions)
-        .values({ userId, id, ...parsed.data, updatedAt: now } as NewPlanSession)
+        .values({ userId, id, ...withDerivedDistance(parsed.data, ctx.bands), updatedAt: now } as NewPlanSession)
         // The key is (user_id, id), so the conflict target has to be both. Naming `id`
         // alone matches no constraint and D1 rejects the statement outright — which is at
         // least loud. The dangerous version of this mistake is the one that *matches*: an
@@ -1094,7 +1069,7 @@ const TOOLS: Tool[] = [
 
         const parsed = parseSession(raw, sessionInputs(block).createSessionInput)
         if ('issues' in parsed) failures.push({ index, issues: parsed.issues })
-        else rows.push({ userId, id, ...parsed.data, updatedAt: now } as NewPlanSession)
+        else rows.push({ userId, id, ...withDerivedDistance(parsed.data, ctx.bands), updatedAt: now } as NewPlanSession)
       })
 
       if (failures.length > 0) {
@@ -1161,7 +1136,7 @@ const TOOLS: Tool[] = [
 
       const [row] = await db
         .update(planSessions)
-        .set({ ...parsed.data, updatedAt: now })
+        .set({ ...withDerivedDistance(parsed.data, ctx.bands), updatedAt: now })
         .where(and(eq(planSessions.userId, userId), eq(planSessions.id, id)))
         .returning()
 
@@ -1195,18 +1170,6 @@ const TOOLS: Tool[] = [
       return { deleted: row.id }
     },
   },
-
-  {
-    name: 'seed_plan',
-    title: 'Reset to the built-in plan',
-    description:
-      'OVERWRITES the whole plan with the deployment\'s built-in example plan — every week and every session, including anything edited by hand or written by you. Session ids are derived from week and weekday, so this is "reset to the plan", not "merge with the plan". Use it to start from a known-good block before authoring, or to undo. It does not touch synced activities. Takes no arguments.',
-    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-    async run(ctx, _args, now) {
-      const { db, userId, block } = ctx
-      return writePlan(ctx, now)
-    },
-  },
 ]
 
 function readWithin(raw: unknown, min: number, max: number, label: string): number {
@@ -1238,7 +1201,7 @@ The app speaks Spanish to the athlete. Tool names, arguments and these instructi
  * The MCP surface's own version, bumped when a tool's contract changes. Deliberately not
  * the app's package version, which moves for reasons no client cares about.
  */
-export const SERVER_VERSION = '2.0.0'
+export const SERVER_VERSION = '2.1.0'
 
 /**
  * Binds the tools to a database and a credential.

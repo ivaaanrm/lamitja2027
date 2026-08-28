@@ -37,3 +37,5 @@ pnpm-debug.log*
 docs/personal/
 docs/plan/
 docs/plans/*
+
+design/

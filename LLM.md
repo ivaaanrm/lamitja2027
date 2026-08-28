@@ -5,7 +5,7 @@ before you run anything, then work through it in order.
 
 Three parts, and the middle one is a full stop:
 
-1. **[Local](#1-local)** — install, configure, migrate, run, seed, verify. No Cloudflare
+1. **[Local](#1-local)** — install, configure, migrate, run, author a plan, verify. No Cloudflare
    account, no Strava application, nothing irreversible.
 2. **[Ask](#2-stop-here-and-ask)** — when local works, stop and ask the user whether to
    deploy. Deploying creates real resources on their account and publishes a URL with
@@ -140,11 +140,10 @@ Three things to know before you write one:
 - **`pnpm test` does not read `.env`.** Vitest's `envPrefix` defaults to `VITE_` and
   `vitest.config.ts` does not override it, so the suite always runs against the defaults.
   That is a known rough edge, documented in `docs/setup.md` §d — do not "fix" it as part
-  of setup, because two tests deliberately assert the example block.
+  of setup, because one test deliberately asserts the example block.
 
-The number of weeks, the five phases and the six pace bands all follow from those values.
-Everything a `.env` *cannot* move — the 23 hand-written weeks in `src/lib/seed.ts`, the
-Spanish copy, the icons — is listed file by file in
+The number of weeks and the six pace bands follow from those values. Everything a `.env`
+*cannot* move — the Spanish copy, the icons — is listed file by file in
 [`docs/setup.md` §d](docs/setup.md#d-making-it-your-race).
 
 ### 1.3 `.dev.vars` — the four secrets
@@ -216,36 +215,17 @@ dependency cache — see [troubleshooting](#troubleshooting).
 
 ### 1.6 Put a plan in the database
 
-An empty database renders an empty app. Seeding writes the 23 weeks of
-`src/lib/seed.ts`; it is keyed on ids derived from week and weekday, so it is **reset to
-the plan**, not merge. Skip it entirely if the user intends to author their own block
-through the MCP server.
-
-Two ways in, and both work over plain `http` on localhost.
-
-**MCP — no cookie, and the one to prefer as an agent:**
+An empty database renders an empty app. There is no built-in plan to seed: every athlete
+authors their own block through the MCP server (or by hand in `/plan`). Mint a token in
+`/ajustes`, then drive `POST /api/mcp` — `get_block` first, `upsert_week` for the weeks,
+`create_sessions` for the sessions, stable ids (`w03-tue-1`) so re-running rewrites
+instead of duplicating. Works over plain `http` on localhost:
 
 ```bash
-PW=$(grep -E '^APP_PASSWORD=' .dev.vars | sed 's/^APP_PASSWORD=//; s/^"//; s/"$//')
 curl -s http://localhost:4321/api/mcp \
-  -H "Authorization: Bearer $PW" -H 'content-type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"seed_plan","arguments":{}}}'
+  -H "Authorization: Bearer $MCP_TOKEN" -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_block","arguments":{}}}'
 ```
-
-**Cookie — note the `Origin` header on *both* calls:**
-
-```bash
-HOST=http://localhost:4321
-curl -s -c /tmp/lm.cookies -X POST "$HOST/api/login" \
-  -H "Origin: $HOST" --data-urlencode "password=$PW"
-curl -s -b /tmp/lm.cookies -X POST "$HOST/api/plan/seed" -H "Origin: $HOST"
-```
-
-Astro's CSRF check rejects a POST that carries no form content-type unless `Origin`
-matches the app's own origin — so the bodyless seed POST answers
-`403 Cross-site POST form submissions are forbidden` without it, before auth is even
-consulted. JSON bodies (the MCP call above) are exempt, which is why that one needs no
-`Origin`.
 
 Verify:
 
@@ -292,7 +272,7 @@ Do not deploy on your own initiative. Report what runs and ask, in the user's la
 something close to:
 
 > Local setup works — `http://localhost:4321`, signed in with the password above, plan
-> seeded, tests passing. Want to deploy it to Cloudflare now?
+> written, tests passing. Want to deploy it to Cloudflare now?
 >
 > It creates a Worker, a D1 database and a KV namespace on your account (the free plan
 > covers all of it at this size), publishes a `*.workers.dev` URL, and needs you at a
@@ -434,21 +414,16 @@ outright — and past that it resolves the assets directory wrongly.
 If `wrangler d1 migrations apply --remote` fails on the upload step, retry: it is flaky on
 transient network errors, not on your schema.
 
-### 3.7 Sign in, connect Strava, seed the plan
+### 3.7 Sign in, connect Strava, author the plan
 
 1. Open `$HOST`. It lands on `/login`; the password is `APP_PASSWORD`, exchanged for a
    cookie good for a year on every device it is typed on.
 2. Press **Conectar con Strava** on the home screen and accept the consent screen **with
    the private-activities box ticked**. The callback stores the encrypted refresh token and
    runs a first sync. Nothing before `PUBLIC_BLOCK_START` is fetched, ever.
-3. Seed the plan, exactly as in [1.6](#16-put-a-plan-in-the-database) but against `$HOST`
-   — the MCP call is the cheaper one, since it needs no cookie:
-
-```bash
-curl -s "$HOST/api/mcp" \
-  -H "Authorization: Bearer $APP_PASSWORD" -H 'content-type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"seed_plan","arguments":{}}}'
-```
+3. Author the plan, exactly as in [1.6](#16-put-a-plan-in-the-database) but against
+   `$HOST` — mint the MCP token in `/ajustes` and write the block through
+   `POST $HOST/api/mcp`.
 
 ### 3.8 The webhook (optional)
 
@@ -501,8 +476,8 @@ HOST=https://<name>.<subdomain>.workers.dev
 | `curl -s -o /dev/null -w '%{http_code}\n' $HOST/api/data` | `401` — the gate is closed, as designed |
 | `curl -s -o /dev/null -w '%{http_code}\n' $HOST/plan` | `200`, **not** `307` (trailing-slash handling) |
 | `curl -s -o /dev/null -w '%{http_code}\n' -X GET $HOST/api/mcp` | `405` with `Allow: POST` |
-| `curl -s $HOST/api/mcp -H "Authorization: Bearer $APP_PASSWORD" -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'` | eleven tool names |
-| `pnpm exec wrangler d1 execute DB --remote --command "select count(*) from plan_sessions"` | the seeded count |
+| `curl -s $HOST/api/mcp -H "Authorization: Bearer $APP_PASSWORD" -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'` | ten tool names |
+| `pnpm exec wrangler d1 execute DB --remote --command "select count(*) from plan_sessions"` | the number of authored sessions |
 | `pnpm exec wrangler d1 execute DB --remote --command "select count(*) from activities"` | > 0 once Strava has synced |
 | `curl -s $HOST/manifest.webmanifest` | JSON carrying the user's `PUBLIC_APP_NAME` |
 
@@ -570,5 +545,5 @@ Nineteen platform gotchas, each verified and each expensive to re-derive, are li
 - Add a dependency to "fix" something the repository deliberately hand-rolled: the charts,
   the service worker and the MCP transport are all written out on purpose, and `AGENTS.md`
   says why.
-- Translate the interface, rewrite `src/lib/seed.ts`, or add or remove the previous-season
-  CSVs as part of setup. Those are a fork's own decisions, listed in `docs/setup.md` §d.
+- Translate the interface, author training weeks the user did not ask for, or add or
+  remove the previous-season CSVs as part of setup. Those are a fork's own decisions, listed in `docs/setup.md` §d.

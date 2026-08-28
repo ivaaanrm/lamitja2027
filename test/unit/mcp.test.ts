@@ -15,6 +15,7 @@ import {
   fromPace,
   toIsoDate,
   toPace,
+  withDerivedDistance,
 } from '@/lib/mcp/tools'
 import { HALF_MARATHON_M, goalPaceSKm, totalWeeks, type BlockConfig } from '@/lib/block'
 import { DEFAULT_HR_MAX, PACE_ZONES, paceBands } from '@/lib/paces'
@@ -521,6 +522,43 @@ const resultOf = async (name: string, args: Record<string, unknown> = {}) => {
   return { isError: result.isError === true, text: result.content.map((c) => c.text).join('\n') }
 }
 
+describe('withDerivedDistance', () => {
+  // The column every screen sums and the matcher measures against. A session written
+  // with steps and no stored distance is invisible to the week bars — the bug this
+  // guards against shipped: create_sessions stored `targetDistanceM: null` for every
+  // steps-carrying session while its own schema told the agent not to send the field.
+  const steps = [
+    { kind: 'warmup', reps: 1, distanceM: 2500, durationS: null, zone: 'easy', recovery: null, note: null },
+    { kind: 'strides', reps: 4, distanceM: null, durationS: 20, zone: null, recovery: null, note: null },
+    { kind: 'rep', reps: 20, distanceM: 400, durationS: null, zone: 'vo2', recovery: { kind: 'jog', distanceM: 200, durationS: null }, note: null },
+    { kind: 'cooldown', reps: 1, distanceM: 1500, durationS: null, zone: 'easy', recovery: null, note: null },
+  ] as const
+
+  it('stores the sum of the steps, recovery jogs included', () => {
+    const data = withDerivedDistance({ type: 'interval', steps, targetDistanceM: null }, CTX.bands)
+    // 2500 + 4×20s×5m/s + 20×400 + 19×200 + 1500
+    expect(data.targetDistanceM).toBe(16200)
+  })
+
+  it('costs a timed step at the athlete’s own bands, not the owner’s', () => {
+    const timed = [{ kind: 'steady', reps: 1, distanceM: null, durationS: 600, zone: 'easy', recovery: null, note: null }]
+    const slower = paceBands(300) // a 5:00/km goal — easy band far slower than the owner's
+    const own = withDerivedDistance({ type: 'easy', steps: timed }, CTX.bands)
+    const other = withDerivedDistance({ type: 'easy', steps: timed }, slower)
+    expect(own.targetDistanceM).not.toBe(other.targetDistanceM)
+  })
+
+  it('leaves a session without steps alone — explicit null included', () => {
+    expect(withDerivedDistance({ type: 'easy', targetDistanceM: 5000 }, CTX.bands).targetDistanceM).toBe(5000)
+    expect(withDerivedDistance({ type: 'easy', steps: null, targetDistanceM: 5000 }, CTX.bands).targetDistanceM).toBe(5000)
+  })
+
+  it('never puts a distance on a session that does not count as volume', () => {
+    const data = withDerivedDistance({ type: 'strength', steps, targetDistanceM: null }, CTX.bands)
+    expect(data.targetDistanceM).toBeNull()
+  })
+})
+
 describe('the registry', () => {
   it('advertises unique, described, schema-carrying tools', () => {
     const tools = registry().list()
@@ -546,7 +584,6 @@ describe('the registry', () => {
       'create_sessions',
       'update_session',
       'delete_session',
-      'seed_plan',
     ])
   })
 

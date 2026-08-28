@@ -17,8 +17,7 @@ import { PACES, ZONE_LABEL, midOf, type PaceBand, type PaceZone } from './paces'
  * duration, printing `@ 3:50–3:58/km` — takes the athlete's own six bands. A zone is a
  * share of goal pace (`paceBands` in `paces.ts`), so reading them off the owner's table
  * would prescribe Ivan's paces under someone else's target. `PACES` stays the default
- * because it is the owner's table and `seed.ts` is the owner's plan: `buildPlan` must keep
- * producing byte-identical output, and it never passes bands.
+ * for a caller that passes none — the owner's own table, derived from the reference goal.
  */
 
 /** The six bands a session is read against — one athlete's, from their goal pace. */
@@ -86,7 +85,7 @@ const make = (kind: StepKind, patch: Partial<Step>): Step => ({
   ...patch,
 })
 
-// Builders. The seed reads as the workout does — `reps(5, km(1), 'vo2', jogFor(90))`.
+// Builders — `reps(5, km(1), 'vo2', jogFor(90))` reads as the workout does.
 export const km = (value: number) => Math.round(value * 1000)
 
 export const warmup = (distanceM: number, zone: PaceZone | null = 'easy') =>

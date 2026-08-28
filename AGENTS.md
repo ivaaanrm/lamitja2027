@@ -120,7 +120,7 @@ this was configurable, which is what `DEFAULTS` and `test/unit/config.test.ts` e
 pin.
 
 `import.meta.env` and not the two alternatives, deliberately. `cloudflare:workers` env is
-a *runtime* binding: reading it here would drag `block.ts`, `paces.ts`, `seed.ts`,
+a *runtime* binding: reading it here would drag `block.ts`, `paces.ts`,
 `analytics.ts` and the rest of the pure half into needing a Worker alive around them, and
 would turn `TOTAL_WEEKS` from a constant into a call every caller has to thread a binding
 through. `astro:env` is build-time but resolves through Astro's module graph, and vitest
@@ -132,12 +132,8 @@ these values are *compiled in*, so changing one is a rebuild and a redeploy, not
 restart. That is the honest shape for something that differs per **fork** rather than per
 environment — a race date does not change between staging and production.
 
-Three things now follow from those values instead of sitting beside them. `TOTAL_WEEKS` is
-`ceil((RACE_DATE − BLOCK_START) / WEEK_MS)`. The five phases are *shares* of it
-(`PHASE_SHAPE` + `resolvePhases` in `seed.ts`, rounding the cumulative share and clamping
-so every phase keeps at least one week), so a 19-week fork still gets all five —
-*reconstrucción* through *puesta a punto* — and at 23 they reproduce 0–6 / 7–12 / 13–17 /
-18–20 / 21–22 exactly. And the six pace bands are **ratios of goal pace** (`BAND_RATIOS`,
+Two things now follow from those values instead of sitting beside them. `TOTAL_WEEKS` is
+`ceil((RACE_DATE − BLOCK_START) / WEEK_MS)`. And the six pace bands are **ratios of goal pace** (`BAND_RATIOS`,
 six decimals, each line carrying the pace it was derived from) rather than a table of
 seconds — a ratio and not an offset because ability scales and offsets do not: goal pace
 plus 73 s/km is a sane easy run for a 3:47/km runner and asks a 5:30/km one to jog at
@@ -145,57 +141,48 @@ plus 73 s/km is a sane easy run for a 3:47/km runner and asks a 5:30/km one to j
 down.
 
 Every value is validated at module load, so a typo fails the *build* rather than quietly
-seeding twenty-three weeks against the wrong year: blank counts as absent, a date has to
+running a twenty-three-week block against the wrong year: blank counts as absent, a date has to
 be a real calendar day, the block has to open on a Monday and run at least four weeks, and
 last season's race has to precede this one. Those messages are English — they are read in
 a build log by whoever just edited `.env`, not by the athlete. One gap to know about:
 `vitest.config.ts` sets no `envPrefix`, and Vitest's default is `VITE_`, so a fork's
 `.env` reaches the Astro build but *not* the unit tests, which run against the defaults.
-Adding `envPrefix: 'PUBLIC_'` closes it, and correctly breaks the two places that assert
-the example block outright: `seed.test.ts`'s `TOTAL_WEEKS === 23` and the race session's
-title, and `config.test.ts`'s *the block the app actually runs on* — which pins the live
+Adding `envPrefix: 'PUBLIC_'` closes it, and correctly breaks the one place that asserts
+the example block outright: `config.test.ts`'s *the block the app actually runs on* — which pins the live
 `BLOCK_START`, `RACE_DATE`, `GOAL_TIME_S`, `HR_MAX` and the six-band `PACES` table, and
 is the only test that proves `config.ts` is wired to its consumers rather than merely
 parsing correctly. Those assertions are about the example block and belong with it.
-
-**The plan is written, not generated.** `src/lib/seed.ts` is the 23 weeks of
 
 `app_state` is gone — its two values (the refresh token, the last sync time) are per-athlete
 now and live on `strava_accounts`. Every read and every write filters on `user_id`; there is
 no query in the app that may return another athlete's row, and a missing filter is a bug of
 the same class as a missing auth check.
 
-**The owner's plan is still written, not generated.** `src/lib/seed.ts` is the 23 weeks of
-`docs/03-training-plan-2027.md` typed out, week by week — a deterministic function, not an
-engine — and it must keep producing that plan byte-identically. `POST /api/plan/seed` is
-owner-only (gated on `baselineKey === BASELINE_KEY`) and writes it, keyed on ids derived
-from week and weekday, so re-seeding is "reset to the plan" and overwrites anything edited
-by hand. Every column that isn't structural is still nullable and still editable from
-`/plan`, because the phase boundaries and volume targets in `docs/03` are expected to move
-as the knee and the Phase 0 gate report back.
+**Every plan is authored, the owner's included — there is no seed.** `src/lib/seed.ts`,
+`POST /api/plan/seed` and the `seed_plan` tool are gone: the owner's plan is rows in
+`plan_weeks`/`plan_sessions` like every other athlete's, written and revised through the
+MCP server (or by hand in `/plan`), with stable ids derived from week and weekday
+(`w03-tue-1`) so re-running an authoring call rewrites the plan instead of duplicating it.
+The plan's *design* lives where it always did — `docs/personal/` — and the database is the
+one copy of it that runs. Every column that isn't structural is nullable and editable from
+`/plan`, because phase boundaries and volume targets are expected to move as the knee
+reports back.
 
 Every other athlete gets a plan through `src/lib/generator.ts` instead — pure, browser-safe,
 no drizzle, no zod, no clock, driven by a `PlanInput` (volume ramp, run/quality/strength
-days, down-week cadence, extra races) the `/crear-plan` wizard collects. It reuses the ideas
-the hand-written seed already proves rather than inventing new ones: phases scaled to the
+days, down-week cadence, extra races) the `/crear-plan` wizard collects. It reuses ideas
+the plan machinery already proves rather than inventing new ones: phases scaled to the
 block length, a capped linear ramp, quality sessions built from `workout.ts` steps at bands
 derived from the athlete's own goal pace, and easy days that absorb whatever volume is left
 over. `POST /api/plan/generate` replaces an athlete's plan wholesale — delete then insert,
 inside one `db.batch` — which is why regenerating is a deliberate, warned-about action in
 `/ajustes`, not a merge.
 
-Which makes `seed.ts` the one file that is an *example* rather than machinery: it is this
-athlete's block, in Spanish, and a fork either rewrites those weeks or writes its own plan
-through the MCP server and never seeds at all. `slotsFor` throws by name when
-`WEEKS.length !== TOTAL_WEEKS`, because the silent version of that mismatch is a 19-week
-fork getting this block's first 19 weeks — no taper, no race.
-
-**Only the easy runs are computed.** Quality sessions, races and race-pace long runs are
-fixed prescriptions; the easy runs absorb whatever the week's volume target has left over
-after them. When the ramp moves, the workouts stay put and the easy days flex. A week's
-`target_volume_m` is then the sum of what its sessions actually prescribe rather than the
-ramp figure they were sized from — a target no session adds up to is a number that quietly
-stops meaning anything.
+**A week's target is the sum of what its sessions prescribe.** Whoever authors a plan —
+agent or hand — keeps `target_volume_m` equal to what the week's sessions add up to,
+because a target no session adds up to is a number that quietly stops meaning anything.
+The MCP server's instructions state the rule; nothing enforces it structurally, so an
+authoring pass ends by reading the prescribed sums back and writing them into the weeks.
 
 **A workout is data, not prose** (`src/lib/workout.ts`). A session carries a list of steps
 — warm-up, `5 × 1 km @ vo2` with a `90 s jog` recovery, cool-down — so the repetitions can
@@ -224,8 +211,8 @@ Monday is `block.startsOn + i * WEEK_MS`, not a column.
 to be module-level constants (start date, race date, goal time, race distance) are now a
 `BlockConfig`, one row per athlete in the `blocks` table. `LAMITJA_2027` is what's left of
 the old constants: the owner's own block, the same numbers `docs/03` was written against,
-kept around as the value the owner's `blocks` row is seeded with and as what `seed.ts` and
-`baseline.ts` are still hand-written against. Every function that used to close over the
+kept around as the value the owner's `blocks` row is planted with and as what
+`baseline.ts` is still hand-written against. Every function that used to close over the
 constants now takes a `BlockConfig` as its first parameter — `block` is always first,
 everywhere — because the alternative is a hidden global that silently mixes one athlete's
 week index into another's plan. Paces move with it: `src/lib/paces.ts`'s six bands are no
@@ -264,10 +251,13 @@ here: those are configured per zone, and `workers.dev` is not a zone you own.
 
 **The plan is also an MCP server** (`src/lib/mcp/`, `POST /api/mcp`). Typing twenty-three
 weeks of sessions into a form is the one thing this app is bad at and the one thing an
-agent is good at, so the same data the UI reads is offered as eleven tools: five reads —
-the block brief, the weeks, the sessions, the activities, the derived summary — and six
+agent is good at, so the same data the UI reads is offered as ten tools: five reads —
+the block brief, the weeks, the sessions, the activities, the derived summary — and five
 writes, of which `create_sessions` exists so that "write me a 16-week plan" is one round
-trip rather than ninety.
+trip rather than ninety. A session written with `steps` gets its `targetDistanceM` derived
+at the boundary (`withDerivedDistance`, in the athlete's own bands) — that column is what
+every screen sums and what the activity matcher measures against, and the write is the
+only honest moment to compute it.
 
 **Bearer, and the token is *looked up*, not compared.** An MCP client has no cookie jar
 and no login form to post to, so it presents `Authorization: Bearer <token>` — an
@@ -321,13 +311,12 @@ from the ones the app runs on fails the build.
 **The tool descriptions are English while everything a person reads is Spanish**, and that
 is not an oversight. The reader of a tool description is the agent; the reader of a
 session's `title` and `notes` is the athlete, and the server's instructions say so
-explicitly, in English, telling the agent to write those in Spanish. Two deliberate
-divergences from the HTTP surface are commented in place because they look like drift:
+explicitly, in English, telling the agent to write those in Spanish. One deliberate
+divergence from the HTTP surface is commented in place because it looks like drift:
 `create_session`/`create_sessions` accept a client-chosen `id` and upsert on it (a stale
 browser tab must not overwrite a session it never saw — an agent authoring a plan is the
 opposite case, and without stable ids the same request run twice leaves two of every
-session), and `seed_plan` duplicates ~25 lines of the seed route's chunking rather than
-import a module that pulls `env` from `cloudflare:workers` at load.
+session).
 
 **Sync is one function with no cursor.** `syncBlock()` fetches everything after
 `BLOCK_START` in a single request and upserts it. The block is one page of results, so
@@ -716,7 +705,7 @@ Tailwind classes so a chart is styled like everything else on the page.
   "which day was this run" does not depend on the viewing device.
 - **Pure logic stays out of I/O modules.** `src/lib/config.ts`, `src/lib/activity.ts`, `src/lib/block.ts`,
   `src/lib/plan.ts`, `src/lib/workout.ts`, `src/lib/paces.ts`, `src/lib/format.ts`,
-  `src/lib/seed.ts`, `src/lib/generator.ts`, `src/lib/metrics.ts`, `src/lib/analytics.ts`
+  `src/lib/generator.ts`, `src/lib/metrics.ts`, `src/lib/analytics.ts`
   and `src/lib/baseline.ts` import nothing from `cloudflare:workers`,
   take `now` explicitly, and are unit-tested in plain Node; `src/lib/sync.ts` and
   `src/lib/strava.ts` own the side effects. `src/lib/mcp/*` belongs to the first group by
