@@ -156,7 +156,7 @@ export function Onboarding() {
       noValidate
       onSubmit={(event) => void submit(event)}
       aria-busy={busy}
-      className="performance-shadow fade-up rounded-2xl border border-line bg-surface-raised p-4"
+      className="fade-up rounded-2xl bg-fill p-4"
     >
       <Field label="Nombre de la carrera">
         <TextInput

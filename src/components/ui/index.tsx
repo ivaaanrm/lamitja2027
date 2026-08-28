@@ -9,7 +9,8 @@ import { SESSION_META, type SessionType } from '@/lib/plan'
  * jittering as they update.
  *
  * Cards establish one clear level of grouping without inventing colours or hiding data.
- * The surface, radius and shadow are shared, so dense analytics still read as one app.
+ * The flat fill and radius are shared, so dense analytics still read as one app without
+ * every section pretending to float above the page.
  */
 
 /**
@@ -204,6 +205,10 @@ export function DoneToggle({
 /**
  * One grouped surface, sized to keep useful data above the fold on a 375 px phone.
  *
+ * Flat by design: the same translucent fill as a week group and the countdown, with no
+ * outline or shadow. Grouping comes from the change of ground and the radius; drawing a
+ * second edge around both was framing every section twice.
+ *
  * `px-3 py-2.5` rather than a symmetric `p-4`: the horizontal inset is doing less work
  * here because the page gutter already holds the card off the bezel, so spending 16px on
  * both is spending it twice. The radius comes down with the padding — a 24px corner on a
@@ -218,10 +223,7 @@ export function Card({
   return (
     <section
       {...rest}
-      className={cn(
-        'performance-shadow rounded-2xl border border-line bg-surface-raised px-3 py-2.5',
-        className,
-      )}
+      className={cn('rounded-2xl bg-fill px-3 py-2.5', className)}
     >
       {children}
     </section>
@@ -591,7 +593,7 @@ export function Field({ label, children }: { label: string; children: ReactNode 
  * corner proportional to the inset, and less horizontal padding.
  *
  * Borderless at rest and bordered on focus, rather than a hairline that is always on. A
- * field is already a well — `surface-deep/35` against the `surface-raised` it sits on — so
+ * field is already a well — `surface-deep/35` against the content fill it sits on — so
  * the rule was a second edge drawn around an edge, and eight of them stacked down a form
  * read as a grid of boxes. `border-transparent` rather than no border at all, so the box
  * does not resize by two pixels the moment it takes focus.

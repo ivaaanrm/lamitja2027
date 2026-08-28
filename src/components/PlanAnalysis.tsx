@@ -200,12 +200,12 @@ export function PlanAnalysis({ weeks }: { weeks: WeekPlan[] }) {
         </div>
 
         {visible.length > 0 ? (
-          <div className="border-t border-line">
+          <div>
             {/* A semantic table whose rows become a three-column, two-line grid below the
                 desktop breakpoint. The data stays one tree — no duplicated mobile list —
                 while the phone never has to pan sideways to reach the distance. */}
             <table className="block w-full table-fixed sm:table">
-              <thead className="hidden bg-fill sm:table-header-group">
+              <thead className="hidden sm:table-header-group">
                 <tr>
                   <ColumnHeading className="w-14">Semana</ColumnHeading>
                   <ColumnHeading className="w-[4.5rem]">Fecha</ColumnHeading>
@@ -267,7 +267,7 @@ export function PlanAnalysis({ weeks }: { weeks: WeekPlan[] }) {
             </table>
           </div>
         ) : (
-          <div className="border-t border-line px-3 py-3">
+          <div className="px-3 py-3">
             <EmptyState
               action={
                 filtered ? (
