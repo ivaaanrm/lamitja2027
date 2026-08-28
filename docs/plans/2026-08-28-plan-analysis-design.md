@@ -12,13 +12,18 @@ numbers on this screen always mean prescribed work.
 
 ## Chosen shape
 
-`/plan` gains a two-option control directly above its content:
+`/plan` gains a two-option control in its top navigation row, beside the athlete avatar.
+The selector replaces the visible `Plan` heading, so the row names the two things the
+screen can show instead of repeating the route name above them:
 
 - **Semanas** keeps the existing phase-grouped accordion and editing flow unchanged.
 - **Análisis** replaces that content with block-wide summaries, filters, and a compact
   session table.
 
-Keeping both views in the existing React island is preferable to a separate route: the
+The plan page omits `App.astro`'s ordinary title header and lets the existing Planner
+island render this plan-specific navigation row. That keeps the selector and the content
+in one state owner while leaving every other page header unchanged. Keeping both views in
+the existing React island is preferable to a separate route: the
 full athlete-scoped block is already loaded by `useBlock`, the switch is instant and works
 offline, and there is no second navigation destination or API surface to maintain. A
 server-filtered endpoint would add D1 queries for a dataset measured in dozens of rows and
