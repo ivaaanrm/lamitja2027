@@ -66,25 +66,29 @@ interface Props {
   heading: string
   sub?: string
   tab: Tab
+  /** A screen may own the whole top row when its navigation is interactive. */
+  showHeader?: boolean
 }
-const { title, heading, sub, tab } = Astro.props
+const { title, heading, sub, tab, showHeader = true } = Astro.props
 ---
 
 <Base title={title}>
   <main
     class="mx-auto flex min-h-full max-w-lg flex-col gap-2 px-gutter pt-3 pb-[calc(4.75rem+env(safe-area-inset-bottom))]"
   >
-    <header class="flex items-start justify-between gap-2 px-0.5 pb-0.5">
-      <div class="min-w-0">
-        {
-          heading ? (
-            <h1 class="font-display text-title2 font-bold tracking-tight text-label">{heading}</h1>
-          ) : null
-        }
-        {sub ? <p class="mt-0.5 text-footnote leading-relaxed text-label-2">{sub}</p> : null}
-      </div>
-      <HeaderAvatar client:load />
-    </header>
+    {
+      showHeader ? (
+        <header class="flex items-start justify-between gap-2 px-0.5 pb-0.5">
+          <div class="min-w-0">
+            {heading ? (
+              <h1 class="font-display text-title2 font-bold tracking-tight text-label">{heading}</h1>
+            ) : null}
+            {sub ? <p class="mt-0.5 text-footnote leading-relaxed text-label-2">{sub}</p> : null}
+          </div>
+          <HeaderAvatar client:load />
+        </header>
+      ) : null
+    }
     {/*
       Under the heading rather than above it, so the screen still opens by saying where you
       are. It is `display: none` until `<html>` carries `data-offline`, so on every ordinary
