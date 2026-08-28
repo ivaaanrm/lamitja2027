@@ -177,7 +177,7 @@ function SessionDetailScreen() {
 
       {/* Not a card, and not a filled button. The two actions a session detail offers are
           both secondary to reading it — one of them only exists for the sessions Strava
-          will never report — and a mint slab across the foot of the screen made the last
+          will never report — and a accent slab across the foot of the screen made the last
           thing on it the loudest. A pair of text actions on the page ground weighs what
           they are worth and still holds a 44px target each. */}
       <div className="flex flex-wrap items-center justify-between gap-x-4 px-1">
@@ -459,7 +459,7 @@ function Result({
     markers.push({
       key: 'cadence',
       node: (
-        <span className={activity.cadenceSpm >= 170 ? 'text-mint' : 'text-amber'}>
+        <span className={activity.cadenceSpm >= 170 ? 'text-accent' : 'text-amber'}>
           {activity.cadenceSpm} pasos/min
         </span>
       ),

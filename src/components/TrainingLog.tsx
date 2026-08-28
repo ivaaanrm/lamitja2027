@@ -378,13 +378,13 @@ function GridCard({
           return (
             <li
               key={week.weekIndex}
-              // The week being run is marked twice over: the mint wash, and its label in
-              // mint at a heavier weight. Colour alone would leave the row unmarked for
+              // The week being run is marked twice over: the accent wash, and its label in
+              // accent at a heavier weight. Colour alone would leave the row unmarked for
               // anyone who cannot separate the two grounds.
               aria-current={isCurrent ? 'true' : undefined}
               className={cn(
                 'flex items-center gap-1 border-t border-line py-1.5',
-                isCurrent && 'bg-mint/[0.07]',
+                isCurrent && 'bg-accent/[0.07]',
               )}
             >
               <span
@@ -392,7 +392,7 @@ function GridCard({
                   'data-number w-6 shrink-0 text-caption2',
                   // `label-3`, not `label-4`: a week number is data — it is how a row is
                   // named — and `label-4` is the one step that misses AA.
-                  isCurrent ? 'font-semibold text-mint' : 'text-label-3',
+                  isCurrent ? 'font-semibold text-accent' : 'text-label-3',
                 )}
               >
                 S{week.weekIndex + 1}

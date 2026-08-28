@@ -548,7 +548,7 @@ export function Settings() {
             {profileError}
           </p>
         ) : profileSaved ? (
-          <p className="mt-2 text-caption text-mint">Guardado.</p>
+          <p className="mt-2 text-caption text-accent">Guardado.</p>
         ) : null}
         <Button variant="primary" className="mt-3 w-full" disabled={profileBusy} onClick={() => void saveProfile()}>
           {profileBusy ? 'Guardando…' : 'Guardar'}
@@ -633,7 +633,7 @@ export function Settings() {
                 {blockError}
               </p>
             ) : blockSaved ? (
-              <p className="mt-2 text-caption text-mint">Guardado.</p>
+              <p className="mt-2 text-caption text-accent">Guardado.</p>
             ) : null}
             <Button variant="primary" className="mt-3 w-full" disabled={blockBusy} onClick={() => void saveBlock()}>
               {blockBusy ? 'Guardando…' : 'Guardar'}
@@ -690,12 +690,11 @@ export function Settings() {
         ) : (
           <EmptyState
             action={
-              // Strava's own orange, the one hex outside the token file — their brand
-              // guidelines own this button, and `text-ink` is the token that reads as the
-              // white on it.
+              // The application accent is Strava's own orange, so this connection action
+              // and every primary state resolve through the same token.
               <a
                 href="/api/strava/connect"
-                className="tappable inline-flex h-11 items-center justify-center rounded-xl bg-[#fc4c02] px-5 text-footnote font-semibold text-ink"
+                className="tappable inline-flex h-11 items-center justify-center rounded-xl bg-accent px-5 text-footnote font-semibold text-surface"
               >
                 Conectar con Strava
               </a>

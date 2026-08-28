@@ -76,11 +76,13 @@
   --color-label-3: rgba(247, 248, 250, 0.56);
   --color-label-4: rgba(247, 248, 250, 0.32);
 
-  /* The eight hues are named for the colour, not the session, because
+  /* The eight training hues are named for the colour, not the session, because
      `src/components/ui/index.tsx` maps them onto both the session types and the five
      heart-rate zones and no one name fits both. Their higher chroma is deliberate: these
      colours mostly appear as slim rails, dots, chart marks and text, where a dusty tint
-     reads grey. Mint remains the state hue — done, now, ahead — and the primary action. */
+     reads grey. `accent` is separate: Strava orange, and the one state hue for done, now,
+     ahead, focus and the primary action. Mint remains a training hue for cross sessions. */
+  --color-accent: #fc4c02;
   --color-lime: #b5ca20;
   --color-green: #36c866;
   --color-mint: #18c49a;
@@ -222,7 +224,7 @@
   }
 
   ::selection {
-    background: color-mix(in srgb, var(--color-mint) 32%, transparent);
+    background: color-mix(in srgb, var(--color-accent) 32%, transparent);
     color: var(--color-ink);
   }
 
@@ -232,7 +234,7 @@
    * The phone is what this app is drawn for and a phone has no focus ring at all — but
    * the same app is read at a desk with a keyboard, and there it was wearing three
    * different indicators: the form controls draw their own (`outline-none` plus a border
-   * and a fill that change on `:focus`), one row in `/plan` had a hand-written mint ring,
+   * and a fill that change on `:focus`), one row in `/plan` had a hand-written accent ring,
    * and every other button, link and tab fell through to whatever the browser draws by
    * default. Safari's is a blue halo in a palette with no blue in it; Chrome's is a
    * black-and-white double ring that disappears into a near-black ground.
@@ -247,7 +249,7 @@
    * rather than as focus.
    */
   :focus-visible {
-    outline: 2px solid var(--color-mint);
+    outline: 2px solid var(--color-accent);
     outline-offset: 2px;
   }
 

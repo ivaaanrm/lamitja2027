@@ -25,7 +25,7 @@ import { ACCENT, Card, CardTitle, DoneToggle, EmptyState, TextLink } from './ui'
  * coral meant comparing two rows rather than reading one. Shape still separates the three
  * kinds of line, so none of this rests on colour alone — a filled tile is a prescribed
  * session, a hollow one is a run nobody asked for, a neutral one is a rest day — and
- * whether a day is behind you is said by the tick at the end of the row and by the mint on
+ * whether a day is behind you is said by the tick at the end of the row and by the accent on
  * a distance that was actually run.
  *
  * The rows arrive staggered 30 ms apart, so the eye is walked down the week rather than
@@ -119,7 +119,7 @@ export function ThisWeek({
                   </span>
                   {/* Mint is state, and "the next thing you owe" is the state this card
                       exists to report. */}
-                  {pinned ? null : <span className="text-mint"> · siguiente</span>}
+                  {pinned ? null : <span className="text-accent"> · siguiente</span>}
                 </p>
                 {pinned && upcoming ? (
                   <TextLink inset className="-mr-2" onClick={() => setPicked(null)}>
@@ -262,7 +262,7 @@ function DayLabel({ children, isToday }: { children: string; isToday: boolean })
         'w-12 shrink-0 whitespace-nowrap text-caption2 font-medium uppercase tracking-wide tabular-nums',
         // `label-3`, not `label-4`: the date is data, and `label-4` is the one step that
         // misses AA, so nothing but chrome may wear it.
-        isToday ? 'text-mint' : 'text-label-3',
+        isToday ? 'text-accent' : 'text-label-3',
       )}
     >
       {children}
@@ -311,7 +311,7 @@ function SessionLine({
   const { session, activity, done } = match
   // What happened, or failing that what was asked for — one number, never both, because
   // the weekly summary above already carries planned against actual. Mint is what tells
-  // the two apart: a mint distance is one that was actually run.
+  // the two apart: a accent distance is one that was actually run.
   const value = activity
     ? `${formatKm(activity.distanceM)} km`
     : session.targetDistanceM != null
@@ -331,7 +331,7 @@ function SessionLine({
         {/* The tile leads the row rather than following the date, because the hue is what
             the week is scanned by — the date is the index you land on once a colour has
             already caught the eye. Held at full strength on a done row: "have I run this"
-            is said three times over by the tick, the mint distance and the dimmed title,
+            is said three times over by the tick, the accent distance and the dimmed title,
             and a week gone grey by Sunday is a week that stops reading as a week. */}
         <Swatch className={ACCENT[session.type].swatch} />
         <DayLabel isToday={isToday}>{label}</DayLabel>
@@ -347,7 +347,7 @@ function SessionLine({
           <span
             className={cn(
               'data-number shrink-0 text-footnote',
-              activity ? 'text-mint' : done ? 'text-label-3' : 'text-label-2',
+              activity ? 'text-accent' : done ? 'text-label-3' : 'text-label-2',
             )}
           >
             {value}

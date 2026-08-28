@@ -97,14 +97,14 @@ import { APP_NAME } from '../lib/config'
     {/*
       The one thing on screen that keeps moving after the mark has settled, so a slow
       morning on 3G reads as *loading* rather than as stuck. Mint, because this is the app
-      telling you it is working — the same reason the primary button is mint.
+      telling you it is working — the same reason the primary button is accent.
 
       Indeterminate on purpose: the only progress this could report is one fetch, and a bar
       that fakes a percentage of a request is a bar that lies. It is `ProgressBar`'s track
       geometry (`h-1.5`, `bg-fill-strong`) with a segment travelling through it.
     */}
     <span aria-hidden="true" class="mt-3.5 block h-1.5 w-20 overflow-hidden rounded-full bg-fill-strong">
-      <span class="boot-rail block h-full w-2/5 rounded-full bg-mint"></span>
+      <span class="boot-rail block h-full w-2/5 rounded-full bg-accent"></span>
     </span>
   </div>
 </div>

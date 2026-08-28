@@ -29,7 +29,7 @@ import { TABS, type Tab } from '../lib/nav'
  * The alternative costs a resize observer and a `requestAnimationFrame` loop to measure
  * four columns the browser has already laid out.
  *
- * The state is never carried by the pill alone: the active tab is also mint, its glyph is
+ * The state is never carried by the pill alone: the active tab is also accent, its glyph is
  * drawn a quarter-step heavier, its label is semibold, and it is the one link with
  * `aria-current="page"`.
  *
@@ -83,7 +83,7 @@ const ICONS: Record<Tab, string> = {
                 // glyph and the label to be positioned as well: the link becomes its own
                 // stacking context, so the negative layer cannot escape it.
                 'tappable isolate relative flex h-12 flex-col items-center justify-center gap-0.5 rounded-xl',
-                active ? 'text-mint' : 'text-label-3 active:bg-fill',
+                active ? 'text-accent' : 'text-label-3 active:bg-fill',
               ]}
             >
               {active && (

@@ -111,7 +111,7 @@ export function SessionCard({
     // rule around a panel that is already darker than what it sits in is the second frame
     // that made a week of these read as a stack of boxes. No blanket opacity on a done one
     // either — dimming the whole article drops `label-3` from 5.4:1 to 3.7:1 and takes the
-    // result line down with it. Done is said by the mint tick, the dimmed rail and the
+    // result line down with it. Done is said by the accent tick, the dimmed rail and the
     // recessed title: three carriers, none of them a contrast cut on live data.
     <article className="relative overflow-hidden rounded-xl bg-surface-deep/40">
       <span
@@ -166,7 +166,7 @@ export function SessionCard({
             <span className="flex shrink-0 items-center gap-1.5">
               {target ? (
                 // Once an activity has answered the session the plan's number is the
-                // secondary one — what was actually run leads, in mint, below.
+                // secondary one — what was actually run leads, in accent, below.
                 <span
                   className={cn(
                     'data-number text-subhead font-semibold',
@@ -311,7 +311,7 @@ function StepList({ steps, type, bands }: { steps: Step[]; type: SessionType; ba
  * What actually happened, against what was asked for.
  *
  * Its own region under a hairline, and two lines rather than one wrapping row of five
- * loose numbers: the answer in mint (how far, how fast), then the context under it (how it
+ * loose numbers: the answer in accent (how far, how fast), then the context under it (how it
  * compares to the prescription, and how it was run). Five equal-weight figures wrapping
  * mid-phrase is what this used to be, and it read as a spill rather than as a result.
  *
@@ -342,7 +342,7 @@ function Result({
     // secondary number worth carrying on every completed run. 170 spm is the protocol's
     // floor, which is what the colour is reporting against.
     context.push(
-      <span className={activity.cadenceSpm >= 170 ? 'text-mint' : 'text-amber'}>
+      <span className={activity.cadenceSpm >= 170 ? 'text-accent' : 'text-amber'}>
         {activity.cadenceSpm} pasos/min
       </span>,
     )
@@ -355,7 +355,7 @@ function Result({
 
   return (
     <div className="border-t border-line px-3.5 py-2">
-      <p className="data-number text-footnote font-semibold text-mint">
+      <p className="data-number text-footnote font-semibold text-accent">
         {formatKm(activity.distanceM)} km
         {pace ? <span className="ml-2 font-medium">{formatPace(pace)}/km</span> : null}
       </p>

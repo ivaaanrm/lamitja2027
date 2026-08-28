@@ -497,7 +497,7 @@ function WeekRow({
         aria-expanded={isOpen}
         aria-controls={`contenido-semana-${week.weekIndex}`}
         className={cn(
-          'tappable flex min-h-14 w-full items-center gap-2.5 px-3 py-2.5 text-left focus-visible:bg-fill-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-mint',
+          'tappable flex min-h-14 w-full items-center gap-2.5 px-3 py-2.5 text-left focus-visible:bg-fill-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent',
           isOpen && 'bg-fill',
         )}
       >
@@ -509,7 +509,7 @@ function WeekRow({
             {/* State is written as well as coloured, so "which week is now" never depends
                 on a decorative container or colour perception alone. */}
             {state === 'current' ? (
-              <span className="text-caption2 font-semibold uppercase tracking-[0.12em] text-mint">
+              <span className="text-caption2 font-semibold uppercase tracking-[0.12em] text-accent">
                 Ahora
               </span>
             ) : null}
@@ -619,13 +619,13 @@ function WeekRow({
   )
 }
 
-/** `LUN 17`, and mint plus the word on the one day that is today. */
+/** `LUN 17`, and accent plus the word on the one day that is today. */
 function DayLabel({ date, isToday }: { date: number; isToday: boolean }) {
   return (
     <p
       className={cn(
         'px-0.5 text-caption2 font-medium uppercase tracking-[0.09em]',
-        isToday ? 'text-mint' : 'text-label-3',
+        isToday ? 'text-accent' : 'text-label-3',
       )}
     >
       {weekdayFmt.format(new Date(date))}
@@ -660,7 +660,7 @@ function EmptyDay({
       <span
         className={cn(
           'w-16 shrink-0 text-caption2 font-medium uppercase tracking-[0.09em]',
-          isToday ? 'text-mint' : 'text-label-3',
+          isToday ? 'text-accent' : 'text-label-3',
         )}
       >
         {weekdayFmt.format(new Date(date))}
