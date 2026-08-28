@@ -79,9 +79,12 @@ The result is one responsive table-like grid:
   current edit and detail workflow.
 - An empty filtered result explains that no sessions match and offers a one-tap reset.
 
-The visual language stays deliberately analytical and compact: the existing raised card,
-session type chips, tabular numbers, hairline row dividers, and 44px touch targets. It does
-not introduce a dashboard aesthetic or another colour system.
+The visual language stays deliberately analytical and compact: the summary, filters and
+session list use the same flat `bg-fill` surface as the plan's week groups and the home
+screen countdown, with no outer border or raised shadow. Hairlines remain only between
+individual session rows, where they separate repeated records just as they do between
+weeks. Session type chips, tabular numbers and 44px touch targets carry the rest. The view
+does not introduce a dashboard aesthetic or another colour system.
 
 ## Scope and safety
 
