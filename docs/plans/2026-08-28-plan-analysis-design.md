@@ -29,6 +29,12 @@ offline, and there is no second navigation destination or API surface to maintai
 server-filtered endpoint would add D1 queries for a dataset measured in dozens of rows and
 would duplicate data already in memory.
 
+The navigation treatment is deliberately quieter than the filled segmented controls used
+inside cards. A one-pixel rule spans the complete row beneath both the selector and avatar;
+the two labels sit on the page ground with no enclosing fill. The active label is brighter
+and carries a two-pixel underline over that shared rule. The buttons retain their 44px hit
+area and radio-group keyboard behaviour.
+
 ## Data and calculations
 
 The analysis flattens `WeekPlan.sessions` into rows carrying the matched session, its
