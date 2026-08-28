@@ -93,7 +93,7 @@ function ProfilePhoto({
 
       const response = await fetch('/api/avatar', {
         method: 'PUT',
-        headers: { 'content-type': 'image/webp' },
+        headers: { 'content-type': blob.type },
         body: blob,
       })
       if (response.status === 401) {

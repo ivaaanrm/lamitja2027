@@ -7,7 +7,33 @@ export const MAX_AVATAR_BYTES = 512 * 1024
 /** Reject unusually large originals before asking the browser to decode them. */
 export const MAX_AVATAR_SOURCE_BYTES = 20 * 1024 * 1024
 
-const VERSION = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.webp$/
+/**
+ * The two encodings an avatar may be stored in, and the extension each one is keyed under.
+ *
+ * WebP is what the app wants and what nearly every browser produces. WebKit is the
+ * exception and it fails *silently*: `canvas.toBlob(cb, 'image/webp')` is spec'd to fall
+ * back to PNG for a type it cannot encode, so on an iPhone the optimizer used to hand back
+ * a PNG blob, the "is this WebP" check rejected it at every quality, and the athlete was
+ * told their photo could not be compressed — every photo, every time. JPEG is the fallback
+ * because it is the one lossy encoder every browser has; PNG at 512 px is lossless and
+ * routinely larger than the 512 KB the endpoint accepts, so falling back to *that* would
+ * only move the failure one step later.
+ */
+export const AVATAR_FORMATS = {
+  'image/webp': 'webp',
+  'image/jpeg': 'jpg',
+} as const
+
+export type AvatarContentType = keyof typeof AVATAR_FORMATS
+
+const VERSION =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(?:webp|jpg)$/
+
+/** The stored extension is what a later `GET` answers with; never sniff the bytes back. */
+export function avatarContentType(version: string): AvatarContentType | null {
+  if (!VERSION.test(version)) return null
+  return version.endsWith('.webp') ? 'image/webp' : 'image/jpeg'
+}
 
 /** R2 keys are generated from the authenticated id, never from a request path. */
 export function avatarKey(userId: string, version: string): string {
@@ -26,7 +52,7 @@ export function avatarUrl(userId: string, key: string | null): string | null {
 /**
  * Reads a small request body without trusting `Content-Length`.
  *
- * The upload is intentionally buffered because WebP validation needs random access, but
+ * The upload is intentionally buffered because header validation needs random access, but
  * the stream is cancelled the byte it crosses the hard limit so an unbounded body never
  * becomes an unbounded Worker allocation.
  */
@@ -67,6 +93,14 @@ export async function readBoundedBody(
 
 const ascii = (bytes: Uint8Array, at: number, text: string): boolean =>
   [...text].every((char, index) => bytes[at + index] === char.charCodeAt(0))
+
+/** Dispatches to the parser for the one encoding the request declared. */
+export function imageDimensions(
+  bytes: Uint8Array,
+  contentType: AvatarContentType,
+): { width: number; height: number } | null {
+  return contentType === 'image/webp' ? webpDimensions(bytes) : jpegDimensions(bytes)
+}
 
 /**
  * Returns the dimensions declared by a structurally bounded WebP container.
@@ -122,3 +156,48 @@ export function webpDimensions(bytes: Uint8Array): { width: number; height: numb
   return null
 }
 
+/**
+ * Returns the dimensions declared by a structurally walked JPEG's frame header.
+ *
+ * Same contract as `webpDimensions`: not a decoder, only the server-side boundary that
+ * keeps a forged content type or a decompression bomb out of the bucket. The segment walk
+ * refuses rather than resynchronises — anything that is not a marker where a marker has to
+ * be is treated as "not a JPEG", and the scan (`SOS`) is the end of the search, since every
+ * frame header legal here precedes it.
+ */
+export function jpegDimensions(bytes: Uint8Array): { width: number; height: number } | null {
+  if (bytes.byteLength < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return null
+
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  let at = 2
+
+  while (at + 1 < bytes.byteLength) {
+    if (bytes[at] !== 0xff) return null
+    // Any number of 0xFF fill bytes may pad the gap before a marker.
+    while (at + 1 < bytes.byteLength && bytes[at + 1] === 0xff) at += 1
+
+    const marker = bytes[at + 1]!
+    if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+      at += 2
+      continue
+    }
+    if (marker === 0xd9 || marker === 0xda) return null
+
+    if (at + 4 > bytes.byteLength) return null
+    const size = view.getUint16(at + 2)
+    if (size < 2 || at + 2 + size > bytes.byteLength) return null
+
+    const isFrame =
+      marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc
+    if (isFrame) {
+      if (size < 7) return null
+      const height = view.getUint16(at + 5)
+      const width = view.getUint16(at + 7)
+      return width > 0 && height > 0 ? { width, height } : null
+    }
+
+    at += 2 + size
+  }
+
+  return null
+}

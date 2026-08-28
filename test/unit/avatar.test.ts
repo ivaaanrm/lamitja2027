@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   AVATAR_SIZE_PX,
+  avatarContentType,
   avatarKey,
   avatarUrl,
+  imageDimensions,
+  jpegDimensions,
   readBoundedBody,
   webpDimensions,
 } from '../../src/lib/avatar'
@@ -67,6 +70,15 @@ describe('avatar object identity', () => {
     expect(avatarUrl(userId, key)).toBe(`/api/avatar/${version}`)
   })
 
+  it('keys a JPEG fallback under its own extension', () => {
+    const fallback = '305543e4-aa56-4b09-b91a-e585fac104e9.jpg'
+    expect(avatarUrl(userId, avatarKey(userId, fallback))).toBe(`/api/avatar/${fallback}`)
+    expect(avatarContentType(fallback)).toBe('image/jpeg')
+    expect(avatarContentType(version)).toBe('image/webp')
+    expect(avatarContentType('305543e4-aa56-4b09-b91a-e585fac104e9.png')).toBeNull()
+    expect(avatarContentType('../../etc/passwd')).toBeNull()
+  })
+
   it('does not expose a key owned by a different athlete', () => {
     expect(avatarUrl('someone-else', avatarKey(userId, version))).toBeNull()
     expect(avatarUrl(userId, 'avatars/not-a-valid-key')).toBeNull()
@@ -87,6 +99,55 @@ describe('WebP validation', () => {
 
     valid[0] = 0
     expect(webpDimensions(valid)).toBeNull()
+  })
+})
+
+/** A JPEG with the segments a browser encoder actually emits before the frame header. */
+function jpeg(width: number, height: number, marker = 0xc0): Uint8Array {
+  const app0 = [0xff, 0xe0, 0x00, 0x04, 0x00, 0x00]
+  const sof = [
+    0xff,
+    marker,
+    0x00,
+    0x11,
+    0x08,
+    (height >> 8) & 0xff,
+    height & 0xff,
+    (width >> 8) & 0xff,
+    width & 0xff,
+    ...new Array(10).fill(0),
+  ]
+  return new Uint8Array([0xff, 0xd8, ...app0, ...sof, 0xff, 0xda, 0x00, 0x02])
+}
+
+describe('JPEG validation', () => {
+  it.each([0xc0, 0xc1, 0xc2])('reads the dimensions from frame header %s', (marker) => {
+    expect(jpegDimensions(jpeg(AVATAR_SIZE_PX, AVATAR_SIZE_PX, marker))).toEqual({
+      width: AVATAR_SIZE_PX,
+      height: AVATAR_SIZE_PX,
+    })
+  })
+
+  it('walks past the tables a real encoder writes, fill bytes included', () => {
+    const withFill = new Uint8Array([
+      0xff, 0xd8,
+      0xff, 0xdb, 0x00, 0x04, 0x00, 0x00,
+      0xff, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x02, 0x00, 0x02, 0x00, ...new Array(10).fill(0),
+    ])
+    expect(jpegDimensions(withFill)).toEqual({ width: 512, height: 512 })
+  })
+
+  it('refuses anything that is not a segment where a segment has to be', () => {
+    expect(jpegDimensions(new Uint8Array([0x89, 0x50, 0x4e, 0x47]))).toBeNull()
+    expect(jpegDimensions(jpeg(512, 512).slice(0, 12))).toBeNull()
+    // A truthful container whose frame header never arrives before the scan.
+    expect(jpegDimensions(new Uint8Array([0xff, 0xd8, 0xff, 0xda, 0x00, 0x02]))).toBeNull()
+  })
+
+  it('is what the declared content type selects', () => {
+    expect(imageDimensions(jpeg(512, 512), 'image/jpeg')).toEqual({ width: 512, height: 512 })
+    expect(imageDimensions(jpeg(512, 512), 'image/webp')).toBeNull()
+    expect(imageDimensions(vp8x(512, 512), 'image/jpeg')).toBeNull()
   })
 })
 

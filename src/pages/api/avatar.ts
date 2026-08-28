@@ -1,13 +1,15 @@
 import type { APIRoute } from 'astro'
 import { env } from 'cloudflare:workers'
 import { and, eq, isNull } from 'drizzle-orm'
+import type { AvatarContentType } from '@/lib/avatar'
 import {
+  AVATAR_FORMATS,
   AVATAR_SIZE_PX,
   MAX_AVATAR_BYTES,
   avatarKey,
   avatarUrl,
+  imageDimensions,
   readBoundedBody,
-  webpDimensions,
 } from '@/lib/avatar'
 import { json } from '@/lib/api'
 import { createDb } from '@/lib/db/client'
@@ -29,7 +31,11 @@ function logCleanupFailure(action: 'replace' | 'rollback' | 'remove', key: strin
 }
 
 /**
- * Replaces the authenticated athlete's avatar with one browser-optimized WebP.
+ * Replaces the authenticated athlete's avatar with one browser-optimized image.
+ *
+ * WebP or JPEG, because WebKit cannot encode the first — the declared type picks the
+ * header parser, the stored extension and what a later `GET` answers with, so the three
+ * can never disagree.
  *
  * The request never carries a user id. A fresh object key is written first and then won
  * into `users.avatar_key` with an optimistic condition against the middleware's snapshot.
@@ -39,9 +45,10 @@ function logCleanupFailure(action: 'replace' | 'rollback' | 'remove', key: strin
 export const PUT: APIRoute = async ({ request, locals }) => {
   const user = locals.user!
   const contentType = request.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase()
-  if (contentType !== 'image/webp') {
-    return json({ error: 'La foto tiene que llegar optimizada como WebP' }, 415)
+  if (!contentType || !Object.hasOwn(AVATAR_FORMATS, contentType)) {
+    return json({ error: 'La foto tiene que llegar optimizada como WebP o JPEG' }, 415)
   }
+  const format = contentType as AvatarContentType
 
   const declaredLength = Number(request.headers.get('content-length'))
   if (Number.isFinite(declaredLength) && declaredLength > MAX_AVATAR_BYTES) return tooLarge()
@@ -49,15 +56,15 @@ export const PUT: APIRoute = async ({ request, locals }) => {
 
   const bytes = await readBoundedBody(request.body)
   if (!bytes) return tooLarge()
-  const dimensions = webpDimensions(bytes)
+  const dimensions = imageDimensions(bytes, format)
   if (dimensions?.width !== AVATAR_SIZE_PX || dimensions.height !== AVATAR_SIZE_PX) {
     return json({ error: `La foto optimizada tiene que medir ${AVATAR_SIZE_PX} × ${AVATAR_SIZE_PX} px` }, 400)
   }
 
-  const version = `${crypto.randomUUID()}.webp`
+  const version = `${crypto.randomUUID()}.${AVATAR_FORMATS[format]}`
   const key = avatarKey(user.id, version)
   await env.AVATARS.put(key, bytes, {
-    httpMetadata: { contentType: 'image/webp', contentDisposition: 'inline' },
+    httpMetadata: { contentType: format, contentDisposition: 'inline' },
     customMetadata: { userId: user.id },
   })
 

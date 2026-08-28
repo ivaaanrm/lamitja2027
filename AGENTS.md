@@ -93,10 +93,25 @@ parse an object rather than a multipart body of strings.
 
 **An avatar is one optimized object, not a second photo library** (`src/lib/avatar.ts`,
 `PUT /api/avatar`). The browser respects the source orientation, centre-crops it once to a
-512 × 512 WebP and uploads only that bounded representation; the original never reaches the
+512 × 512 image and uploads only that bounded representation; the original never reaches the
 Worker and is never stored. The private R2 key is
-`avatars/<authenticated-user-id>/<random-version>.webp`, and `users.avatar_key` names the
-one current object. Every replacement gets a new key, so `/api/avatar/:version` can stream it
+`avatars/<authenticated-user-id>/<random-version>.<webp|jpg>`, and `users.avatar_key` names
+the one current object.
+
+**WebP where the browser can encode it, JPEG where it cannot — and the difference is
+invisible to every other layer.** `canvas.toBlob` answers a type it cannot encode with a
+*PNG*, not with an error, and WebKit does not encode WebP: on an iPhone the optimizer's
+"is this WebP" check therefore rejected its own output at every quality and every photo
+from the gallery died on `No se ha podido comprimir esta foto`. That check is right and
+stays — the blob's own type is the only honest statement of what was produced — so the
+optimizer now repaints on an opaque ground (JPEG has no alpha) and encodes JPEG when WebP
+comes back as something else or as nothing. PNG would not do: lossless at 512 px it
+routinely clears the 512 KB the endpoint accepts, which only moves the failure one step
+later. The declared content type picks the header parser (`imageDimensions`), the stored
+extension and what a later `GET` answers with, so those three cannot disagree; the
+extension in the path — never R2's metadata — is what `/api/avatar/:version` sends under
+`nosniff`. `test/unit/avatar-client.test.ts` fabricates WebKit's substitution and fails if
+the fallback ever goes away. Every replacement gets a new key, so `/api/avatar/:version` can stream it
 with a year-long private immutable browser cache; it checks that the requested version is
 the one on `locals.user` before touching R2, so knowing another athlete's version still
 cannot read it. Initials remain under the `<img>` as the no-photo and failed-load fallback.

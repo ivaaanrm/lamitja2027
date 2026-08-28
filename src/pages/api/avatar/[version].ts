@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro'
 import { env } from 'cloudflare:workers'
-import { avatarUrl } from '@/lib/avatar'
+import { avatarContentType, avatarUrl } from '@/lib/avatar'
 
 export const prerender = false
 
@@ -23,13 +23,18 @@ export const GET: APIRoute = async ({ request, params, locals }) => {
   const version = params.version
   if (!key || !version || avatarUrl(user.id, key) !== `/api/avatar/${version}`) return missing()
 
+  // Read from the path rather than from R2's metadata: `nosniff` makes this header the
+  // browser's only answer to what the bytes are, and the extension is what was validated.
+  const contentType = avatarContentType(version)
+  if (!contentType) return missing()
+
   const object = await env.AVATARS.get(key, { onlyIf: request.headers })
   if (!object) return missing()
 
   const headers = new Headers()
   object.writeHttpMetadata(headers)
   headers.set('cache-control', 'private, max-age=31536000, immutable')
-  headers.set('content-type', 'image/webp')
+  headers.set('content-type', contentType)
   headers.set('etag', object.httpEtag)
   headers.set('vary', 'Cookie')
   headers.set('x-content-type-options', 'nosniff')
