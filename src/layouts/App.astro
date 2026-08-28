@@ -10,13 +10,14 @@ import type { Tab } from '../lib/nav'
  * The shell every signed-in page wears: one column sized for a phone, a compact title that
  * scrolls away with the content, and the dock.
  *
- * The bottom padding is the dock's own height plus the home indicator, so the last card on
- * a page can be scrolled clear of the bar instead of ending underneath it. 4.75rem is the
- * dock measured, not guessed: a 48px column plus the 4px the bar insets it by, top and
- * bottom, is 3.5rem; the remaining 1.25rem covers the nav's own bottom inset and still
- * leaves a card visibly clear of a bar it would otherwise be blurred through. Both sides
- * add `env(safe-area-inset-bottom)` on top, so they move together on a notched phone —
- * but change `h-12` or `p-1` in `Dock.astro` and this number has to move by hand.
+ * The bottom padding is the dock's own height plus a step of air, so the last card on a
+ * page can be scrolled clear of the bar instead of ending underneath it. `--dock-h` is the
+ * bar measured rather than guessed — the 48px column, the 4px the bar insets it by top and
+ * bottom, and the home indicator under it — and it is read from `global.css`, which is also
+ * where `Dock.astro` reads it. It used to be a `4.75rem` typed out here with a comment
+ * asking whoever changed `h-12` or `p-1` to come back and change this too; one of the two
+ * numbers eventually stops matching the other, and what that looks like is a card ending
+ * under the bar.
  *
  * The column is tuned for density: cards sit `gap-2` apart rather than a full step, and
  * the heading and its subtitle share one line-box each. The heading is `title2` off the
@@ -74,7 +75,7 @@ const { title, heading, sub, tab, showHeader = true } = Astro.props
 
 <Base title={title}>
   <main
-    class="mx-auto flex min-h-full max-w-lg flex-col gap-2 px-gutter pt-3 pb-[calc(4.75rem+env(safe-area-inset-bottom))]"
+    class="mx-auto flex min-h-full max-w-lg flex-col gap-2 px-gutter pt-3 pb-[calc(var(--dock-h)+1.25rem)]"
   >
     {
       showHeader ? (

@@ -369,10 +369,30 @@ known at build time. Tabs still switch without a document load — `Base.astro` 
 slid with the content — and never `transition:persist`, which would keep the old highlight
 lit), the page column carries **no** `transition:name` at all so it rides the root snapshot,
 which cross-fades on the app's own tokens in `global.css`, the four shells are prefetched on
-load, and `useBlock` keeps the last `/api/data` payload in module scope so the next tab
-paints with data and revalidates behind it when it has gone stale. `src/layouts/App.astro`
-is the shell that pairs it with the page column and reserves the bottom padding; `/login`
-uses `Base.astro` directly and has no dock.
+load, and `useBlock` keeps the last `/api/data` payload in a module-scope *store* so the
+next tab paints with data and revalidates behind it when it has gone stale — a store and
+not a variable, for the two reasons under **The block is read once per document** below.
+`src/layouts/App.astro` is the shell that pairs it with the page column and reserves the
+bottom padding; `/login` uses `Base.astro` directly and has no dock.
+
+The dock's geometry is three custom properties in `global.css` — `--dock-bar-h`,
+`--dock-inset`, `--dock-h` — because two files have to agree on it: the bar's own bottom
+padding and the room `App.astro` reserves under a page. They used to be two numbers typed
+out separately with a comment asking whoever changed one to change the other.
+
+**A fixed bar cannot see the keyboard, so it is told.** A `position: fixed` element is laid
+out against the *layout* viewport, and the software keyboard does not shrink the layout
+viewport — it covers it. So the dock sat behind the keyboard while iOS panned the visible
+part of the page around underneath it, which on screen is a tab bar wandering across the
+middle of the phone every time a filter on `/plan` or a field in a sheet is tapped.
+`src/lib/keyboard.ts` watches `visualViewport`, flags `<html>` with `data-keyboard` when
+the gap between the two viewports at the bottom edge exceeds a keyboard's worth of pixels,
+and `Dock.astro` slides the bar out on that flag — which is what a native tab bar does.
+The flag lives on the root for the same reason `data-offline` does: `ClientRouter` swaps
+the body and leaves `<html>` alone. And `overscroll-behavior-y` is `none` **on `html`**,
+not `contain` on `body` where it used to sit and did nothing at all — only the root's
+value is propagated to the viewport — because the elastic bounce is the other thing that
+drags a fixed bar off the bottom edge on iOS.
 
 Those four links are also the only ones in the app that carry `data-astro-prefetch="viewport"`,
 and the config default is `tap` rather than viewport because of what the two detail screens
@@ -428,12 +448,22 @@ browser's error page inside a window with no address bar. The service worker is
 hand-rolled for the same reason the charts are: Workbox is a build step and a dependency
 for four caching rules.
 
-*Network-first for anything that can change, cache-first for anything that cannot.* The
-shells and `/api/data` go to the network and fall back to the cache, so a deploy is picked
-up on the next load and a fresh sync is never hidden behind a stale copy; `/_astro/*` and
-the precached fonts go the other way, because a content hash *is* a version. Nothing is
-stale-while-revalidate — that would hand the phone yesterday's plan while today's was
-still in flight, on an app whose whole content is "what am I doing today".
+*Network-first for anything that can change, cache-first for anything that cannot.*
+`/api/data` goes to the network and falls back to the cache, so a fresh sync is never
+hidden behind a stale copy; `/_astro/*` and the precached fonts go the other way, because
+a content hash *is* a version. The block payload is never stale-while-revalidate — that
+would hand the phone yesterday's plan while today's was still in flight, on an app whose
+whole content is "what am I doing today".
+
+The shells are the one thing in between, and the split is **by who is asking**
+(`isNavigation` in `sw.js`). A real navigation — a launch, a reload, a link from outside —
+is network-first, because that request is what boots the app and a stale shell there asks
+for `/_astro/*` chunks the last deploy removed. A `ClientRouter` tab swap or a prefetch is
+answered from the cache and revalidated behind the answer, because it comes from a
+document *already running this build*, whose chunks are loaded, for a shell that carries
+no data at all. Network-first there put a round trip in front of every tab tap — and
+`ClientRouter` cannot start the transition until the HTML lands, so the tab bar was as
+slow as the connection.
 
 Four caches, and the split is the design. `lm-core` is precached at install: fonts, mark,
 manifest — stable URLs, so **bump `VERSION` when one of them is edited**. `lm-pages` holds
@@ -471,6 +501,27 @@ the date under it has actually turned, or every glance at the phone would invali
 memo on screen, and the payload only when the one in hand is over 30s old. `online` is
 wired to the same handler, because walking back into signal is when a phone showing a
 cached block can stop.
+
+**The block is read once per document, through a store rather than a variable**
+(`src/components/useBlock.tsx`). Two things forced that shape and both had already gone
+wrong.
+
+*A page carries two islands.* The screen and the header's avatar are separate React roots,
+so a payload read into each one's `useState` was two copies of one block: two `/api/data`
+requests racing on every cold start, and two answers to "who is signed in" after a rename.
+One store with two subscribers is one request. `HeaderAvatar` also subscribes through
+`useBlockSource` rather than `useBlock` — two letters do not need `buildBlock` matching
+every session against every activity, and that derivation was running twice per page, on
+the frame a tab transition was animating.
+
+*And the read has to be `useSyncExternalStore`.* The prerendered shell ships the
+**skeleton** — it was built with no athlete — so an island whose first client render read
+the cache produced the **block** instead, and disagreed with the HTML it was hydrating. A
+hydration mismatch is not a warning: React throws the server markup away and re-renders
+the whole screen from scratch. That full re-render landed in the middle of the 220 ms tab
+transition, on every tab tap after the first. `getServerSnapshot` returns the empty
+snapshot so hydration matches, and the real one is adopted in the layout effect that runs
+straight after, before the frame is painted.
 
 **`now` is the wall clock, not the instant** (`wallClockNow` in `src/lib/block.ts`). Every
 date here is the athlete's wall clock pinned to UTC — `startedOn` is `start_date_local`
@@ -635,6 +686,15 @@ Tailwind classes so a chart is styled like everything else on the page.
   zod.** They own `SESSION_TYPES` and `Step`, and `db/schema.ts` imports them, not the other
   way round; the zod mirror of `Step` lives in `plan-input.ts`, which only the Worker ever
   loads, and a type-level assignment there fails the build if the two drift apart.
+- **The ground is painted on `html`, and the atmosphere above it is a fixed pseudo-element**
+  (`body::before`, `--app-atmosphere` in `global.css`; `Boot.astro` paints the same token so
+  the splash and the screen it uncovers are one surface). It was `background-attachment:
+  fixed` on the body, which is the single most expensive thing this stylesheet could ask a
+  phone for — WebKit cannot hand a viewport-anchored background to the compositor, so the
+  page drops off the fast scrolling path and repaints the full viewport every frame — and
+  on iOS it is also the declaration most likely to be ignored outright. The body carries no
+  background of its own now, and must not: a negative-z layer paints after the *root's*
+  background and before the *body's*, so a `bg-surface` on `<body>` would cover it.
 - **The palette is a dark, vibrant evolution of Runna, and every colour in the app is a
   token.** The whole system is the `@theme` block in `src/styles/global.css`: three grounds
   (`surface-deep` `surface` `surface-raised`), `ink`, two fills, two lines, four label steps

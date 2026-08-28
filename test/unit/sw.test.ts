@@ -163,7 +163,7 @@ describe('service worker · install and activate', () => {
   it('precaches the files whose URLs carry no hash', async () => {
     await sw.install()
 
-    const core = await sw.caches.open('lm-core-v2')
+    const core = await sw.caches.open('lm-core-v3')
     expect([...core.store.keys()].sort()).toEqual([
       'https://app.test/favicon.svg',
       'https://app.test/fonts/inter-latin.woff2',
@@ -183,7 +183,7 @@ describe('service worker · install and activate', () => {
     )
 
     await expect(sw.install()).resolves.toBeUndefined()
-    const core = await sw.caches.open('lm-core-v2')
+    const core = await sw.caches.open('lm-core-v3')
     expect(core.store.size).toBe(4)
   })
 
@@ -212,7 +212,9 @@ describe('service worker · app shells', () => {
     sw = load()
   })
 
-  it('goes to the network first, so a deploy is never hidden behind a cached shell', async () => {
+  it('goes to the network first for a navigation, so a launch is never a stale build', async () => {
+    // The request that boots the app has to be the current build: a stale shell asks for
+    // `/_astro/*` chunks the last deploy removed, and the app opens to nothing.
     sw.fetch.mockResolvedValueOnce(html('<p>v1</p>'))
     await sw.request('/registro', DOC)
 
@@ -223,6 +225,33 @@ describe('service worker · app shells', () => {
     expect(sw.fetch).toHaveBeenCalledTimes(2)
   })
 
+  it('answers a tab swap from the cache, and revalidates behind it', async () => {
+    // `ClientRouter` cannot start the transition until the HTML is in hand, so a round
+    // trip here is a round trip in front of every tab tap. The document asking is already
+    // running this build and the shell it wants carries no data at all.
+    sw.fetch.mockResolvedValueOnce(html('<p>v1</p>'))
+    await sw.request('/progreso')
+    expect(sw.fetch).toHaveBeenCalledTimes(1)
+
+    sw.fetch.mockResolvedValueOnce(html('<p>v2</p>'))
+    const swap = await sw.request('/progreso')
+
+    // Served from what was already there…
+    expect(await swap!.text()).toBe('<p>v1</p>')
+    // …and the read that would have blocked it happened behind the answer instead, so the
+    // next tap gets the current build.
+    expect(sw.fetch).toHaveBeenCalledTimes(2)
+    const pages = await sw.caches.open('lm-pages-v3')
+    expect(await pages.store.get('https://app.test/progreso')!.clone().text()).toBe('<p>v2</p>')
+  })
+
+  it('still opens a tab it has never cached, swap or not', async () => {
+    sw.fetch.mockResolvedValueOnce(html('<p>plan</p>'))
+    const first = await sw.request('/plan')
+
+    expect(await first!.text()).toBe('<p>plan</p>')
+  })
+
   it('stores one entry per route, not one per query string', async () => {
     sw.fetch.mockResolvedValue(html('<p>actividad</p>'))
     await sw.request('/actividad?id=1', DOC)
@@ -231,7 +260,7 @@ describe('service worker · app shells', () => {
     // `/actividad` is a single prerendered document addressed by a query the server never
     // reads. Keyed per URL, a hundred and fifty runs in the log would be a hundred and
     // fifty copies of one file.
-    const pages = await sw.caches.open('lm-pages-v2')
+    const pages = await sw.caches.open('lm-pages-v3')
     expect([...pages.store.keys()]).toEqual(['https://app.test/actividad'])
   })
 
@@ -269,6 +298,18 @@ describe('service worker · app shells', () => {
     sw.fetch.mockRejectedValue(new TypeError('Failed to fetch'))
     const offline = await sw.request('/progreso')
     expect(await offline!.text()).toBe('<p>progreso</p>')
+  })
+
+  it('does not let a failed background read replace the shell it just served', async () => {
+    sw.fetch.mockResolvedValueOnce(html('<p>plan</p>'))
+    await sw.request('/plan')
+
+    sw.fetch.mockRejectedValue(new TypeError('Failed to fetch'))
+    const offline = await sw.request('/plan')
+
+    expect(await offline!.text()).toBe('<p>plan</p>')
+    const pages = await sw.caches.open('lm-pages-v3')
+    expect(await pages.store.get('https://app.test/plan')!.clone().text()).toBe('<p>plan</p>')
   })
 
   it('has a screen of its own when even Hoy has never been cached', async () => {
@@ -355,14 +396,14 @@ describe('service worker · the block payload', () => {
 
     // Rotating `APP_PASSWORD` is how this app signs devices out; a device that has been
     // signed out may not keep reading the block from its own cache.
-    expect(await sw.caches.keys()).not.toContain('lm-data-v2')
+    expect(await sw.caches.keys()).not.toContain('lm-data-v3')
   })
 
   it('never caches an error page as the block', async () => {
     sw.fetch.mockResolvedValueOnce(new Response('boom', { status: 500 }))
     await sw.request('/api/data')
 
-    expect((await sw.caches.open('lm-data-v2')).store.size).toBe(0)
+    expect((await sw.caches.open('lm-data-v3')).store.size).toBe(0)
   })
 
   /**
@@ -385,7 +426,7 @@ describe('service worker · the block payload', () => {
     const answer = await sw.request('/api/data')
 
     // The stored block is untouched…
-    const stored = await (await sw.caches.open('lm-data-v2')).match('/api/data')
+    const stored = await (await sw.caches.open('lm-data-v3')).match('/api/data')
     expect(await stored!.json()).toEqual({ activities: [{ id: 1 }] })
     // …and what came back is that block, marked stale — a portal is a dead connection
     // wearing a 200, so it takes the same route as one.
@@ -404,7 +445,7 @@ describe('service worker · the block payload', () => {
     sw.fetch.mockResolvedValueOnce(hop)
 
     const answer = await sw.request('/api/data')
-    const stored = await (await sw.caches.open('lm-data-v2')).match('/api/data')
+    const stored = await (await sw.caches.open('lm-data-v3')).match('/api/data')
     expect(await stored!.json()).toEqual({ activities: [{ id: 7 }] })
     expect(answer!.headers.get('x-lm-stale')).toBe('1')
   })
@@ -421,7 +462,7 @@ describe('service worker · the block payload', () => {
     // Nothing to serve and nothing invented: the app sees the portal and reports it.
     expect(answer!.status).toBe(200)
     expect(await answer!.text()).toContain('Hotel WiFi')
-    expect((await sw.caches.open('lm-data-v2')).store.size).toBe(0)
+    expect((await sw.caches.open('lm-data-v3')).store.size).toBe(0)
   })
 })
 

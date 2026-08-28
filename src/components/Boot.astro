@@ -141,13 +141,16 @@ import { APP_NAME } from '../lib/config'
       opacity var(--duration-standard) var(--ease-ios),
       visibility 0s linear var(--duration-standard);
 
-    /* The page's own ground rather than a flat fill. `body` paints a radial highlight from
-       above the fold and pins it to the viewport with `background-attachment: fixed` —
-       which is exactly this overlay's box, since it is a fixed child of `body`. Inheriting
-       both makes the splash and the screen it uncovers the same surface, so the fade has
-       nothing to cross but the mark. */
-    background-image: inherit;
-    background-attachment: fixed;
+    /* The page's own ground rather than a flat fill: the same radial highlight the page
+       under it paints, from the one token both read (`--app-atmosphere` in `global.css`),
+       so the splash and the screen it uncovers are the same surface and the fade has
+       nothing to cross but the mark. No `background-attachment` needed — this overlay is
+       `fixed inset-0`, so its own box *is* the viewport. It used to `inherit` the body's
+       background instead, which only worked while the body pinned one there with
+       `background-attachment: fixed`; that declaration is gone (it costs a phone the
+       compositor on every scroll), and inheriting from a body with no background would
+       have left the splash flat. */
+    background-image: var(--app-atmosphere);
   }
 
   #boot[data-done] {

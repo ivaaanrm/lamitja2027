@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { startOfDay, totalWeeks, wallClockNow, weekIndex, type BlockConfig } from '@/lib/block'
 import { bootDone } from '@/lib/boot'
 import type { SessionUser } from '@/lib/auth'
@@ -48,14 +48,61 @@ export interface Block {
 }
 
 /**
- * The last payload `/api/data` returned, kept for the life of the page. Tabs navigate in
- * place (see Base.astro), so each island mounts fresh while the document survives — with
- * this, the next tab paints with data on its first render and revalidates behind it,
- * instead of opening blank and popping in a moment later.
+ * The block, held for the life of the *document* rather than of a component, in a store
+ * with subscribers rather than in each island's own state.
+ *
+ * Tabs navigate in place (see `Base.astro`), so every island mounts fresh while the
+ * document survives. Keeping the last payload here is what lets the next tab paint with
+ * data on its first render instead of opening blank and popping in a moment later — but
+ * *how* it is kept turned out to matter as much as that it is, and the two reasons are
+ * worth writing down because both were bugs.
+ *
+ * **A store, because a page carries two islands.** The screen and the header's avatar are
+ * separate React roots, so a payload read into `useState` was two copies of one block: two
+ * `/api/data` requests racing on every cold start, and two answers to "who is signed in"
+ * after a rename. One store, two subscribers, one request.
+ *
+ * **`useSyncExternalStore`, because reading it during hydration is otherwise a lie.** The
+ * prerendered shell ships the *skeleton* — it was built with no athlete — and an island
+ * whose first client render read this cache produced the *block* instead. That is a
+ * hydration mismatch, and a hydration mismatch is not a warning: React throws the server
+ * markup away and re-renders the entire screen from scratch on the client. On every tab
+ * tap after the first, that full re-render landed in the middle of the 220ms transition,
+ * which is exactly where a stutter is most visible. `getServerSnapshot` returns the empty
+ * snapshot, so hydration matches the HTML it is hydrating; the real one is adopted in the
+ * layout effect `useSyncExternalStore` runs straight afterwards, before the frame paints.
  */
-let cached: BlockData | null = null
+interface Snapshot {
+  data: BlockData | null
+  /** Kept beside the data: a block in hand *and* a failed refresh is a real state. */
+  error: string | null
+}
+
+const EMPTY: Snapshot = { data: null, error: null }
+
+let snapshot: Snapshot = EMPTY
 /** When that payload landed, so a tab tap does not re-ask for something seconds old. */
-let cachedAt = 0
+let fetchedAt = 0
+/** The read in flight, so two islands mounting together make one request rather than two. */
+let inFlight: Promise<void> | null = null
+const listeners = new Set<() => void>()
+
+function publish(next: Snapshot): void {
+  snapshot = next
+  for (const listener of listeners) listener()
+}
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
+/** Must return the same object until something actually changes, or React re-renders forever. */
+const readSnapshot = () => snapshot
+/** What the prerendered HTML says, which is the only honest answer during hydration. */
+const readServerSnapshot = () => EMPTY
 
 /**
  * How long a payload is treated as current. Long enough that walking the four tabs is one
@@ -63,6 +110,110 @@ let cachedAt = 0
  * after a run shows the run.
  */
 const FRESH_FOR_MS = 30_000
+
+/** Re-reads `/api/data`. Every mutation ends here rather than patching local state. */
+async function fetchBlock(): Promise<void> {
+  try {
+    const response = await fetch('/api/data')
+    if (response.status === 401) {
+      // The one path that does *not* end the launch screen: the document is already on
+      // its way to `/login`, and dropping the overlay first would flash a screenful of
+      // skeletons on the way out.
+      location.href = '/login'
+      return
+    }
+    if (!response.ok) {
+      publish({ ...snapshot, error: `No se pudieron cargar los datos (${response.status})` })
+    } else {
+      fetchedAt = Date.now()
+      publish({ data: (await response.json()) as BlockData, error: null })
+      /**
+       * The service worker answers from its own copy when the network is gone, and says so
+       * with this header. A payload without it proves the connection whatever
+       * `navigator.onLine` claims — which is the case a captive portal gets wrong.
+       */
+      setOffline(response.headers.get('x-lm-stale') === '1')
+    }
+  } catch (cause) {
+    // `fetch` only rejects on a transport failure, so this is "no hay red" and nothing
+    // else — including on a device with no worker installed yet.
+    setOffline(true)
+    publish({
+      ...snapshot,
+      error: cause instanceof Error ? cause.message : 'No se pudo contactar con el servidor',
+    })
+  }
+  // Outside the `catch`, so both a payload and a failure end the launch screen — an
+  // error card with a retry on it is a screen to act on, not one to keep hiding behind
+  // a mark. Idempotent, so the reload every mutation ends with costs nothing.
+  bootDone()
+}
+
+/**
+ * The first read of a document, and the one after a resume.
+ *
+ * Skipped when the payload in hand is seconds old — that is the one the tab behind this
+ * one just fetched, and re-asking for it would spend a round trip to repaint identical
+ * pixels. Deduped when it is not, because both islands on a page run this on mount.
+ */
+function ensureBlock(): void {
+  if (snapshot.data && Date.now() - fetchedAt < FRESH_FOR_MS) {
+    bootDone()
+    return
+  }
+  inFlight ??= fetchBlock().finally(() => {
+    inFlight = null
+  })
+}
+
+interface BlockSource {
+  data: BlockData | null
+  error: string | null
+  /** Re-reads `/api/data`. Always a real read: a mutation's point is that this is stale. */
+  reload: () => Promise<void>
+}
+
+/**
+ * The payload half of `useBlock`, on its own so the header's avatar can have it without
+ * the plan.
+ *
+ * Deriving is what costs: `buildBlock` walks every session in the block against every
+ * activity in it, and `HeaderAvatar` draws two letters. It used to call `useBlock` and pay
+ * for the whole thing — twice per page, since the screen's own island does it too, on the
+ * frame a tab transition is running.
+ */
+function useBlockSource(): BlockSource {
+  const { data, error } = useSyncExternalStore(subscribe, readSnapshot, readServerSnapshot)
+  const reload = useCallback(() => fetchBlock(), [])
+
+  useEffect(() => {
+    ensureBlock()
+  }, [])
+
+  /**
+   * Half of what a home-screen app needs and a web page does not: an app is *resumed*, not
+   * reopened. The document left open on Tuesday evening is the same document that comes
+   * back on Wednesday morning — nothing remounts and no navigation happens — so the
+   * payload is re-read on the way back in, but only when the one in hand has gone stale.
+   * `online` is the other half of the same story: walking back into signal is the moment a
+   * phone that has been showing a cached block can stop.
+   */
+  useEffect(() => {
+    const resume = () => {
+      if (document.visibilityState !== 'visible') return
+      ensureBlock()
+    }
+
+    document.addEventListener('visibilitychange', resume)
+    addEventListener('online', resume)
+    return () => {
+      document.removeEventListener('visibilitychange', resume)
+      removeEventListener('online', resume)
+    }
+  }, [])
+
+  return { data, error, reload }
+}
 
 /**
  * Loads the block once and derives everything else from it. Plan-to-actual matching and
@@ -83,68 +234,8 @@ export function useBlock(nowInput?: number): Block {
    */
   const [pinnedNow, setPinnedNow] = useState(() => wallClockNow())
   const now = nowInput ?? pinnedNow
-  const [data, setData] = useState<BlockData | null>(cached)
-  const [error, setError] = useState<string | null>(null)
+  const { data, error, reload } = useBlockSource()
 
-  const reload = useCallback(async () => {
-    try {
-      const response = await fetch('/api/data')
-      if (response.status === 401) {
-        // The one path that does *not* end the launch screen: the document is already on
-        // its way to `/login`, and dropping the overlay first would flash a screenful of
-        // skeletons on the way out.
-        location.href = '/login'
-        return
-      }
-      if (!response.ok) {
-        setError(`No se pudieron cargar los datos (${response.status})`)
-        return
-      }
-      cached = (await response.json()) as BlockData
-      cachedAt = Date.now()
-      setData(cached)
-      setError(null)
-      /**
-       * The service worker answers from its own copy when the network is gone, and says so
-       * with this header. A payload without it proves the connection whatever
-       * `navigator.onLine` claims — which is the case a captive portal gets wrong.
-       */
-      setOffline(response.headers.get('x-lm-stale') === '1')
-    } catch (cause) {
-      // `fetch` only rejects on a transport failure, so this is "no hay red" and nothing
-      // else — including on a device with no worker installed yet.
-      setOffline(true)
-      setError(cause instanceof Error ? cause.message : 'No se pudo contactar con el servidor')
-    }
-    // Outside the `catch`, so both a payload and a failure end the launch screen — an
-    // error card with a retry on it is a screen to act on, not one to keep hiding behind
-    // a mark. Idempotent, so the reload every mutation ends with costs nothing.
-    bootDone()
-  }, [])
-
-  useEffect(() => {
-    // A payload seconds old is the one the tab behind this one just fetched; re-asking for
-    // it would spend a round trip to repaint identical pixels.
-    if (cached && Date.now() - cachedAt < FRESH_FOR_MS) {
-      bootDone()
-      return
-    }
-    void reload()
-  }, [reload])
-
-  /**
-   * What a home-screen app needs and a web page does not: an app is *resumed*, not
-   * reopened. The document that was left open on Tuesday evening is the same document
-   * that comes back on Wednesday morning — nothing remounts, no navigation happens, and
-   * without this the screen that says "Hoy" would still be showing Tuesday, against a
-   * block that has not been re-read since.
-   *
-   * So both are refreshed on the way back in: the clock, but only when the date under it
-   * has actually turned (otherwise every glance at the phone would invalidate every memo
-   * on the screen), and the payload, but only when the one in hand has gone stale.
-   * `online` is in here for the other half of the same story — walking back into signal is
-   * the moment a phone that has been showing a cached block can stop.
-   */
   useEffect(() => {
     const resume = () => {
       if (document.visibilityState !== 'visible') return
@@ -152,17 +243,11 @@ export function useBlock(nowInput?: number): Block {
         const current = wallClockNow()
         return startOfDay(current) === startOfDay(previous) ? previous : current
       })
-      if (Date.now() - cachedAt < FRESH_FOR_MS) return
-      void reload()
     }
 
     document.addEventListener('visibilitychange', resume)
-    addEventListener('online', resume)
-    return () => {
-      document.removeEventListener('visibilitychange', resume)
-      removeEventListener('online', resume)
-    }
-  }, [reload])
+    return () => document.removeEventListener('visibilitychange', resume)
+  }, [])
 
   // Both are derived off the block, so both stay empty until there is one — every week
   // here is counted from `startsOn`, and there is no honest week 0 without it.
@@ -241,11 +326,15 @@ function initialsOf(displayName: string): string {
  * No skeleton on the empty circle before the first payload lands: it is a corner mark, not
  * a card, and the shimmer this app reserves for content that took a screen's worth of
  * layout to promise would be a bigger claim than a name badge is worth.
+ *
+ * It subscribes to the payload without deriving anything from it — `useBlockSource`, not
+ * `useBlock`. Two letters do not need the plan matched against the log, and this island
+ * renders on three of the four tabs.
  */
 export function HeaderAvatar() {
-  const { user } = useBlock()
+  const { data } = useBlockSource()
 
-  return <HeaderAvatarLink displayName={user?.displayName ?? null} />
+  return <HeaderAvatarLink displayName={data?.user.displayName ?? null} />
 }
 
 /** The avatar face when a parent island already has the athlete and needs no second hook. */

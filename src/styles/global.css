@@ -190,6 +190,36 @@
     /* So form controls, scrollbars and the keyboard render dark without being asked. */
     color-scheme: dark;
 
+    /**
+     * The dock's own geometry, in the one place both halves of it can read.
+     *
+     * `Dock.astro` is fixed to the bottom of the viewport and `App.astro` reserves the
+     * room under the page for it, and those two numbers have to agree or the last card
+     * on a screen ends underneath a bar it is supposed to scroll clear of. They used to
+     * agree by hand — a comment in the layout asking whoever edits the dock to come back
+     * and change a magic `4.75rem`.
+     *
+     *   `--dock-bar-h`    the pill row itself: a 48px column plus the 4px the bar insets
+     *                     it by, top and bottom.
+     *   `--dock-inset`    the home indicator, with a floor for a phone that has none.
+     *   `--dock-h`        what the bar actually covers, which is what a page has to clear.
+     */
+    --dock-bar-h: 3.5rem;
+    --dock-inset: max(0.375rem, env(safe-area-inset-bottom));
+    --dock-h: calc(var(--dock-bar-h) + var(--dock-inset));
+
+    /**
+     * The page's one piece of atmosphere: a highlight falling from just above the fold.
+     *
+     * Named rather than written twice because two elements paint it — the page itself and
+     * the launch screen that covers it — and a splash whose ground is a shade off the
+     * screen it uncovers turns a cross-fade into a visible wipe.
+     */
+    --app-atmosphere: radial-gradient(
+      circle at 50% -8rem,
+      color-mix(in srgb, var(--color-ink) 5%, transparent),
+      transparent 30rem
+    );
   }
 
   html {
@@ -197,14 +227,25 @@
     -webkit-text-size-adjust: 100%;
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
+    /**
+     * No rubber-band scroll — it reads as a webpage, not an app, and on iOS it is also
+     * what drags a `position: fixed` dock off the bottom edge of the screen: the visual
+     * viewport slides past the layout viewport the bar is pinned to, so the bar appears
+     * to lift away and settle back.
+     *
+     * On the *root element* rather than on `body`, which is where this used to sit and
+     * where it does nothing at all: `overflow` propagates from the body to the viewport,
+     * `overscroll-behavior` does not — only the root's value is propagated. And `none`
+     * rather than `contain`, because `contain` still leaves the local bounce and the
+     * bounce is the whole problem here.
+     */
+    overscroll-behavior-y: none;
     /* Overscroll exposes the html background above the dock's opaque underlay, so it
        cannot be left at the browser default. */
     background-color: var(--color-surface);
   }
 
   body {
-    /* No rubber-band scroll — it reads as a webpage, not an app. */
-    overscroll-behavior-y: contain;
     /* Respect the notch. The home indicator is the dock's to clear — it is fixed to the
        viewport, so padding here would not move it, and the page's own bottom padding
        already reserves the room. */
@@ -214,13 +255,31 @@
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
     min-width: 20rem;
-    background-color: var(--color-surface);
-    background-image: radial-gradient(
-      circle at 50% -8rem,
-      color-mix(in srgb, var(--color-ink) 5%, transparent),
-      transparent 30rem
-    );
-    background-attachment: fixed;
+  }
+
+  /**
+   * The atmosphere, as its own fixed layer rather than as `background-attachment: fixed`
+   * on the body.
+   *
+   * The declaration it replaces is the single most expensive thing this stylesheet could
+   * ask a phone for: WebKit cannot hand a viewport-anchored background to the compositor,
+   * so the page drops off the fast scrolling path and repaints the full viewport on every
+   * frame of every scroll — on iOS it is also the property most likely to simply be
+   * ignored, which would leave the gradient scrolling away with the content it was meant
+   * to sit behind.
+   *
+   * A fixed pseudo-element is the same picture and costs one composited layer that never
+   * changes. `z-index: -1` puts it behind every descendant of the body, which is why the
+   * ground colour has to stay on `html`: the negative layer paints *after* the root's
+   * background and *before* the body's, so a background colour on the body would cover it.
+   */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-image: var(--app-atmosphere);
   }
 
   ::selection {

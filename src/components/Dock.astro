@@ -13,7 +13,18 @@ import { TABS, type Tab } from '../lib/nav'
  *
  * Each tab is a full-height 48px column: on a phone the target is the column, not the
  * glyph, and there is no hover state to lean on. 48 clears the 44px floor with room to
- * spare, and the four px it gives back come off every screen in the app.
+ * spare, and the four px it gives back come off every screen in the app. That column, the
+ * 4px the bar insets it by and the home indicator under it are `--dock-bar-h`,
+ * `--dock-inset` and `--dock-h` in `global.css` — `App.astro` reserves the room under a
+ * page from the same three values rather than from a number copied across.
+ *
+ * **It gets out of the way of the keyboard.** A fixed element is laid out against the
+ * layout viewport, and the keyboard does not shrink the layout viewport — it covers it. So
+ * a bar at `bottom: 0` sits behind the keyboard while iOS pans the visible part of the
+ * page around underneath, and what that looks like is a dock wandering across the middle
+ * of the screen every time a field is tapped. `src/lib/keyboard.ts` flags the document
+ * root while the keyboard is up and the rule below slides the bar out, which is what a
+ * native tab bar does.
  *
  * Across a navigation the bar is swapped in place, not animated: a tab bar that fades or
  * slides with the content is a bar that looks like part of the page. Only the highlight
@@ -63,10 +74,11 @@ const ICONS: Record<Tab, string> = {
 ---
 
 <nav
+  id="dock"
   aria-label="Secciones"
   transition:name="dock"
   transition:animate="none"
-  class="pointer-events-none fixed inset-x-0 bottom-0 z-40 bg-surface-deep px-gutter pb-[max(0.375rem,env(safe-area-inset-bottom))]"
+  class="pointer-events-none fixed inset-x-0 bottom-0 z-40 bg-surface-deep px-gutter pb-[var(--dock-inset)]"
 >
   <ul class="performance-shadow pointer-events-auto mx-auto flex max-w-md gap-0.5 rounded-2xl border border-line bg-surface-deep p-1">
     {
@@ -140,5 +152,34 @@ const ICONS: Record<Tab, string> = {
   ::view-transition-new(dock-active) {
     animation-duration: var(--duration-standard);
     animation-timing-function: var(--ease-ios);
+  }
+
+  /**
+   * Out of the keyboard's way, and back again.
+   *
+   * `src/lib/keyboard.ts` is what sets the flag, on `<html>` so it survives the body swap
+   * a tab tap does. The bar travels its own full height, so it leaves by the edge it is
+   * pinned to rather than fading out in place.
+   *
+   * `visibility` on a delayed 0s step, exactly as `Boot.astro` dismisses the launch
+   * screen: `display` cannot be transitioned, and a bar that is merely off-screen is still
+   * in the tab order and still announced. It flips only once the slide has finished, and
+   * flips back immediately on the way in.
+   *
+   * Global for the same reason the rules above are: the selector reaches up out of this
+   * component to the document root, which Astro's scoping attribute never lands on.
+   */
+  #dock {
+    transition:
+      transform var(--duration-standard) var(--ease-ios),
+      visibility 0s;
+  }
+
+  html[data-keyboard] #dock {
+    transform: translate3d(0, 100%, 0);
+    visibility: hidden;
+    transition:
+      transform var(--duration-standard) var(--ease-ios),
+      visibility 0s linear var(--duration-standard);
   }
 </style>

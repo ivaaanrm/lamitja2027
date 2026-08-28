@@ -26,11 +26,22 @@
  *   `lm-data`   One entry: the last block payload that came back 200.
  *
  * **Network-first for anything that can change, cache-first for anything that cannot.**
- * The shells and `/api/data` go to the network and fall back to the cache, so a deploy is
- * picked up on the next load and a fresh sync is never hidden behind a stale copy. Hashed
- * assets and precached fonts go the other way, because a hash *is* the version. Nothing
- * here is stale-while-revalidate: that would hand the phone yesterday's plan while today's
- * was still in flight, and this is an app whose entire content is "what am I doing today".
+ * `/api/data` goes to the network and falls back to the cache, so a fresh sync is never
+ * hidden behind a stale copy. Hashed assets and precached fonts go the other way, because
+ * a hash *is* the version. The block payload is never stale-while-revalidate: that would
+ * hand the phone yesterday's plan while today's was still in flight, and this is an app
+ * whose entire content is "what am I doing today".
+ *
+ * **The shells are the one thing in between, and the split is by who is asking.** A real
+ * navigation — a launch, a reload, a link from outside — goes to the network first, so the
+ * document that boots the app is always the current build and can never point at a hashed
+ * chunk that a deploy has since removed. A `ClientRouter` tab swap or a prefetch is
+ * answered from the cache and revalidated behind it, because those come from a document
+ * that is *already running this build*: its chunks are loaded, and the shell it is asking
+ * for carries no data at all — every number on it arrives from `/api/data`. Network-first
+ * there put a round trip in front of every tab tap, and the transition cannot begin until
+ * the HTML lands, so the whole app felt as slow as the connection. On a phone in a car
+ * park that is the difference between a tab bar and a website.
  *
  * **The payload cache holds one athlete's private training data**, in an origin-scoped
  * store on that athlete's own phone — the same footing as a session cookie. It is dropped
@@ -45,7 +56,7 @@
  * new worker.
  */
 
-const VERSION = 'v2'
+const VERSION = 'v3'
 
 const CORE = `lm-core-${VERSION}`
 const PAGES = `lm-pages-${VERSION}`
@@ -147,9 +158,21 @@ self.addEventListener('fetch', (event) => {
  * app's own routes and nothing else.
  */
 function isDocument(request, url) {
-  if (request.mode === 'navigate' || request.destination === 'document') return true
-  if ((request.headers.get('accept') ?? '').includes('text/html')) return true
+  if (isNavigation(request)) return true
   return !/\.[a-z0-9]+$/i.test(url.pathname)
+}
+
+/**
+ * Is the *browser* asking for this document, or is the app?
+ *
+ * The three signals below are what a real navigation carries and what a `fetch()` from
+ * `ClientRouter` — or a `<link rel="prefetch">` — carries none of. It is the same test
+ * `isDocument` opens with, named separately because the answer decides more than whether
+ * to intercept: a navigation has to be current, a tab swap has to be instant. See `page`.
+ */
+function isNavigation(request) {
+  if (request.mode === 'navigate' || request.destination === 'document') return true
+  return (request.headers.get('accept') ?? '').includes('text/html')
 }
 
 function isStatic(url) {
@@ -166,10 +189,31 @@ function isStatic(url) {
  * Keyed on the pathname alone: `/actividad` and `/sesion` are one prerendered document
  * each, addressed by a query string the server never reads, so caching per URL would
  * store the same file once per activity in the log.
+ *
+ * Two routes through here, and which one a request takes is decided by who is asking.
+ *
+ * A **tab swap or a prefetch** is answered from the cache the moment there is anything
+ * there, and the network read that would have blocked it happens behind the answer
+ * instead. The document doing the asking is already running this build, the shell it wants
+ * holds no data, and `ClientRouter` cannot start the transition until the HTML is in hand
+ * — so this is the difference between a tab bar and a spinner on a bad connection.
+ *
+ * A **navigation** — a launch, a reload, a link from outside — goes to the network first
+ * and only falls back. This is the request that boots the app, so it has to be the current
+ * build: a stale shell served here would ask for `/_astro/*` chunks that the last deploy
+ * removed, and what that looks like is an app that opens to nothing.
  */
 async function page(event, url) {
   const key = new Request(`${url.origin}${url.pathname}`)
   const cache = await caches.open(PAGES)
+
+  if (!isNavigation(event.request)) {
+    const hit = await cache.match(key)
+    if (hit) {
+      event.waitUntil(revalidate(cache, key, event.request))
+      return hit
+    }
+  }
 
   try {
     const preloaded = await event.preloadResponse
@@ -186,6 +230,21 @@ async function page(event, url) {
     // one tap from the dock on it.
     const home = await cache.match(new Request(`${url.origin}/`))
     return home ?? offlinePage()
+  }
+}
+
+/**
+ * The read that happens behind a shell served from the cache, so the next tap gets the
+ * current build. A failure is the ordinary case here — this runs while the phone may have
+ * no signal at all — and there is nothing to do about it: the copy already handed over is
+ * the answer either way.
+ */
+async function revalidate(cache, key, request) {
+  try {
+    const response = await fetch(request)
+    if (response.ok && !response.redirected) await cache.put(key, response)
+  } catch {
+    // No connection. The cached shell stands.
   }
 }
 

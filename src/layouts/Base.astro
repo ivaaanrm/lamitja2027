@@ -93,7 +93,12 @@ const ogImage = new URL('/og.png', Astro.site)
     -->
     <ClientRouter />
   </head>
-  <body class="h-full bg-surface text-label font-sans antialiased">
+  <!--
+    No background of its own: the ground is on `<html>` and the atmosphere above it is a
+    fixed pseudo-element behind everything (`global.css`). A `bg-surface` here would sit in
+    front of that negative layer and paint it out.
+  -->
+  <body class="h-full text-label font-sans antialiased">
     <slot />
   </body>
 </html>
@@ -107,8 +112,15 @@ const ogImage = new URL('/og.png', Astro.site)
    * worker from here rather than from an island is deliberate: `/login` and `/404` have no
    * island at all, and they are precisely the two screens someone lands on with a bad
    * connection.
+   *
+   * `watchKeyboard` is here for the same reason and answers to the same lifetime: it
+   * listens to the *visual* viewport and flags the document root while the software
+   * keyboard is up, which is the one thing `position: fixed` cannot see for itself. Every
+   * screen with a field on it needs it, dock or no dock.
    */
   import { initPwa } from '../lib/pwa'
+  import { watchKeyboard } from '../lib/keyboard'
 
   initPwa()
+  watchKeyboard()
 </script>
