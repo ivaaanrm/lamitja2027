@@ -1,19 +1,6 @@
 ---
 import App from '../layouts/App.astro'
-import { SessionDetail } from '../components/SessionDetail'
-import { APP_NAME } from '../lib/config'
 export const prerender = true
 ---
 
-{/*
-  One shell for every session, the way `/actividad` is one shell for every run: the id is
-  the query string, read by the island once it mounts, and the whole block is already in
-  the payload the tab behind it fetched — so there is nothing here for the Worker to
-  render. `desde` carries which tab opened it, which is the only thing the back chevron
-  needs to point somewhere true.
-
-  The dock lights `plan`: a session belongs to the plan wherever it was tapped from.
-*/}
-<App title={`Sesión · ${APP_NAME}`} heading="Sesión" tab="plan">
-  <SessionDetail client:load />
-</App>
+<App path="/sesion" />

@@ -32,16 +32,23 @@
  * hand the phone yesterday's plan while today's was still in flight, and this is an app
  * whose entire content is "what am I doing today".
  *
- * **The shells are the one thing in between, and the split is by who is asking.** A real
- * navigation — a launch, a reload, a link from outside — goes to the network first, so the
- * document that boots the app is always the current build and can never point at a hashed
- * chunk that a deploy has since removed. A `ClientRouter` tab swap or a prefetch is
- * answered from the cache and revalidated behind it, because those come from a document
- * that is *already running this build*: its chunks are loaded, and the shell it is asking
- * for carries no data at all — every number on it arrives from `/api/data`. Network-first
- * there put a round trip in front of every tab tap, and the transition cannot begin until
- * the HTML lands, so the whole app felt as slow as the connection. On a phone in a car
- * park that is the difference between a tab bar and a website.
+ * **The shells sit in between, and they are network-first.** A shell request is now always
+ * a real navigation — a launch, a reload, a link from outside — so it always goes to the
+ * network first: the document that boots the app has to be the current build, or it points
+ * at hashed chunks a deploy has since removed and opens to nothing.
+ *
+ * There used to be a second route through here, answering from the cache and revalidating
+ * behind it, because a tab tap was a `ClientRouter` swap fetching the next shell and
+ * network-first put a round trip in front of every one of them. The four tabs are one
+ * document now (`src/components/Shell.tsx`): a tab tap fetches nothing at all, and the only
+ * thing left asking for a shell is the browser. The split, and the two functions that told
+ * the two callers apart, went with it.
+ *
+ * One consequence worth knowing, because it is an improvement rather than a compromise. A
+ * device that has only ever launched `/` now has only `/` in `lm-pages` — the other shells
+ * are never requested, so they are never cached. Opening `/plan` offline therefore falls
+ * back to the `/` document, and *that is the right answer*: the shell reads the real
+ * `location` as it hydrates, so it opens on the plan. It used to open on Hoy.
  *
  * **The payload cache holds one athlete's private training data**, in an origin-scoped
  * store on that athlete's own phone — the same footing as a session cookie. It is dropped
@@ -56,7 +63,7 @@
  * new worker.
  */
 
-const VERSION = 'v3'
+const VERSION = 'v4'
 
 const CORE = `lm-core-${VERSION}`
 const PAGES = `lm-pages-${VERSION}`
@@ -133,7 +140,7 @@ self.addEventListener('fetch', (event) => {
   // record. None of them have a useful offline answer, so they are left alone.
   if (url.pathname.startsWith('/api/')) return
 
-  if (isDocument(request, url)) {
+  if (isDocument(request)) {
     event.respondWith(page(event, url))
     return
   }
@@ -143,34 +150,16 @@ self.addEventListener('fetch', (event) => {
 })
 
 /**
- * A navigation, a `ClientRouter` swap or a `<link rel="prefetch">` — all three ask for the
- * same prerendered HTML, and only the first of them looks like it.
+ * Is the browser asking for one of this app's own documents?
  *
- * A tab tap in this app is not a navigation: `ClientRouter` fetches the next shell with a
- * plain `fetch()`, which carries no navigate mode, no document destination and no `Accept:
- * text/html`; a prefetch link carries none of them either. Matched on those three signals
- * alone, every tab switch fell straight through to the network — so with no connection the
- * router's fetch failed, it fell back to a full document load, and only *that* reached the
- * cache. The tab still opened, at the cost of tearing the whole app down and rebuilding it.
- *
- * Hence the last line. Everything still being considered here is same-origin, a GET, not
- * `/sw.js` and not under `/api/` — so a path with no file extension on it is one of this
- * app's own routes and nothing else.
+ * The three signals are what a real navigation carries, and a real navigation is the only
+ * thing that asks for a shell any more. This used to be two functions with a wider net
+ * under them — a tab tap was a `ClientRouter` swap and a prefetch was a `<link>`, and
+ * neither carries a navigate mode, a document destination or an `Accept: text/html`, so
+ * both had to be caught by "same-origin GET with no file extension" instead. Both are
+ * gone: the tabs share one document and prefetching is off (`astro.config.mjs`).
  */
-function isDocument(request, url) {
-  if (isNavigation(request)) return true
-  return !/\.[a-z0-9]+$/i.test(url.pathname)
-}
-
-/**
- * Is the *browser* asking for this document, or is the app?
- *
- * The three signals below are what a real navigation carries and what a `fetch()` from
- * `ClientRouter` — or a `<link rel="prefetch">` — carries none of. It is the same test
- * `isDocument` opens with, named separately because the answer decides more than whether
- * to intercept: a navigation has to be current, a tab swap has to be instant. See `page`.
- */
-function isNavigation(request) {
+function isDocument(request) {
   if (request.mode === 'navigate' || request.destination === 'document') return true
   return (request.headers.get('accept') ?? '').includes('text/html')
 }
@@ -190,30 +179,16 @@ function isStatic(url) {
  * each, addressed by a query string the server never reads, so caching per URL would
  * store the same file once per activity in the log.
  *
- * Two routes through here, and which one a request takes is decided by who is asking.
- *
- * A **tab swap or a prefetch** is answered from the cache the moment there is anything
- * there, and the network read that would have blocked it happens behind the answer
- * instead. The document doing the asking is already running this build, the shell it wants
- * holds no data, and `ClientRouter` cannot start the transition until the HTML is in hand
- * — so this is the difference between a tab bar and a spinner on a bad connection.
- *
- * A **navigation** — a launch, a reload, a link from outside — goes to the network first
- * and only falls back. This is the request that boots the app, so it has to be the current
- * build: a stale shell served here would ask for `/_astro/*` chunks that the last deploy
- * removed, and what that looks like is an app that opens to nothing.
+ * Network-first, and only ever network-first: every request that reaches here is a
+ * launch, a reload or a link from outside — the request that *boots* the app — so it has
+ * to be the current build. A stale shell served here would ask for `/_astro/*` chunks that
+ * the last deploy removed, and what that looks like is an app that opens to nothing. It
+ * costs a round trip once per launch and nothing per tab tap, because a tab tap no longer
+ * asks for a document at all.
  */
 async function page(event, url) {
   const key = new Request(`${url.origin}${url.pathname}`)
   const cache = await caches.open(PAGES)
-
-  if (!isNavigation(event.request)) {
-    const hit = await cache.match(key)
-    if (hit) {
-      event.waitUntil(revalidate(cache, key, event.request))
-      return hit
-    }
-  }
 
   try {
     const preloaded = await event.preloadResponse
@@ -226,25 +201,11 @@ async function page(event, url) {
     const hit = await cache.match(key)
     if (hit) return hit
     // A route never opened on this device, with no connection to open it now. `/` is the
-    // one shell that is always there — the app was installed from it — and every tab is
-    // one tap from the dock on it.
+    // one shell that is always there — the app was installed from it — and it is not a
+    // consolation prize: every screen lives in that document, and the shell reads the real
+    // `location` as it hydrates, so `/plan` served this way still opens on the plan.
     const home = await cache.match(new Request(`${url.origin}/`))
     return home ?? offlinePage()
-  }
-}
-
-/**
- * The read that happens behind a shell served from the cache, so the next tap gets the
- * current build. A failure is the ordinary case here — this runs while the phone may have
- * no signal at all — and there is nothing to do about it: the copy already handed over is
- * the answer either way.
- */
-async function revalidate(cache, key, request) {
-  try {
-    const response = await fetch(request)
-    if (response.ok && !response.redirected) await cache.put(key, response)
-  } catch {
-    // No connection. The cached shell stands.
   }
 }
 

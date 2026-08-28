@@ -1,6 +1,5 @@
 ---
 import '../styles/global.css'
-import { ClientRouter } from 'astro:transitions'
 import { APP_DESCRIPTION, APP_SHORT_NAME } from '../lib/config'
 
 interface Props {
@@ -84,14 +83,14 @@ const ogImage = new URL('/og.png', Astro.site)
     <meta name="twitter:card" content="summary_large_image" />
 
     <!--
-      Tabs navigate in place. Without this every tap is a full document load: the dock is
-      torn down and rebuilt, the page flashes blank, and the island refetches from zero —
-      which is what makes a prerendered app read as a website. The router swaps the body
-      and keeps the shell; the dock and its highlight are the only two named transitions
-      (Dock.astro), and everything else rides the root snapshot, which cross-fades on the
-      app's own motion tokens in global.css.
+      No `<ClientRouter />`, on purpose, and this is the one line in the head worth
+      explaining. Tabs used to navigate between documents and Astro's router swapped the
+      body to hide it; that swap was itself the stutter, because it tore down the React
+      root and rehydrated the incoming shell — which is skeletons — inside the transition.
+      The four tabs are one document now (`src/components/Shell.tsx`), so there is nothing
+      left for it to swap. What remains are the doors: `/login`, `/alta`, `/bienvenida` and
+      `/404`, each entered once, each honestly a new document.
     -->
-    <ClientRouter />
   </head>
   <!--
     No background of its own: the ground is on `<html>` and the atmosphere above it is a
@@ -108,7 +107,7 @@ const ogImage = new URL('/og.png', Astro.site)
    * The offline layer, hung off every page in the app.
    *
    * A bundled module script, so it runs exactly once per *document* — which is once per
-   * launch, since `ClientRouter` swaps the body and keeps the document. Registering the
+   * launch, since the app shell never leaves the document it opened in. Registering the
    * worker from here rather than from an island is deliberate: `/login` and `/404` have no
    * island at all, and they are precisely the two screens someone lands on with a bad
    * connection.

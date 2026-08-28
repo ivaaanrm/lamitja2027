@@ -182,9 +182,11 @@ function PlannerScreen() {
    * opens on week 1 is a plan screen you have to fight before you can read it.
    *
    * Three guards keep it from being the wrong kind of clever: it fires once, never after
-   * the athlete has opened a week of their own, and never when the browser has already
-   * restored a scroll offset — Astro's `ClientRouter` does that on a back navigation, and
-   * yanking the page away from where someone left it is worse than opening at the top.
+   * the athlete has opened a week of their own, and never onto a restored scroll offset —
+   * `router.tsx` puts a returning tab back where it was left, and yanking the page away
+   * from there is worse than opening at the top. That router deliberately zeroes the
+   * scroll *before* React renders a route it has no offset for, so the `scrollY` this
+   * reads is the one the screen is landing on rather than the one it came from.
    * `document` is read here rather than in the body because this island is also rendered
    * during prerender, in a Worker (AGENTS gotcha 15); the week section owns the `id` it
    * needs.

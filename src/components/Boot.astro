@@ -37,11 +37,12 @@
  *    opening, whatever else happened, the overlay goes. A hung fetch then leaves the
  *    skeletons visible, which is a screen you can at least read. `<noscript>` removes it
  *    outright.
- * 3. *It is shown once per document, not once per tab.* `ClientRouter` swaps the whole
- *    body, so the incoming page's copy of this overlay would flash on every tab tap.
- *    `transition:persist` is exactly the escape hatch for that: the already-dismissed node
- *    is carried across the swap and the incoming one is discarded. It is left in the DOM
- *    hidden rather than removed, because persist can only keep a node that is still there.
+ * 3. *It is shown once per document, and a document is now one launch.* This used to need
+ *    `transition:persist="boot"`: `ClientRouter` swapped the whole body on every tab tap,
+ *    so the incoming page's copy of this overlay would flash each time, and the
+ *    already-dismissed node had to be carried across the swap by hand. The four tabs are
+ *    one document now (`src/components/Shell.tsx`) — nothing swaps, so nothing has to
+ *    persist, and the overlay is simply dismissed once and left in place hidden.
  *
  * `role="status"` and not `role="alert"`: it is polite, and it is announced once.
  */
@@ -50,7 +51,6 @@ import { APP_NAME } from '../lib/config'
 
 <div
   id="boot"
-  transition:persist="boot"
   role="status"
   aria-label="Abriendo el bloque"
   class="fixed inset-0 z-50 grid place-items-center bg-surface px-gutter"

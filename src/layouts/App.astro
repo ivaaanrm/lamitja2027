@@ -1,109 +1,37 @@
 ---
 import Base from './Base.astro'
 import Boot from '../components/Boot.astro'
-import Dock from '../components/Dock.astro'
-import OfflineNotice from '../components/OfflineNotice.astro'
-import { HeaderAvatar } from '../components/useBlock'
-import type { Tab } from '../lib/nav'
+import { Shell } from '../components/Shell'
+import { documentTitle } from '../lib/nav'
 
 /**
- * The shell every signed-in page wears: one column sized for a phone, a compact title that
- * scrolls away with the content, and the dock.
+ * The prerendered document behind every screen in the app.
  *
- * The bottom padding is the dock's own height plus a step of air, so the last card on a
- * page can be scrolled clear of the bar instead of ending underneath it. `--dock-h` is the
- * bar measured rather than guessed — the 48px column, the 4px the bar insets it by top and
- * bottom, and the home indicator under it — and it is read from `global.css`, which is also
- * where `Dock.astro` reads it. It used to be a `4.75rem` typed out here with a comment
- * asking whoever changed `h-12` or `p-1` to come back and change this too; one of the two
- * numbers eventually stops matching the other, and what that looks like is a card ending
- * under the bar.
+ * There is one of these per route under `src/pages`, and they are near-identical on
+ * purpose: each is an entry point — a cold start, a deep link, a reload — that paints real
+ * HTML for its own screen and then hands the whole app to one React root. Every hop *after*
+ * that is a `pushState` inside this document (`src/components/router.tsx`), so the other
+ * six shells are never fetched. What they exist for is the first byte of the first paint,
+ * and for a phone with no signal opening a URL it has cached.
  *
- * The column is tuned for density: cards sit `gap-2` apart rather than a full step, and
- * the heading and its subtitle share one line-box each. The heading is `title2` off the
- * ramp — it used to be `text-2xl`, a size belonging to no scale, and it cost a third of
- * the first screen before a single number appeared.
+ * It used to be much more than this: the column, the header, the dock and the bottom
+ * padding were all prerendered here, once per page, and `ClientRouter` swapped the body
+ * between them. That is what made a tab tap cost a React teardown and a rehydrate against
+ * a skeleton. All of it moved into `Shell.tsx`, which is the thing that now owns the
+ * column and everything in it.
  *
- * There is no brand eyebrow above the heading any more. It said "La Mitja 2027" on all
- * four tabs, directly above a subtitle that on the home screen already says "La Mitja ·
- * 24 de enero de 2027" — a line of chrome, repeated everywhere, naming the app to the one
- * person who installed it. iOS puts the title first and the app's name on the home-screen
- * icon; so does this now, and every screen starts ~16px higher for it.
- *
- * The header carries one more thing now: the athlete's own initials, top-right, linking to
- * `/ajustes`. `HeaderAvatar` lives beside `useBlock` rather than as a component of its own,
- * because this shell is prerendered and cannot know who is signed in at build time — it is
- * a `client:load` island like every screen's own, and it shares `useBlock`'s module-scope
- * cache, so it paints instantly on every tab but the first.
- *
- * ---
- *
- * **This column deliberately carries no `transition:name`.** It used to — `name="page"`
- * with a custom cross-fade — and that is what made a tab tap stutter on the phone.
- *
- * A `view-transition-name` lifts an element out of the root snapshot and gives it its own
- * `::view-transition-group`, and the group's job is to animate the element's *box* from
- * where it was to where it lands. Astro writes rules for `old` and `new` only, so that
- * group animation stayed on the browser's default 250ms `ease` — and it had real work to
- * do, because this column is the whole scrolling page:
- *
- *   - The router resets the scroll to the top inside the transition callback. Snapshots
- *     are positioned against the viewport, so a column tapped at 1500px down has its old
- *     box at −1500 and its new box at 0 — and the group dutifully *slid the entire page*
- *     that distance while it faded. Every tap from anywhere but the top of a screen.
- *   - `/registro` is several thousand pixels tall and `/` is one screen, so the same group
- *     interpolated a height between them on every switch.
- *   - Capturing a named element captures all of it, not the part you can see. The old
- *     texture was the full document height rather than the phone's 800 points.
- *
- * Left unnamed, the column is part of the root snapshot instead, which is exactly the
- * viewport — one small texture, no travel, nothing to resize. The cross-fade itself moved
- * to `::view-transition-old(root)` / `-new(root)` in `global.css`, on the same two motion
- * tokens. The dock keeps its own name, so it is still lifted out of that snapshot and
- * still swapped in place rather than fading with the page.
+ * `Boot` stays here, outside the island and last in the body. It is server-rendered
+ * precisely so it is in the first paint with no JavaScript behind it, and it is now shown
+ * once per *document* for free — there is no body swap left to carry it across.
  */
 interface Props {
-  title: string
-  heading: string
-  sub?: string
-  tab: Tab
-  /** A screen may own the whole top row when its navigation is interactive. */
-  showHeader?: boolean
+  /** A key of `ROUTES`. What this document was prerendered for, and what it hydrates as. */
+  path: string
 }
-const { title, heading, sub, tab, showHeader = true } = Astro.props
+const { path } = Astro.props
 ---
 
-<Base title={title}>
-  <main
-    class="mx-auto flex min-h-full max-w-lg flex-col gap-2 px-gutter pt-3 pb-[calc(var(--dock-h)+1.25rem)]"
-  >
-    {
-      showHeader ? (
-        <header class="flex items-start justify-between gap-2 px-0.5 pb-0.5">
-          <div class="min-w-0">
-            {heading ? (
-              <h1 class="font-display text-title2 font-bold tracking-tight text-label">{heading}</h1>
-            ) : null}
-            {sub ? <p class="mt-0.5 text-footnote leading-relaxed text-label-2">{sub}</p> : null}
-          </div>
-          <HeaderAvatar client:load />
-        </header>
-      ) : null
-    }
-    {/*
-      Under the heading rather than above it, so the screen still opens by saying where you
-      are. It is `display: none` until `<html>` carries `data-offline`, so on every ordinary
-      launch it costs nothing but the markup.
-    */}
-    <OfflineNotice />
-    <slot />
-  </main>
-  <Dock tab={tab} />
-  {/*
-    Last in the body and above the dock, because for the half-second it is up it is the
-    whole app. It belongs to this layout rather than to `Base.astro`: every page that wears
-    the dock opens by fetching the block, and `/login` — the only other `Base` page — has
-    nothing to load and its own first impression already.
-  */}
+<Base title={documentTitle(path)}>
+  <Shell path={path} client:load />
   <Boot />
 </Base>

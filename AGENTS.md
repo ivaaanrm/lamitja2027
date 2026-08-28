@@ -360,24 +360,67 @@ a 200 with no work — Strava must never see an error), and a nightly cron walks
 connected account, syncing each in turn and catching per-athlete so one dead refresh token
 cannot skip the rest.
 
-**Four tabs, one dock.** `/` `/plan` `/progreso` `/registro`, listed once in
-`src/lib/nav.ts` and rendered by `src/components/Dock.astro` — plain HTML fixed to the
-bottom of the viewport, with `env(safe-area-inset-bottom)` under it so it clears the home
-indicator. It has no JavaScript of its own: every page is prerendered, so which tab is lit is
-known at build time. Tabs still switch without a document load — `Base.astro` mounts Astro's
-`<ClientRouter />`, the dock is `transition:animate="none"` (swapped in place, never faded or
-slid with the content — and never `transition:persist`, which would keep the old highlight
-lit), the page column carries **no** `transition:name` at all so it rides the root snapshot,
-which cross-fades on the app's own tokens in `global.css`, the four shells are prefetched on
-load, and `useBlock` keeps the last `/api/data` payload in a module-scope *store* so the
-next tab paints with data and revalidates behind it when it has gone stale — a store and
-not a variable, for the two reasons under **The block is read once per document** below.
-`src/layouts/App.astro` is the shell that pairs it with the page column and reserves the
-bottom padding; `/login` uses `Base.astro` directly and has no dock.
+**Four tabs, one dock, and — since the rewrite below — one document.** `/` `/plan`
+`/progreso` `/registro`, listed once in `src/lib/nav.ts` and rendered by
+`src/components/Dock.tsx` — fixed to the bottom of the viewport, with
+`env(safe-area-inset-bottom)` under it so it clears the home indicator.
+`src/layouts/App.astro` is the prerendered document; `src/components/Shell.tsx` is the one
+React root inside it that owns the column, the header, the dock and whichever screen the
+URL names. `/login` uses `Base.astro` directly and has no dock.
+
+**Every screen in the app is one document, and a tab tap is a `setState`**
+(`src/components/router.tsx`). This is the single most load-bearing thing on this page and
+it replaced the opposite design, so the reasoning matters more than the mechanism.
+
+Each tab used to be its own prerendered page, swapped in by Astro's `<ClientRouter />`.
+That cost a React teardown and a full rehydrate on every tap — and it could not rehydrate
+*with the block*, because a prerendered shell in this app is skeletons and `useBlock`'s
+`getServerSnapshot` has to return the empty payload or hydration is a mismatch. So the
+first paint of the incoming tab was grey bars **by construction**, with the real data one
+render behind it, and `::view-transition-new` is *live* — so the skeleton→data swap
+happened in the middle of the 220ms cross-fade. Content, skeleton, content, on every tap,
+with the payload sitting in memory the whole time. Six separate fixes had already been
+spent on the layers around it (the page column's `transition:name`, `useSyncExternalStore`,
+cache-first shells in the worker, `drop-trailing-slash`, the module-scope store, viewport
+prefetch) and none of them could reach it: the thing being animated between was a shell,
+and one of them was always empty.
+
+So the seven screens are components of one tree. What follows from that:
+
+- **The transition is real.** `document.startViewTransition`'s callback is a `flushSync`,
+  so React has rendered the next screen — with the block, on its first render — before the
+  browser captures the new snapshot. Both sides are content. The `flushSync` is not
+  negotiable: without it React schedules the render on a `MessageChannel` task, a turn
+  later, and the browser snapshots a page that has not changed yet.
+- **The four tabs stay mounted.** `<Activity>` (React 19.2) keeps a hidden tab's state and
+  DOM while unmounting its effects — `/plan` keeps the week you had open, `/registro` its
+  filter — and hidden children are not server-rendered and render at a lower priority, so
+  it costs the cold start nothing. `/sesion`, `/actividad` and `/ajustes` mount only while
+  open: they are addressed by a query string or carry a form.
+- **Scroll is the router's job.** The page scrolls the document, not a box, so `Activity`
+  cannot hold an offset. `router.tsx` remembers one per route and the *order* is
+  load-bearing: a route with no remembered offset is zeroed **before** the render, so a
+  screen that positions itself on mount (`Planner` jumps to the current week, and checks
+  `scrollY` first) reads where it is landing rather than where it came from; a route being
+  returned to is restored **after**, because the offset is only a valid target once the
+  content is back.
+- **Links are intercepted, not rewritten.** One delegated `click` listener checks the path
+  against `ROUTES` and swallows it only if this shell renders it. Several dozen
+  `<a href="/sesion?id=…">` scattered through the screens needed no change, and `/login`,
+  `/alta`, `/bienvenida` and `/api/*` stay real navigations — they are doors out of the
+  app, not screens in it. `data-reload` on an anchor opts out.
+- **`ROUTES` is data and the pages are markup, so nothing type-checks the join.** A route
+  with no page is a deep link that 404s; a page naming a path that is not a key hydrates
+  as `/` (the fallback in `make`), so `/progreso` would quietly open on Hoy. Both are
+  clean under `tsc`. `test/unit/nav.test.ts` reads `src/pages/*.astro` and fails on either.
+- **Astro is still the framework and still prerenders seven documents**, one per route,
+  each opening on its own screen with real HTML in the first paint. They are entry points
+  — a cold start, a deep link, a reload — not a single-page app that has to boot before it
+  can route. What was deleted is `<ClientRouter />`, not Astro.
 
 The dock's geometry is three custom properties in `global.css` — `--dock-bar-h`,
 `--dock-inset`, `--dock-h` — because two files have to agree on it: the bar's own bottom
-padding and the room `App.astro` reserves under a page. They used to be two numbers typed
+padding and the room `Shell.tsx` reserves under a page. They used to be two numbers typed
 out separately with a comment asking whoever changed one to change the other.
 
 **A fixed bar cannot see the keyboard, so it is told.** A `position: fixed` element is laid
@@ -387,37 +430,34 @@ part of the page around underneath it, which on screen is a tab bar wandering ac
 middle of the phone every time a filter on `/plan` or a field in a sheet is tapped.
 `src/lib/keyboard.ts` watches `visualViewport`, flags `<html>` with `data-keyboard` when
 the gap between the two viewports at the bottom edge exceeds a keyboard's worth of pixels,
-and `Dock.astro` slides the bar out on that flag — which is what a native tab bar does.
-The flag lives on the root for the same reason `data-offline` does: `ClientRouter` swaps
-the body and leaves `<html>` alone. And `overscroll-behavior-y` is `none` **on `html`**,
-not `contain` on `body` where it used to sit and did nothing at all — only the root's
-value is propagated to the viewport — because the elastic bounce is the other thing that
-drags a fixed bar off the bottom edge on iOS.
+and a rule in `global.css` slides the bar out on that flag — which is what a native tab bar
+does. The flag lives on the root rather than in React because the thing that knows the
+answer is the visual viewport, not a component — the same reason `data-offline` is there.
+And `overscroll-behavior-y` is `none` **on `html`**, not `contain` on `body` where it used
+to sit and did nothing at all — only the root's value is propagated to the viewport —
+because the elastic bounce is the other thing that drags a fixed bar off the bottom edge
+on iOS.
 
-Those four links are also the only ones in the app that carry `data-astro-prefetch="viewport"`,
-and the config default is `tap` rather than viewport because of what the two detail screens
-are. `/actividad` and `/sesion` are one prerendered document each, addressed by a query
-string the server never reads — and Astro dedupes prefetches by *full URL*, so a viewport
-default queued one download of the same `/actividad` shell per row scrolled past in
-`/registro`, and again for `/sesion` on every week opened in `/plan`. `tap` fires on
-`touchstart`, which buys the ~100ms before the tap completes for exactly the URL being
-opened; `hover` would prefetch nothing at all on a phone.
+**Prefetching is off** (`astro.config.mjs`), and that is a consequence rather than a
+tuning. It was `prefetchAll` at `tap`, with the four dock links opting up to `viewport`, so
+the tab shells were in hand before a thumb moved. No screen fetches a document any more, so
+warming those shells would download six copies of markup this session will never ask for.
 
 Naming the page column is the one change to resist here. A `view-transition-name` lifts an
 element into its own `::view-transition-group`, and a group animates the element's *box* —
 so with a name on `<main>` every tab tap animated the full-document-height texture from
-wherever the finger had left the scroll position (the router resets it to the top inside the
-transition callback) to the top of the next screen, interpolating a height between a
-one-screen `/` and a several-thousand-pixel `/registro` on the way. On a phone that reads as
-the whole page lurching. Unnamed, the capture is the viewport and the only thing animating is
-opacity. Name an element here only when you actually want its box to travel — which is what
-`dock-active` is, and it is a 60×48 pill.
+wherever the finger had left the scroll position to the top of the next screen,
+interpolating a height between a one-screen `/` and a several-thousand-pixel `/registro` on
+the way. On a phone that reads as the whole page lurching. Unnamed, the capture is the
+viewport and the only thing animating is opacity. Name an element here only when you
+actually want its box to travel — which is what `dock` and `dock-active` are, and the
+second is a 60×48 pill.
 
 **The launch screen covers the cold start, and only the cold start**
 (`src/components/Boot.astro` + `src/lib/boot.ts`). A prerendered shell paints instantly and
 then sits there empty: skeletons are the right answer for one late card and the wrong one
 for a whole viewport of them, which is what tapping the home-screen icon used to show. So
-`App.astro` renders an overlay — `/login`'s tile and mark, the mark drawing itself on
+`App.astro` renders an overlay, outside the island — `/login`'s tile and mark, the mark drawing itself on
 `chart-draw`, an indeterminate mint rail under it — server-side, in the first paint, because
 an overlay a script has to *insert* arrives after the empty screen it was meant to hide.
 Three rules keep it honest: `useBlock` clears it when the first `/api/data` settles, success
@@ -426,11 +466,11 @@ hiding); `boot.ts` holds it for a 480ms floor measured from the page opening, so
 launch does not flash a half-drawn mark; and an inline dead-man switch drops it at 2.6s
 whatever happened, with `<noscript>` removing it outright. The one path that does *not*
 dismiss it is the 401 redirect to `/login` — the document is already leaving, and uncovering
-it first would flash a screenful of skeletons on the way out. It carries
-`transition:persist="boot"` because `ClientRouter` swaps the whole body and the incoming
-page's copy would otherwise flash on every tab tap; persist can only keep a node that is
-still there, so it is left hidden rather than removed (`visibility`, on a delayed step after
-the fade, so it stops swallowing taps).
+it first would flash a screenful of skeletons on the way out. It used to carry
+`transition:persist="boot"`, because `ClientRouter` swapped the whole body and the incoming
+page's copy would otherwise flash on every tab tap; with the tabs in one document there is
+no swap left and nothing to persist. It is still left in the DOM hidden rather than removed
+(`visibility`, on a delayed step after the fade, so it stops swallowing taps).
 
 **`/404` is `/login`'s sibling, not a tab** (`src/pages/404.astro`). It wears `Base`, so it
 has no dock: the lit tab is baked in at build time and a 404 belongs to none of the four, so
@@ -442,7 +482,7 @@ the adapter's `prerenderedErrorPageFetch`, so an unmatched path comes back as a 
 status with this HTML in it instead of the asset handler's bare "Not Found".
 
 **The app works without a connection, and says so when it is** (`public/sw.js`,
-`src/lib/pwa.ts`, `src/lib/net.ts`, `src/components/OfflineNotice.astro`). This is a plan
+`src/lib/pwa.ts`, `src/lib/net.ts`, `OfflineNotice` in `src/components/Shell.tsx`). This is a plan
 read at a trailhead and in a car park, so a launch with no signal may not end on the
 browser's error page inside a window with no address bar. The service worker is
 hand-rolled for the same reason the charts are: Workbox is a build step and a dependency
@@ -455,15 +495,14 @@ a content hash *is* a version. The block payload is never stale-while-revalidate
 would hand the phone yesterday's plan while today's was still in flight, on an app whose
 whole content is "what am I doing today".
 
-The shells are the one thing in between, and the split is **by who is asking**
-(`isNavigation` in `sw.js`). A real navigation — a launch, a reload, a link from outside —
-is network-first, because that request is what boots the app and a stale shell there asks
-for `/_astro/*` chunks the last deploy removed. A `ClientRouter` tab swap or a prefetch is
-answered from the cache and revalidated behind the answer, because it comes from a
-document *already running this build*, whose chunks are loaded, for a shell that carries
-no data at all. Network-first there put a round trip in front of every tab tap — and
-`ClientRouter` cannot start the transition until the HTML lands, so the tab bar was as
-slow as the connection.
+The shells sit in between, and they are network-first: a shell request is now always a
+real navigation — a launch, a reload, a link from outside — and that request is what boots
+the app, so a stale one there asks for `/_astro/*` chunks the last deploy removed. There
+used to be a second route through `page()`, answering from the cache and revalidating
+behind it, because a tab tap was a `ClientRouter` swap fetching the next shell and
+network-first put a round trip in front of every one. The tabs are one document now, so a
+tab tap fetches nothing and the split — along with the two functions that told the callers
+apart — is gone.
 
 Four caches, and the split is the design. `lm-core` is precached at install: fonts, mark,
 manifest — stable URLs, so **bump `VERSION` when one of them is edited**. `lm-pages` holds
@@ -473,24 +512,24 @@ log. `lm-assets` is deliberately **not** versioned and is LRU-trimmed to 60 entr
 hashed filename cannot go stale, only become surplus, and purging it on an update would
 throw away a good copy of a file that is still current. `lm-data` holds one entry.
 
-A tab tap in this app is not a navigation, and the worker has to know that: `ClientRouter`
-asks for the next shell with a plain `fetch()` carrying no navigate mode, no document
-destination and no `Accept: text/html`, and a prefetch link carries none of them either. So
-`isDocument` ends on "same-origin GET, not `/api/`, no file extension" — without that last
-line every tab switch fell through to the network and an offline tap tore the whole app
-down and rebuilt it through the full-load fallback.
+One consequence of the collapse is worth knowing, because it is an improvement rather
+than a compromise. A device that has only ever launched `/` now has only `/` in `lm-pages`
+— the other shells are never requested, so they are never cached — so opening `/plan`
+offline falls back to the `/` document. That is the right answer: every screen lives in
+that document, and the shell reads the real `location` as it hydrates, so it opens on the
+plan. It used to open on Hoy.
 
 Shells are cached as they are visited rather than precached, which is what makes this
 need no build step: a deploy can never leave a stale shell pointing at a hashed chunk that
 no longer exists. The payload cache holds private training data in an origin-scoped store
 on the athlete's own phone — the same footing as the session cookie — and is dropped the
 moment `/api/data` answers 401, which is how rotating `APP_PASSWORD` reaches it. A payload
-served from it carries `x-lm-stale`, `useBlock` reads that, and `OfflineNotice` says on
+served from it carries `x-lm-stale`, `useBlock` reads that, and the offline notice says on
 screen that the numbers are from the last sync rather than from now: "42 km this week" and
 "42 km the last time this phone had signal" are the same pixels and different facts. The
 flag lives on `<html>` rather than in React state because two things know the answer and
 neither is a component — the browser's `online`/`offline` events and that header — and
-because `ClientRouter` swaps the body and leaves the root alone. Registration is
+because the app shell never leaves the document it booted in. Registration is
 production-only and `test/unit/sw.test.ts` runs the shipped file against stub caches.
 
 **An installed app is resumed, not reopened** (`src/components/useBlock.tsx`). iOS freezes
@@ -728,7 +767,7 @@ Tailwind classes so a chart is styled like everything else on the page.
   is — a taller x-height than the Geist it replaced (54.6% of the em against 53%), wider
   apertures, and a `1`/`l`/`I` that cannot be confused in `1:19:59` or `11,1 km`.
   `--font-display` is **Manrope**, and it is spent on exactly two roles: the page heading
-  (`src/layouts/App.astro`, and the `<h2>` a detail or a sheet opens with) and the one hero
+  (`src/components/Shell.tsx`, and the `<h2>` a detail or a sheet opens with) and the one hero
   number a screen is about (`HeroMetric`, the projection on `/progreso`, the metric above
   an activity's chart, the `1:19:59` on `/login`). Rounder and more geometric, so at 34px
   it reads as a *figure* rather than as large UI text — and at 11px it would read as

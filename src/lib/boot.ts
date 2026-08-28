@@ -29,15 +29,14 @@ function hide(el: Element) {
 /**
  * Called once the block is in hand — or once it is known that it is not coming.
  *
- * The "already dismissed" state lives on the `#boot` node, not in a module variable, and
- * that is load-bearing. `ClientRouter` keeps this module's realm alive across every
- * client-side navigation, but the overlay node does not survive a hop through a page that
- * has none of its own: `/ajustes` wears `Base` and carries no `#boot`, so it breaks the
- * `transition:persist="boot"` chain, and arriving at a dock page from there renders a
- * *fresh*, visible overlay. A module-level latch set true on the first launch would then
- * suppress dismissing that new node — the app stuck on the launch screen until a full
- * reload reset the module. Reading the node's own `data-done`/`data-dismissing` instead
- * means every overlay is judged on its own state.
+ * The "already dismissed" state lives on the `#boot` node, not in a module variable. That
+ * used to be load-bearing against a real bug — `ClientRouter` kept this module's realm
+ * alive across a client-side navigation while the overlay node did not survive a hop
+ * through `/ajustes`, which carried none of its own, so a module-level latch left the app
+ * stuck behind a *fresh* overlay it thought it had already dismissed. Every screen is one
+ * document now and there is no hop to break, but the node is still the right place for
+ * the answer: it is the thing being dismissed, and `reload()` may call this again long
+ * after the first launch.
  */
 export function bootDone() {
   if (typeof document === 'undefined') return

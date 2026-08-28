@@ -417,13 +417,18 @@
  * The tab-to-tab cross-fade: the most-seen animation in the product, and the cheapest
  * shape it can take.
  *
- * It is the *root* snapshot that dissolves, not a named page element. That is the whole
- * fix for a tab tap stuttering on the phone, and the reasoning is in `layouts/App.astro`:
- * a named element gets its own group, and a group animates a box — so naming the page
- * column meant animating a several-thousand-pixel texture from wherever the finger left
- * the scroll position to the top of the next screen. The root snapshot is the viewport
- * and nothing else: it never moves and never resizes, so the only thing left to animate
- * is opacity.
+ * It is the *root* snapshot that dissolves, not a named page element. A named element
+ * gets its own group, and a group animates a box — so naming the page column meant
+ * animating a several-thousand-pixel texture from wherever the finger left the scroll
+ * position to the top of the next screen. The root snapshot is the viewport and nothing
+ * else: it never moves and never resizes, so the only thing left to animate is opacity.
+ *
+ * What is being cross-faded is now real content on both sides. The transition is started
+ * by `src/components/router.tsx`, whose callback is a `flushSync` — so React has rendered
+ * the next screen, with the block already in hand, before the browser captures the new
+ * snapshot. It used to be Astro's `ClientRouter` swapping in a prerendered shell, and a
+ * prerendered shell in this app is skeletons: every tab tap dissolved into grey bars and
+ * then popped to content, because `::view-transition-new` is live.
  *
  * Only the timing is written here. The keyframes stay the browser's own — the default
  * `::view-transition-old/new` pair is already a `mix-blend-mode: plus-lighter` cross-fade,
@@ -442,11 +447,11 @@
  * collapses and expands the URL bar as you scroll, so a tab tapped from a scrolled page
  * can land on a viewport a few points taller.
  *
- * Reduced motion is already covered — `ClientRouter` ships a blanket
- * `::view-transition-group(*) { animation: none !important }` under that media query.
- *
- * Unlayered on purpose: Astro writes its own transition rules into `@layer astro`, and an
- * unlayered rule outranks any layer.
+ * Reduced motion is covered upstream of the CSS: `animates()` in `router.tsx` refuses to
+ * call `startViewTransition` at all under that media query, so no snapshot is ever taken.
+ * That is a stronger answer than a zeroed duration, and it is where the guard has to live
+ * now that Astro's router — which shipped a blanket
+ * `::view-transition-group(*) { animation: none !important }` — is gone.
  */
 ::view-transition-group(root),
 ::view-transition-old(root),
@@ -570,4 +575,78 @@
 @utility motion-standard {
   transition-duration: var(--duration-standard);
   transition-timing-function: var(--ease-ios);
+}
+
+/**
+ * The dock, across a route change.
+ *
+ * Two names doing opposite jobs. `dock` lifts the whole bar out of the root snapshot so it
+ * is not dragged through the page's cross-fade — a tab bar that fades with the content is
+ * a bar that looks like part of the page — and the pair below then refuses to animate it,
+ * which leaves it swapped in place: the labels re-tint on the frame the transition starts
+ * and that is all. `display: none` on the outgoing image rather than a zeroed duration,
+ * because a captured image with no animation would otherwise sit on top of the new one for
+ * the length of the transition.
+ *
+ * `dock-active` is the lit pill. It renders on exactly one tab (`src/components/Dock.tsx`),
+ * so across a hop the browser has the same named box in two places and slides one into the
+ * other — the highlight is the one thing that travels, and it does so on the app's own
+ * motion tokens rather than on the UA's 250ms `ease`. Only the timing is overridden: the
+ * keyframes stay the browser's, because what is being animated is a box moving between two
+ * positions the UA has already measured and nothing else knows.
+ */
+::view-transition-old(dock) {
+  display: none;
+}
+
+::view-transition-new(dock) {
+  animation: none;
+}
+
+::view-transition-group(dock-active),
+::view-transition-old(dock-active),
+::view-transition-new(dock-active) {
+  animation-duration: var(--duration-standard);
+  animation-timing-function: var(--ease-ios);
+}
+
+/**
+ * The dock out of the keyboard's way, and back again.
+ *
+ * `src/lib/keyboard.ts` sets the flag, on `<html>` because that is where the visual
+ * viewport's answer belongs — it is a fact about the window, not about any component. The
+ * bar travels its own full height, so it leaves by the edge it is pinned to rather than
+ * fading out in place.
+ *
+ * `visibility` on a delayed 0s step, exactly as `Boot.astro` dismisses the launch screen:
+ * `display` cannot be transitioned, and a bar that is merely off-screen is still in the tab
+ * order and still announced. It flips only once the slide has finished, and flips back
+ * immediately on the way in.
+ */
+#dock {
+  transition:
+    transform var(--duration-standard) var(--ease-ios),
+    visibility 0s;
+}
+
+html[data-keyboard] #dock {
+  transform: translate3d(0, 100%, 0);
+  visibility: hidden;
+  transition:
+    transform var(--duration-standard) var(--ease-ios),
+    visibility 0s linear var(--duration-standard);
+}
+
+/**
+ * The offline notice (`Shell.tsx`) is in the tree on every screen and hidden until the
+ * document root says otherwise, so revealing it costs no render and no frame of
+ * JavaScript. `src/lib/net.ts` owns the flag; two things set it — the browser's `offline`
+ * event, and a block payload the service worker answered from its own cache.
+ */
+#offline-notice {
+  display: none;
+}
+
+html[data-offline] #offline-notice {
+  display: flex;
 }

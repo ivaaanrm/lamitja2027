@@ -17,6 +17,7 @@ import type { ActivityDetail as Detail, Split, TracePoint } from '@/lib/streams'
 import { ChartScale, LineChart, Sparkline, SplitBars, StackedBar } from './charts'
 import { NoBlockCard, useBlock } from './useBlock'
 import { island } from './Island'
+import { useRouteParams, type Route } from './router'
 import {
   ARROW_OUT,
   CHEVRON_LEFT,
@@ -69,26 +70,27 @@ import {
  */
 const traces = new Map<number, Detail>()
 
-function ActivityDetailScreen() {
+function ActivityDetailScreen({ route }: { route: Route }) {
   const { data, weeks, error, reload } = useBlock()
   /**
    * `undefined` is "the query string has not been read yet" and `null` is "there is no
    * usable id in it" — the same tri-state `SessionDetail` carries, and for the same
    * reason. Collapsing the two flashed the dead-end card for a frame on every open from
-   * `/registro`: `useBlock` keeps the last payload in module scope, so on a tab-to-tab
-   * navigation `data` is already there on the first render while this id is not, and
-   * effects run *after* the browser has painted.
+   * `/registro`, back when the id arrived from an effect and effects run after the browser
+   * has painted. It comes off the route now, so the only render that still answers
+   * `undefined` is the hydration pass — where the id genuinely is not knowable, because
+   * `/actividad` is one prerendered shell for every run in the log.
    */
-  const [id, setId] = useState<number | null | undefined>(undefined)
+  const params = useRouteParams(route)
+  const id = useMemo(() => {
+    if (!params) return undefined
+    const value = Number(params.get('id'))
+    return Number.isInteger(value) && value > 0 ? value : null
+  }, [params])
   const [detail, setDetail] = useState<Detail | null>(null)
   const [detailError, setDetailError] = useState<string | null>(null)
   /** Bumped to ask Strava again — the retry after a rate limit or a dropped connection. */
   const [attempt, setAttempt] = useState(0)
-
-  useEffect(() => {
-    const value = Number(new URLSearchParams(location.search).get('id'))
-    setId(Number.isInteger(value) && value > 0 ? value : null)
-  }, [])
 
   useEffect(() => {
     if (id == null) return

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { formatDuration, formatKm, formatPace, formatPaceRange, isRun, paceSKm } from '@/lib/activity'
 import { goalPaceSKm, totalWeeks, type BlockConfig } from '@/lib/block'
 import { cn } from '@/lib/cn'
@@ -25,6 +25,7 @@ import {
 } from '@/lib/workout'
 import { NoBlockCard, useBlock } from './useBlock'
 import { island } from './Island'
+import { useRouteParams, type Route } from './router'
 import {
   ACCENT,
   ARROW_OUT,
@@ -65,23 +66,21 @@ import {
  *
  * No fetch of its own: `/api/data` already carries the whole block, so this screen is a
  * lookup in the payload the tab it was opened from was already rendered with. The id and
- * the way back are in the query string and read in an effect, because the island is also
- * rendered at build time in a Worker with no `location` (AGENTS gotcha 15).
+ * the way back are in the query string, read off the route rather than off `location`:
+ * `/sesion` is one prerendered shell for every session, so during hydration the only
+ * honest answer is the one the markup was built with — no id at all. `useRouteParams`
+ * returns `null` for exactly that render and the real params for every one after, which
+ * on a hop from inside the app is the *first* one. See `router.tsx`.
  */
-function SessionDetailScreen() {
+function SessionDetailScreen({ route }: { route: Route }) {
   const { data, weeks, error, reload } = useBlock()
   // `undefined` is "the query string has not been read yet" and `null` is "there is no id
   // in it" — collapsing the two would flash the dead-end card on every first paint.
-  const [id, setId] = useState<string | null | undefined>(undefined)
-  const [origin, setOrigin] = useState<'hoy' | 'plan'>('plan')
+  const params = useRouteParams(route)
+  const id: string | null | undefined = params ? params.get('id') : undefined
+  const origin = params?.get('desde') === 'hoy' ? 'hoy' : 'plan'
   const [saving, setSaving] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
-
-  useEffect(() => {
-    const params = new URLSearchParams(location.search)
-    setId(params.get('id'))
-    setOrigin(params.get('desde') === 'hoy' ? 'hoy' : 'plan')
-  }, [])
 
   const found = useMemo(() => {
     if (!id) return null

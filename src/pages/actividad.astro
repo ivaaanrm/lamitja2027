@@ -1,15 +1,6 @@
 ---
 import App from '../layouts/App.astro'
-import { ActivityDetail } from '../components/ActivityDetail'
-import { APP_NAME } from '../lib/config'
 export const prerender = true
 ---
 
-{/*
-  One shell for every activity: the id is the query string, read by the island once it
-  mounts. A route per activity would need the Worker to render it — the pages here are
-  prerendered, and `/registro` is the only way in, so the shell is already prefetched.
-*/}
-<App title={`Actividad · ${APP_NAME}`} heading="Actividad" tab="log">
-  <ActivityDetail client:load />
-</App>
+<App path="/actividad" />

@@ -1,19 +1,6 @@
 ---
 import App from '../layouts/App.astro'
-import { Dashboard } from '../components/Dashboard'
-import { APP_NAME } from '../lib/config'
 export const prerender = true
 ---
 
-{/*
-  The heading used to name the owner's own goal and race day — "Media sub-1:20 · La Mitja ·
-  24 de enero de 2027" — which this shell cannot say any more: it is prerendered once at
-  build time and the block (race, goal, date) is now per-athlete. The *deployment's* name
-  still comes from `config.ts`, because that is one fork's identity rather than one
-  athlete's; the heading is "Hoy", which is what every comment in `Dashboard` already calls
-  this tab, and the race itself is said inside the island, where `RaceCountdown` and
-  `RaceCard` read it off the signed-in athlete's real block.
-*/}
-<App title={APP_NAME} heading="" tab="today">
-  <Dashboard client:load />
-</App>
+<App path="/" />

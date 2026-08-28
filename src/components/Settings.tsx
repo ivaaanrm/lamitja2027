@@ -17,6 +17,7 @@ import {
 } from './ui'
 import { clearCachedBlock } from '@/lib/net'
 import { useBlock } from './useBlock'
+import { island } from './Island'
 
 /** Same UTC-as-wall-clock round trip every date field in this app uses. */
 function toDateInput(ms: number): string {
@@ -329,7 +330,7 @@ function McpCard({ hasToken, onChanged }: { hasToken: boolean; onChanged: () => 
   )
 }
 
-export function Settings() {
+function SettingsScreen() {
   const { data, error, reload } = useBlock()
 
   const [displayName, setDisplayName] = useState('')
@@ -717,3 +718,11 @@ export function Settings() {
     </>
   )
 }
+
+/**
+ * Wrapped like every other screen. It used to be the one that was not: `/ajustes` was its
+ * own document with its own root, so a render that threw took down a page nobody else was
+ * on. It is a component of the one shell now, and an unguarded throw here would take the
+ * dock and every tab with it.
+ */
+export const Settings = island(SettingsScreen)
