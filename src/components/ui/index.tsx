@@ -449,10 +449,18 @@ export function Segmented<T extends string>({
               if (sibling instanceof HTMLElement) sibling.focus()
             }}
             className={cn(
-              'motion-standard h-11 flex-1 text-footnote font-medium transition-colors',
-              variant === 'filled' && 'rounded-[0.375rem]',
+              'motion-standard flex-1 text-footnote font-medium transition-colors',
+              variant === 'filled' && 'h-11 rounded-[0.375rem]',
+              // Four pixels taller than the touch-target floor, and the four are spent on
+              // the one thing the filled variant never has to deal with: the rule. The
+              // underline is welded to the bottom edge of the row — that is the whole
+              // point of it — so whatever else sits in that row is welded there too, and
+              // on `/plan` that is a 44px avatar whose circle came out tangent to the
+              // line. A row taller than its tallest neighbour is what gives the circle
+              // somewhere to be; the rule still spans the column, and the tabs still land
+              // on it.
               variant === 'underline' &&
-                'relative rounded-none after:absolute after:-bottom-px after:inset-x-2 after:h-0.5 after:rounded-t-full after:bg-transparent after:transition-colors after:content-[""]',
+                'relative h-13 rounded-none after:absolute after:-bottom-px after:inset-x-2 after:h-0.5 after:rounded-t-full after:bg-transparent after:transition-colors after:content-[""]',
               variant === 'filled' &&
                 (selected
                   ? 'bg-surface-raised text-label shadow-sm'

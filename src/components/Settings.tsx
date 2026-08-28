@@ -217,13 +217,42 @@ function InvitesCard() {
  * fields on every one of them would overwrite whatever the athlete is mid-typing in a
  * *different* card.
  */
+/** The stand-in for the token in the agent message once its plaintext is gone. */
+const TOKEN_PLACEHOLDER = 'TU_TOKEN'
+
 /**
- * The athlete's MCP credential.
+ * The message the athlete pastes into an agent, which is the only artefact here that is
+ * any use on its own.
  *
- * Shown exactly once, at mint time, and never again: the server keeps only `sha256(token)`,
- * so there is nothing to re-display and losing it means minting another. The copy is a
- * `<code>` block rather than an input because it is read once and pasted once, and an
- * input invites the browser to offer to save it as a password.
+ * A token is half of a connection and the half nobody can guess is the other half — the
+ * address, the transport and the header it goes in. Leaving those in `docs/` means the
+ * card hands out a credential and then asks the athlete to go and find out what to do
+ * with it, so the whole recipe is written here, with the token already in it, and copying
+ * it is one tap.
+ *
+ * Deliberately short. Everything an agent needs to know about *training* it will read
+ * from `SERVER_INSTRUCTIONS` the moment it connects, so repeating any of it here would be
+ * a second copy that drifts. This says how to reach the server and what to read first.
+ */
+function agentPrompt(origin: string, token: string): string {
+  return [
+    'Conéctate a mi servidor MCP de entrenamiento:',
+    '',
+    `URL: ${origin}/api/mcp`,
+    'Transporte: HTTP (streamable)',
+    `Cabecera: Authorization: Bearer ${token}`,
+    '',
+    'Empieza por get_block y list_weeks, y dime en qué semana estoy.',
+  ].join('\n')
+}
+
+/**
+ * The athlete's MCP credential, and the message that puts it to work.
+ *
+ * The token is shown exactly once, at mint time, and never again: the server keeps only
+ * `sha256(token)`, so there is nothing to re-display and losing it means minting another.
+ * The copy is a `<code>` block rather than an input because it is read once and pasted
+ * once, and an input invites the browser to offer to save it as a password.
  *
  * The warning under it is not decoration. This token is full read/write on one athlete's
  * training data, in plain text, inside an agent's config file — the athlete should know
@@ -233,7 +262,20 @@ function McpCard({ hasToken, onChanged }: { hasToken: boolean; onChanged: () => 
   const [token, setToken] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState<'token' | 'prompt' | null>(null)
+
+  // The address the agent has to be told is this deployment's own, and `location` does not
+  // exist in the prerender pass this island also runs through (AGENTS gotcha 15) — so it
+  // is read after mount, and the message renders with the origin blank for one frame.
+  const [origin, setOrigin] = useState('')
+  useEffect(() => setOrigin(window.location.origin), [])
+
+  function copy(what: 'token' | 'prompt', text: string) {
+    void navigator.clipboard?.writeText(text).then(
+      () => setCopied(what),
+      () => setCopied(null),
+    )
+  }
 
   async function mint() {
     setBusy(true)
@@ -243,7 +285,7 @@ function McpCard({ hasToken, onChanged }: { hasToken: boolean; onChanged: () => 
       if (!response.ok) throw new Error(await errorMessage(response, 'No se pudo crear el token'))
       const body = (await response.json()) as { token: string }
       setToken(body.token)
-      setCopied(false)
+      setCopied(null)
       onChanged()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'No se pudo crear el token')
@@ -281,16 +323,8 @@ function McpCard({ hasToken, onChanged }: { hasToken: boolean; onChanged: () => 
           <p role="status" className="mt-2 text-caption leading-relaxed text-amber">
             Cópialo ahora: no vuelve a mostrarse. Da acceso completo a tu entrenamiento.
           </p>
-          <Button
-            className="mt-2.5 w-full"
-            onClick={() => {
-              void navigator.clipboard?.writeText(token).then(
-                () => setCopied(true),
-                () => setCopied(false),
-              )
-            }}
-          >
-            {copied ? 'Copiado' : 'Copiar token'}
+          <Button className="mt-2.5 w-full" onClick={() => copy('token', token)}>
+            {copied === 'token' ? 'Copiado' : 'Copiar token'}
           </Button>
         </>
       ) : hasToken ? (
@@ -303,6 +337,32 @@ function McpCard({ hasToken, onChanged }: { hasToken: boolean; onChanged: () => 
           volver a verse. Si lo has perdido, genera uno nuevo para copiarlo — el anterior
           dejará de funcionar.
         </p>
+      ) : null}
+
+      {/* The message survives the token's one showing: with a live token it is ready to
+          paste as it stands, and afterwards it is still the only place the address and the
+          header are written down, with `TU_TOKEN` where the athlete's own goes. */}
+      {token || hasToken ? (
+        <div className="mt-3">
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <p className="text-caption2 font-semibold uppercase tracking-[0.12em] text-label-3">
+              Mensaje para el agente
+            </p>
+            <TextLink
+              inset
+              disabled={!origin}
+              onClick={() => copy('prompt', agentPrompt(origin, token ?? TOKEN_PLACEHOLDER))}
+            >
+              {copied === 'prompt' ? 'Copiado' : 'Copiar'}
+            </TextLink>
+          </div>
+          {/* `font-sans` because a `<pre>` defaults to the browser's monospace and this app
+              is set in Inter, and wrapped rather than scrolled: a horizontal scrollbar in a
+              card hides the end of a URL the athlete is meant to copy whole. */}
+          <pre className="whitespace-pre-wrap break-words rounded-xl bg-fill px-3 py-2.5 font-sans text-caption leading-relaxed text-label-2">
+            {agentPrompt(origin, token ?? TOKEN_PLACEHOLDER)}
+          </pre>
+        </div>
       ) : null}
 
       {error ? (
