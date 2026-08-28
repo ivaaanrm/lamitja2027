@@ -62,8 +62,8 @@ const WEEK_MS = 7 * 86_400_000
  * and they are exported so a test can assert that without going near `import.meta.env`.
  */
 export const DEFAULTS = {
-  appName: 'StrideAI',
-  appShortName: 'StrideAI',
+  appName: 'Treximo',
+  appShortName: 'Treximo',
   appDescription: 'Plan, carga y progreso hacia tu próxima carrera, en un único cuaderno.',
   raceName: 'La Mitja de Granollers',
   raceDate: '2027-01-24',
@@ -203,9 +203,11 @@ export function checkBlock(dates: {
  * What the app calls itself, and the four values below it are the whole of its identity.
  *
  * They are separate from `RACE_NAME` on purpose: the event is *La Mitja de Granollers* and
- * the app is *La Mitja 2027*, which is a different noun — one is printed on a bib and the
- * other is printed on a home screen. A fork that only overrode the race would end up with
- * a tab reading `Plan · La Mitja 2027` above a plan for the Berlin marathon.
+ * the app is *Treximo*, which is a different noun — one is printed on a bib and the other
+ * is printed on a home screen. A fork that only overrode the race would end up with a tab
+ * reading `Plan · Treximo` above a plan for the Berlin marathon — which is fine, and is
+ * the point: the app's name is the one name every athlete on a deployment shares, so it
+ * can never be any one of their races.
  *
  * These reach every user-visible name in one hop: the `<title>` of all eight pages, the
  * launch-screen wordmark, the login screen, `404`, the meta description, the Open Graph
@@ -220,8 +222,9 @@ export const APP_NAME = text('PUBLIC_APP_NAME', import.meta.env.PUBLIC_APP_NAME,
 
 /**
  * The home-screen label, which is the one place a name is truncated by somebody else.
- * iOS gives it about twelve characters before it ellipsises, so this is the short form —
- * *La Mitja*, not *La Mitja 2027*.
+ * iOS gives it about twelve characters before it ellipsises, so this is the short form.
+ * *Treximo* is seven and needs no shortening; a fork whose name is longer should put the
+ * abbreviation here rather than let iOS choose where to cut it.
  */
 export const APP_SHORT_NAME = text(
   'PUBLIC_APP_SHORT_NAME',

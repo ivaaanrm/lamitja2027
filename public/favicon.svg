@@ -1,12 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <rect width="512" height="512" rx="114" fill="#000000"/>
-  <!-- Stride M: a forward runner built from one colour and favicon-safe geometry. -->
-  <g fill="none" stroke="#a3e635" stroke-width="38" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M277 179 230 269"/>
-    <path d="m269 191-70 25-48-46"/>
-    <path d="m270 190 76 24 48-42"/>
-    <path d="m230 269-65 69-70 37"/>
-    <path d="m230 269 82 46 105 65"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100" role="img" aria-label="Treximo">
+  <defs><radialGradient id="tile" gradientUnits="userSpaceOnUse" cx="26" cy="14" r="125"><stop offset="0" stop-color="#262A33"></stop><stop offset=".52" stop-color="#16181E"></stop><stop offset="1" stop-color="#0D0F13"></stop></radialGradient></defs>
+  <rect width="100" height="100" rx="22.4" fill="url(#tile)"></rect>
+  <g transform="translate(50 50) scale(1.037) translate(-50 -53.25)">
+    <path d="M34 49 Q50 52 66 49 L81 79 Q86 87 77 87 L23 87 Q14 87 19 79 Z" fill="#F2EFE9"></path>
+    <path d="M37.5 38 Q50 41 62.5 38 L56 24 Q50 15 44 24 Z" fill="#FC4C01"></path>
   </g>
-  <circle cx="314" cy="112" r="34" fill="#a3e635"/>
 </svg>

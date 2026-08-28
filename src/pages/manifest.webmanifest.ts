@@ -18,7 +18,7 @@ import { APP_DESCRIPTION, APP_NAME, APP_SHORT_NAME } from '@/lib/config'
  * cannot read a token. They are copies, they drift silently, and they have drifted before
  * — see the palette convention in AGENTS.md, which lists all four places this happens.
  */
-const SURFACE = '#12151a'
+const SURFACE = '#13151a'
 
 export const GET: APIRoute = () =>
   new Response(
@@ -38,10 +38,17 @@ export const GET: APIRoute = () =>
         background_color: SURFACE,
         theme_color: SURFACE,
         categories: ['health', 'fitness', 'sports'],
+        // PNGs first and SVG last, in both purposes. The rasters are what the brand kit
+        // ships and what every installer has always taken; the vectors are the masters
+        // they were exported from, listed so a launcher that prefers scalable art gets a
+        // crisp icon at whatever size it invents rather than an upscaled 512. An installer
+        // that ignores `image/svg+xml` simply never reaches them.
         icons: [
           { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
           { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
           { src: '/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          { src: '/icon-maskable.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
         ],
         // The three tabs worth a long-press. `/` is the app itself and needs no shortcut.
         shortcuts: [

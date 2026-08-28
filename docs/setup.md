@@ -351,8 +351,8 @@ login screen, `404`, the meta description, the Open Graph card and
 
 | Variable | Means | Format | Default |
 |---|---|---|---|
-| `PUBLIC_APP_NAME` | What the app calls itself: the `<title>` of every page and the name of the installed app. Distinct from the race, and on a shared deployment that is the point — every athlete races something else, so the shared name must be the app's. | free text | `StrideAI` |
-| `PUBLIC_APP_SHORT_NAME` | The home-screen label. iOS truncates around twelve characters, so keep it short. | free text | `StrideAI` |
+| `PUBLIC_APP_NAME` | What the app calls itself: the `<title>` of every page and the name of the installed app. Distinct from the race, and on a shared deployment that is the point — every athlete races something else, so the shared name must be the app's. | free text | `Treximo` |
+| `PUBLIC_APP_SHORT_NAME` | The home-screen label. iOS truncates around twelve characters, so keep it short. | free text | `Treximo` |
 | `PUBLIC_APP_DESCRIPTION` | One sentence, read three times: meta description, Open Graph card, manifest. | free text, Spanish | *Plan, carga y progreso hacia…* |
 
 **The block** — the values the training maths is computed from.
@@ -404,12 +404,36 @@ two files that cannot read a build-time value at all.
 | Where | What is hard-coded | Why it cannot be a setting |
 |---|---|---|
 | The whole interface | Spanish (es-ES) throughout — every label, button, empty state and error. `<html lang="es">` and every `Intl` formatter is built with `'es-ES'`. | Translating means editing strings; there is no locale switch and adding one is a real project. |
-| `public/favicon.svg` + every PNG beside it | The mark is La Mitja's course profile — the climb through 10 km, then the descent that steepens to the finish. | It is a drawing. Edit the SVG and re-rasterise all of them together (`qlmanage -t -s <px> -o . favicon.svg` on macOS); they drift otherwise. |
+| `public/*.svg` + every PNG and `.ico` beside them | The Treximo mark: a soft delta whose apex is cut away from its base — the symbol for change, with the piece that is still missing left missing. Two flat inks, orange `#FC4C01` on bone `#F2EFE9`, so it prints and embroiders at one colour without being redrawn. | It is a drawing, and it is a *name's* drawing: it is the app's identity, not the block's, so no `.env` value could reach it. See **Re-drawing the mark** below for what to regenerate from what. |
+| `public/fonts/schibsted-grotesk-latin.woff2` | The wordmark's face. | The brand permits it one weight, lowercase, at `.12em` — `wordmark` in `global.css` is those three rules, and it renders whatever `PUBLIC_APP_NAME` you set. Replace the file to change the face; the rules stay. |
 | `public/sw.js` | The offline page's Spanish copy, and three colours written out as hex. | `public/` is copied byte-for-byte into the build, so nothing in it sees a build-time value. Its `<title>` is deliberately nameless for that reason. The colours are copies of `--color-surface`, `--color-label` and `--color-mint`; a service worker cannot import the stylesheet. Also bump its `VERSION` when you change the precached files or the caching rules, or phones keep serving the old ones. |
 | `src/layouts/Base.astro`, `src/pages/manifest.webmanifest.ts` | `<meta name="theme-color">`, and `background_color` / `theme_color`. | All three are `--color-surface` written out — a `<meta>` and a JSON body cannot read a token. Change a ground and grep the hex; it has drifted before. |
 | `astro.config.mjs` | `site:` — your deployed origin | Used to build the absolute Open Graph URLs at prerender time. |
 | `src/components/Progress.tsx`, `src/components/TrainingLog.tsx` | The season label `2025-26`, and one `'de 21,1 km'` written out where its sibling in `Dashboard.tsx` derives it | Small, real, and worth fixing if you fork — they are the last two places a number is written rather than derived. |
 | `docs/` | `01`, `02`, `03` and `docs/personal/data/*.csv` are the author's race analysis, injury history and Strava exports | They are the reasoning behind every default above. Replace them with your own, or delete them. |
+
+### Re-drawing the mark
+
+There is no single icon master, and that is the one thing to know before editing any of
+them. The mark is drawn twice, at two weights, because a shape that reads at 512 px does
+not read at 16:
+
+| Vector | Renders at | What comes out of it |
+|---|---|---|
+| `public/icon.svg` | 1024, rounded tile, mark at 56% | `apple-touch-icon.png` (180), `icon-192.png`, `icon-512.png` |
+| `public/icon-maskable.svg` | 1024, full bleed, mark at 45% so it survives a circular crop | `icon-maskable-512.png` |
+| `public/favicon.svg` | 100, tile, mark at 70% **and its own thicker geometry** — at 16 px the apex and the gap each need a whole pixel | `favicon.ico` (16 + 32 + 48 in one file) |
+| `public/mark.svg` | The bare mark, no tile — this is what `/login`, `/alta`, `/404` and `Boot.astro` show, because those already sit in a tile the app drew | — |
+
+Two more things follow from the mark rather than from the icons. `Boot.astro` **inlines**
+`mark.svg`'s geometry rather than loading it, because its two shapes animate separately and
+a document cannot reach inside an `<img>` — edit one and the other has to follow. And
+`public/og.png` is rendered from `scripts/brand/og.html`, which is HTML rather than SVG so
+that the wordmark is really *set* in the brand face; that file's own header carries the
+command.
+
+Bump `VERSION` in `public/sw.js` whenever `favicon.svg` or `icon-192.png` changes — both
+are precached, and a phone that has installed the app will otherwise keep the old one.
 
 ### Last season's data
 

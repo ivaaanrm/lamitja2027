@@ -33,16 +33,29 @@ const ogImage = new URL('/og.png', Astro.site)
     <meta name="format-detection" content="telephone=no" />
 
     <!--
-      The two faces the app is set in — Inter for the interface, Manrope for the page
-      heading and the one hero number per screen. Both are preloaded because they are
-      same-origin and discovered late: the stylesheet has to parse before the browser
-      learns they exist, and `font-display: swap` would otherwise flash a fallback through
-      first paint on every cold load — on the largest text on the screen, where the reflow
-      is the most visible. `crossorigin` is required even same-origin: fonts are fetched in
-      CORS mode, and without it the preload is discarded and the file fetched a second time.
+      The three faces the app is set in — Inter for the interface, Manrope for the page
+      heading and the one hero number per screen, Schibsted Grotesk for the wordmark and
+      nothing else. All three are preloaded because they are same-origin and discovered
+      late: the stylesheet has to parse before the browser learns they exist, and
+      `font-display: swap` would otherwise flash a fallback through first paint on every
+      cold load — on the largest text on the screen, where the reflow is the most visible.
+      `crossorigin` is required even same-origin: fonts are fetched in CORS mode, and
+      without it the preload is discarded and the file fetched a second time.
+
+      Schibsted Grotesk earns its preload on the strength of *where* it lands rather than
+      how much of the app it sets: the wordmark is on the launch overlay, which is the
+      first thing painted on a cold start and the one surface that is nothing but brand.
+      A swap there is the app's name changing shape while you watch it open.
     -->
     <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link
+      rel="preload"
+      href="/fonts/schibsted-grotesk-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
 
     <!-- SVG for browsers that take it, .ico for Safari and the bare /favicon.ico request. -->
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
@@ -65,7 +78,7 @@ const ogImage = new URL('/og.png', Astro.site)
       `--color-surface`, written out. A meta tag cannot read a custom property, so this is
       the one place outside the token file where a colour is a literal — keep
       it in step with the token in global.css or Android paints its address bar a shade the
-      page never uses. It had drifted to #191b21 against a `--color-surface` of #12151a,
+      page never uses. It had drifted to #191b21 against a `--color-surface` of #13151a,
       which is exactly the failure this comment was written to prevent; `background_color`
       and `theme_color` in the manifest are the same value again for the same reason, and
       they are what Android and iOS 16.4+ paint the launch screen with — left at #000 they
@@ -73,7 +86,7 @@ const ogImage = new URL('/og.png', Astro.site)
       iOS ignores the meta entirely: the status bar there is `black-translucent` above, with
       `body`'s `env(safe-area-inset-top)` holding the content out from under it.
     -->
-    <meta name="theme-color" content="#12151a" />
+    <meta name="theme-color" content="#13151a" />
     <meta name="color-scheme" content="dark" />
 
     <meta property="og:type" content="website" />

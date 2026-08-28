@@ -1,10 +1,10 @@
-# StrideAI
+# Treximo
 
-![StrideAI — training for the next challenge](images/522_1x_shots_so.png)
+![Treximo — training for the next challenge](images/522_1x_shots_so.png)
 
 > A vibe-coded running app for getting ready for the next challenge.
 
-StrideAI turns a race goal into a training block you can follow, review and adapt. Your
+Treximo turns a race goal into a training block you can follow, review and adapt. Your
 plan, Strava activities, weekly progress and target all live together in one focused app.
 
 Built for one runner or a few invited friends. Every athlete gets their own login, Strava

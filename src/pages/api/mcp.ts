@@ -25,7 +25,7 @@ export const prerender = false
  */
 export const ALL: APIRoute = ({ request }) =>
   handleMcp(request, {
-    serverInfo: { name: 'strideai-training', version: SERVER_VERSION },
+    serverInfo: { name: 'treximo-training', version: SERVER_VERSION },
     instructions: SERVER_INSTRUCTIONS,
     resolve: (token) => resolveMcpToken(createDb(env.DB), token),
     withinLimit: (candidate) => withinLimit('MCP_RATE_LIMIT', candidate),

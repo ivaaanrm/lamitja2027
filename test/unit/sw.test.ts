@@ -24,6 +24,26 @@ import source from '../../public/sw.js?raw'
 const keyOf = (request: Request | string) =>
   typeof request === 'string' ? new URL(request, 'https://app.test').toString() : request.url
 
+/**
+ * The cache generation, read out of the shipped source rather than typed here.
+ *
+ * `VERSION` is *meant* to move — the file's own header says to bump it whenever the
+ * precache list or a caching rule changes, which is the same commit that most often
+ * touches these tests. Hardcoding `lm-core-v4` in eleven places made every one of those
+ * bumps look like six regressions, which is the worst possible signal: a test that cries
+ * wolf on the correct change trains you to re-baseline it without reading the failure.
+ *
+ * What these tests are actually about is the *split* — that shells, core, data and assets
+ * go to four different caches and that only three of them are versioned. Naming the
+ * generation is incidental to all of it.
+ */
+const VERSION = /^const VERSION = '([^']+)'$/m.exec(source)?.[1]
+if (!VERSION) throw new Error('public/sw.js no longer declares `const VERSION = ...`')
+
+const CORE = `lm-core-${VERSION}`
+const PAGES = `lm-pages-${VERSION}`
+const DATA = `lm-data-${VERSION}`
+
 class MemoryCache {
   readonly store = new Map<string, Response>()
 
@@ -163,11 +183,12 @@ describe('service worker · install and activate', () => {
   it('precaches the files whose URLs carry no hash', async () => {
     await sw.install()
 
-    const core = await sw.caches.open('lm-core-v4')
+    const core = await sw.caches.open(CORE)
     expect([...core.store.keys()].sort()).toEqual([
       'https://app.test/favicon.svg',
       'https://app.test/fonts/inter-latin.woff2',
       'https://app.test/fonts/manrope-latin.woff2',
+      'https://app.test/fonts/schibsted-grotesk-latin.woff2',
       'https://app.test/icon-192.png',
       'https://app.test/manifest.webmanifest',
     ])
@@ -183,8 +204,9 @@ describe('service worker · install and activate', () => {
     )
 
     await expect(sw.install()).resolves.toBeUndefined()
-    const core = await sw.caches.open('lm-core-v4')
-    expect(core.store.size).toBe(4)
+    const core = await sw.caches.open(CORE)
+    // Everything on the list except the one that 404'd.
+    expect(core.store.size).toBe(5)
   })
 
   it('drops its own old caches on activate and keeps everything else', async () => {
@@ -247,7 +269,7 @@ describe('service worker · app shells', () => {
     // `/actividad` is a single prerendered document addressed by a query the server never
     // reads. Keyed per URL, a hundred and fifty runs in the log would be a hundred and
     // fifty copies of one file.
-    const pages = await sw.caches.open('lm-pages-v4')
+    const pages = await sw.caches.open(PAGES)
     expect([...pages.store.keys()]).toEqual(['https://app.test/actividad'])
   })
 
@@ -281,7 +303,7 @@ describe('service worker · app shells', () => {
     const offline = await sw.request('/plan', DOC)
 
     expect(await offline!.text()).toBe('<p>plan</p>')
-    const pages = await sw.caches.open('lm-pages-v4')
+    const pages = await sw.caches.open(PAGES)
     expect(await pages.store.get('https://app.test/plan')!.clone().text()).toBe('<p>plan</p>')
   })
 
@@ -369,14 +391,14 @@ describe('service worker · the block payload', () => {
 
     // Rotating `APP_PASSWORD` is how this app signs devices out; a device that has been
     // signed out may not keep reading the block from its own cache.
-    expect(await sw.caches.keys()).not.toContain('lm-data-v4')
+    expect(await sw.caches.keys()).not.toContain(DATA)
   })
 
   it('never caches an error page as the block', async () => {
     sw.fetch.mockResolvedValueOnce(new Response('boom', { status: 500 }))
     await sw.request('/api/data')
 
-    expect((await sw.caches.open('lm-data-v4')).store.size).toBe(0)
+    expect((await sw.caches.open(DATA)).store.size).toBe(0)
   })
 
   /**
@@ -399,7 +421,7 @@ describe('service worker · the block payload', () => {
     const answer = await sw.request('/api/data')
 
     // The stored block is untouched…
-    const stored = await (await sw.caches.open('lm-data-v4')).match('/api/data')
+    const stored = await (await sw.caches.open(DATA)).match('/api/data')
     expect(await stored!.json()).toEqual({ activities: [{ id: 1 }] })
     // …and what came back is that block, marked stale — a portal is a dead connection
     // wearing a 200, so it takes the same route as one.
@@ -418,7 +440,7 @@ describe('service worker · the block payload', () => {
     sw.fetch.mockResolvedValueOnce(hop)
 
     const answer = await sw.request('/api/data')
-    const stored = await (await sw.caches.open('lm-data-v4')).match('/api/data')
+    const stored = await (await sw.caches.open(DATA)).match('/api/data')
     expect(await stored!.json()).toEqual({ activities: [{ id: 7 }] })
     expect(answer!.headers.get('x-lm-stale')).toBe('1')
   })
@@ -435,7 +457,7 @@ describe('service worker · the block payload', () => {
     // Nothing to serve and nothing invented: the app sees the portal and reports it.
     expect(answer!.status).toBe(200)
     expect(await answer!.text()).toContain('Hotel WiFi')
-    expect((await sw.caches.open('lm-data-v4')).store.size).toBe(0)
+    expect((await sw.caches.open(DATA)).store.size).toBe(0)
   })
 })
 

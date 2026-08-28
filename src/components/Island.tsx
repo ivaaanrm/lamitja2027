@@ -37,7 +37,7 @@ class Boundary extends Component<{ children: ReactNode }, { failed: boolean }> {
     bootDone()
     // The one place in the app that logs: a crash on a phone leaves no other trace, and
     // Safari's inspector over USB is how this would ever be looked at.
-    console.error('[la mitja] la pantalla ha fallado', error)
+    console.error('[treximo] la pantalla ha fallado', error)
   }
 
   render() {

@@ -1,4 +1,4 @@
-# La Mitja 2027
+# Treximo
 
 Training tracker for a sub-1:20 half marathon at La Mitja on **24 January 2027**.
 Astro PWA on a single Cloudflare Worker, D1 for rows and private R2 for profile avatars.
@@ -22,7 +22,7 @@ the first argument of everything that counts a week. The ten `PUBLIC_*` values i
 **The block's edges are configuration** below. Everything a forker follows once lives in
 `README.md`, `docs/setup.md` and `LLM.md` — the same procedure as an executable runbook,
 for an agent standing the project up on somebody's machine — and belongs there rather than
-here: this file is for whoever is changing the code. The project is *StrideAI*;
+here: this file is for whoever is changing the code. The project is *Treximo*;
 *La Mitja 2027* is the reference instance it ships configured as.
 
 **The invariant that outranks everything else in this file: no query returns or writes a
@@ -128,14 +128,15 @@ date and distance, the Monday it opens on, the goal time, `HR_MAX`, and last sea
 race. Three are *identity*: `APP_NAME`, `APP_SHORT_NAME` and `APP_DESCRIPTION`.
 
 Identity is separate from `RACE_NAME` because they are different nouns — the event is
-*La Mitja de Granollers* and the app is *La Mitja 2027*, one printed on a bib and the
-other on a home screen — and a fork that could only override the race would end up with a
-tab reading `Plan · La Mitja 2027` above a plan for Berlin. Between them the three reach
-every user-visible name in one hop: all eight `<title>`s, `Boot.astro`'s wordmark,
-`/login`'s eyebrow and hero, `404`, the meta description, the Open Graph card, and the
-manifest. `/login`'s hero is `formatClock(GOAL_TIME_S)` and its eyebrow is
-`APP_SHORT_NAME` with `RACE_DATE` formatted, so the app's first impression is the last
-place a fork is greeted by somebody else's race.
+*La Mitja de Granollers* and the app is *Treximo*, one printed on a bib and the other on a
+home screen — and a fork that could only override the race would end up with a tab reading
+`Plan · Treximo` above a plan for Berlin, which is *correct*: the app's name is the one
+name every athlete on a deployment shares, so it can never be any one of their races.
+Between them the three reach every user-visible name in one hop: all eight `<title>`s,
+`Boot.astro`'s wordmark, `/login`'s eyebrow and hero, `404`'s eyebrow, the meta
+description, the Open Graph card, and the manifest. `/login`'s hero is `APP_NAME` set as
+the wordmark, so the app's first impression is the last place a fork is greeted by
+somebody else's name.
 
 Two files stay outside that reach and both are deliberate. `public/sw.js` is copied
 byte-for-byte out of `public/`, so it never sees a build-time value — its offline page is
@@ -475,13 +476,18 @@ second is a 60×48 pill.
 (`src/components/Boot.astro` + `src/lib/boot.ts`). A prerendered shell paints instantly and
 then sits there empty: skeletons are the right answer for one late card and the wrong one
 for a whole viewport of them, which is what tapping the home-screen icon used to show. So
-`App.astro` renders an overlay, outside the island — `/login`'s tile and mark, the mark drawing itself on
-`chart-draw`, an indeterminate mint rail under it — server-side, in the first paint, because
-an overlay a script has to *insert* arrives after the empty screen it was meant to hide.
+`App.astro` renders an overlay, outside the island — `/login`'s tile, mark and wordmark, the
+mark assembling itself, an indeterminate rail under it — server-side, in the first paint,
+because an overlay a script has to *insert* arrives after the empty screen it was meant to
+hide. The mark's motion is the brand's own idea rather than a leftover: the base fades in,
+then the cúspide *settles into the gap above it* on `mark-apex`, because the separated apex
+is what is still missing and so it is the piece that arrives. It replaced five strokes on
+`chart-draw` — a dash animation cannot draw a fill, so the choreography had to be
+re-thought rather than ported when the mark stopped being a line drawing.
 Three rules keep it honest: `useBlock` clears it when the first `/api/data` settles, success
 *or* failure (an error card with a retry on it is a screen to act on, not one to keep
 hiding); `boot.ts` holds it for a 480ms floor measured from the page opening, so an edge-fast
-launch does not flash a half-drawn mark; and an inline dead-man switch drops it at 2.6s
+launch does not flash a half-assembled mark; and an inline dead-man switch drops it at 2.6s
 whatever happened, with `<noscript>` removing it outright. The one path that does *not*
 dismiss it is the 401 redirect to `/login` — the document is already leaving, and uncovering
 it first would flash a screenful of skeletons on the way out. It used to carry
@@ -754,47 +760,71 @@ Tailwind classes so a chart is styled like everything else on the page.
   background and before the *body's*, so a `bg-surface` on `<body>` would cover it.
 - **The palette is a dark, vibrant evolution of Runna, and every colour in the app is a
   token.** The whole system is the `@theme` block in `src/styles/global.css`: three grounds
-  (`surface-deep` `surface` `surface-raised`), `ink`, two fills, two lines, four label steps
-  and eight named hues (`lime` `green` `mint` `blue` `violet` `coral` `red` `amber`).
-  Nothing outside that file names a colour — no `neutral-*`, no `emerald-400`, no hex.
-  There are exactly four exceptions, and every one of them is a place a custom property
-  cannot reach: Strava's own `#fc4c02` on the connect button (`Dashboard.tsx`, and it is
-  their brand rather than our palette); `theme-color` in `Base.astro`, because a `<meta>`
-  cannot read a token; `background_color` and `theme_color` in
+  (`surface-deep` `surface` `surface-raised`), `ink`, `bone`, two fills, two lines, four
+  label steps and eight named hues (`lime` `green` `mint` `blue` `violet` `coral` `red`
+  `amber`). Nothing outside that file names a colour — no `neutral-*`, no `emerald-400`,
+  no hex. There are exactly four exceptions, and every one of them is a place a custom
+  property cannot reach: the mark's own two inks, baked into `favicon.svg`, `icon.svg`,
+  `icon-maskable.svg`, `mark.svg` and every PNG exported from them, because an SVG served
+  out of `public/` never sees the stylesheet; `theme-color` in `Base.astro`, because a
+  `<meta>` cannot read a token; `background_color` and `theme_color` in
   `src/pages/manifest.webmanifest.ts`, because it is a JSON body; and the offline page in
   `public/sw.js`, because a service worker cannot import the stylesheet and a screen whose
   whole job is to appear when nothing else loaded may not depend on anything else loading.
   The last three are all `--color-surface`, plus `--color-label` and `--color-mint` on the
   offline page — **they are copies and they drift silently**, which has already happened
   once (`theme-color` sat at `#191b21` against a surface of `#12151a`). Change a ground and
-  grep the hex. Two properties are
-  load-bearing and easy to undo by accident: the ground is a **near-black cool charcoal,
-  not a navy**, and the accents are high-chroma signals rather than pastel fills. Every hue
-  clears 4.5:1 on *both* `surface` and `surface-raised`; re-derive that before changing one.
-  `label-4` is the sole step that does not clear AA, so only chrome may use it.
+  grep the hex; the icons carry `--color-accent` and `--color-bone` and want the same grep.
+  Three properties are load-bearing and easy to undo by accident: the ground is a
+  **near-black cool charcoal, not a navy**, it is the brand's *carbón* `#13151A` exactly so
+  the home-screen icon and the app behind it are one surface, and the accents are
+  high-chroma signals rather than pastel fills. Every hue clears 4.5:1 on *both* `surface`
+  and `surface-raised`; re-derive that before changing one. `label-4` is the sole step that
+  does not clear AA, so only chrome may use it.
+- **`accent` is the brand's orange, and it used to be Strava's.** `#FC4C01` is the apex of
+  the mark; `#fc4c02` was the connect button. They are one digit apart, which is why the
+  swap cost nothing and why `Dashboard.tsx` still puts `bg-accent` on the Strava action and
+  still reads as Strava's colour — but the token is ours now, and every other use of it
+  (today's date, race day, the focus ring, the selection) is the app speaking in its own
+  voice rather than borrowing. The brand sheet's one rule about it: never the base of the
+  mark, never carbón on the apex, and never a second accent beside it.
 - **Mint is state, not decoration.** Done, now, ahead, the primary button — one colour for
   "the app is telling you something", and `text-surface` is what rides on it. The other
   seven hues belong to the session types and the five zones.
 - **Session colours are written out, never composed.** Tailwind resolves classes by scanning
   source, so the accent map in `src/components/ui/index.tsx` spells each class in full —
   `bg-${hue}` is a class that never ships.
-- **The app is set in Inter and Manrope, self-hosted, and in nothing else** — the same
-  pairing Runna sets its own app in, which is the other half of the sample this palette
-  came from. `--font-sans` is **Inter** and is the app: every label, every row, every
+- **The app is set in Inter and Manrope, self-hosted, and in nothing else — and the
+  *brand* is set in Schibsted Grotesk, which is not the same claim.** Inter and Manrope are
+  the pairing Runna sets its own app in, which is the other half of the sample this palette
+  came from, and between them they set every pixel inside a screen. `--font-brand` is
+  **Schibsted Grotesk** and it never appears inside one: it is spent on a single role, the
+  wordmark, on the four surfaces that carry a lockup — the launch overlay, `/login`,
+  `/alta` and `/404`. Reach for it through `wordmark` and never through `font-brand`
+  directly, because the face is only a third of the logotype: the utility also pins weight
+  400, `lowercase` and `.12em`, and the brand sheet forbids each of the three ways of
+  getting that wrong ("nunca en mayúsculas, nunca en negrita, nunca condensada"). It is the
+  one static font in the app — 400 and nothing else, because nothing is permitted to use a
+  second weight — and it is subset to the same latin range as the other two rather than to
+  the seven letters of *treximo*, because `APP_NAME` is configuration and a fork's own name
+  has to render in it. All three are OFL 1.1; `public/fonts/LICENSE.md` carries the notice.
+  `--font-sans` is **Inter** and is the app: every label, every row, every
   number in a grid. It is drawn for screens at small sizes, which is nearly all this app
   is — a taller x-height than the Geist it replaced (54.6% of the em against 53%), wider
   apertures, and a `1`/`l`/`I` that cannot be confused in `1:19:59` or `11,1 km`.
   `--font-display` is **Manrope**, and it is spent on exactly two roles: the page heading
   (`src/components/Shell.tsx`, and the `<h2>` a detail or a sheet opens with) and the one hero
   number a screen is about (`HeroMetric`, the projection on `/progreso`, the metric above
-  an activity's chart, the `1:19:59` on `/login`). Rounder and more geometric, so at 34px
+  an activity's chart). Rounder and more geometric, so at 34px
   it reads as a *figure* rather than as large UI text — and at 11px it would read as
   neither, which is why `CardTitle`, `Stat` and every chip stay in Inter. Reach for it with
   the `font-display` class, and pair it with `font-bold`: Manrope was drawn to be set bold
-  at headline sizes, and its variable default instance is 200, not 400. Both are one
-  variable file per family (`public/fonts/inter-latin.woff2` 48 KB,
-  `manrope-latin.woff2` 24 KB), both preloaded from `src/layouts/Base.astro` and declared
-  `@font-face` in `global.css`, and both carry `tnum` so `data-number` means the same thing
+  at headline sizes, and its variable default instance is 200, not 400. Inter and Manrope
+  are one variable file per family (`public/fonts/inter-latin.woff2` 48 KB,
+  `manrope-latin.woff2` 24 KB) and Schibsted Grotesk one static instance
+  (`schibsted-grotesk-latin.woff2` 24 KB); all three are preloaded from
+  `src/layouts/Base.astro` and declared `@font-face` in `global.css`, and Inter and Manrope
+  carry `tnum` so `data-number` means the same thing
   in either. They replaced a stack that led with `'Avenir Next'` and `'SF Mono'` — both
   Apple-only, so every label and every hero metric resolved to a different face on Android
   and Windows. Only the `latin` subset is shipped: `U+0000-00FF` carries every accent
@@ -828,13 +858,31 @@ Tailwind classes so a chart is styled like everything else on the page.
   client. The block is a few tens of KB, so every mutation just re-reads it — there is no
   optimistic copy of the plan that can disagree with the database.
 - Pages are prerendered. Only `src/pages/api/**` sets `export const prerender = false`.
-- **`public/favicon.svg` is the icon master**; every PNG in `public/` is rasterised from it
-  (`qlmanage -t -s <px> -o . favicon.svg`, macOS built-in — there is no image dependency).
-  Edit the SVG and re-render all of them, or they drift. The mark is the La Mitja course
-  profile: the climb through 10 km, then the descent that steepens to the finish.
+- **There is no single icon master, and that is the point.** The mark is a soft delta whose
+  apex is cut away from its base — the symbol for change, with the piece that is still
+  missing left missing — and it is drawn *twice*, because a shape that reads at 512 px does
+  not read at 16. `public/icon.svg` (rounded tile, mark at 56%) is what
+  `apple-touch-icon.png`, `icon-192.png` and `icon-512.png` are rasterised from;
+  `icon-maskable.svg` (full bleed, mark at 45%, so it survives a circular crop) produces
+  `icon-maskable-512.png`; and `favicon.svg` carries its **own thicker geometry** at 70% for
+  `favicon.ico`, because at 16 px the apex and the gap each need a whole pixel. Edit one and
+  re-render only what comes out of it. `public/mark.svg` is the fourth: the bare mark with
+  no tile, which is what `/login`, `/alta` and `/404` show — they already sit in a tile the
+  app drew, and nesting the gradient azulejo inside it would be a tile in a tile.
+  `Boot.astro` **inlines** that same geometry rather than loading it, because its two shapes
+  animate separately and a document cannot reach inside an `<img>`. `public/og.png` comes
+  from `scripts/brand/og.html` — HTML and not SVG, so the wordmark is genuinely *set* in the
+  brand face rather than left to whatever a rasteriser has installed. And `sw.js` precaches
+  `favicon.svg` and `icon-192.png`, so its `VERSION` moves whenever either does.
+  The full brand kit — contact sheet, lockup, the colour and typography rules quoted
+  throughout this file — is `docs/personal/treximo-logo-design-concepts/`, which is
+  gitignored: it is the source the repository's own assets were exported from, not a
+  dependency of the build.
 - **Nothing in the repo is unreferenced.** Every asset is linked from `src/layouts/Base.astro`
   or `src/pages/manifest.webmanifest.ts`, every module is reachable from a page, the Worker or a
-  test, and every `wrangler.jsonc` var is read by code. Keep it that way.
+  test, and every `wrangler.jsonc` var is read by code. Keep it that way. The manifest lists
+  both SVG masters as icons for exactly this reason — they are the source of the PNGs above
+  them *and* a crisp icon for any launcher that prefers vector art.
 - **Secrets vs vars vs build-time config.** Three places, and which one a value belongs in
   is decided by who may read it and when. `STRAVA_CLIENT_SECRET`, `STRAVA_WEBHOOK_VERIFY`,
   `TOKEN_ENC_KEY` and `APP_PASSWORD` are secrets — `wrangler secret put` on the

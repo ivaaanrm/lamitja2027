@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="Treximo">
+  <defs><radialGradient id="tile" gradientUnits="userSpaceOnUse" cx="266" cy="143" r="1280"><stop offset="0" stop-color="#262A33"></stop><stop offset=".52" stop-color="#16181E"></stop><stop offset="1" stop-color="#0D0F13"></stop></radialGradient></defs>
+  <rect width="1024" height="1024" fill="url(#tile)"></rect>
+  <g transform="translate(512 512) scale(7.031) translate(-50 -51.2)">
+    <path d="M35.6 42 Q50 45 64.4 42 L81.4 75.1 Q86 84 76 84 L24 84 Q14 84 18.6 75.1 Z" fill="#F2EFE9"></path>
+    <path d="M39.7 34 Q50 37 60.3 34 L54.6 22.9 Q50 14 45.4 22.9 Z" fill="#FC4C01"></path>
+  </g>
+</svg>

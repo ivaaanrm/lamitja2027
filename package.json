@@ -1,5 +1,5 @@
 {
-  "name": "strideai",
+  "name": "treximo",
   "description": "Training tracker for one runner and one race block: Strava in, a hand-written plan, everything else derived on read.",
   "license": "MIT",
   "type": "module",

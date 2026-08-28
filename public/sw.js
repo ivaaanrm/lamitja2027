@@ -63,7 +63,7 @@
  * new worker.
  */
 
-const VERSION = 'v4'
+const VERSION = 'v5'
 
 const CORE = `lm-core-${VERSION}`
 const PAGES = `lm-pages-${VERSION}`
@@ -81,6 +81,7 @@ const KEEP = new Set([CORE, PAGES, DATA, ASSETS])
 const PRECACHE = [
   '/fonts/inter-latin.woff2',
   '/fonts/manrope-latin.woff2',
+  '/fonts/schibsted-grotesk-latin.woff2',
   '/favicon.svg',
   '/icon-192.png',
   '/manifest.webmanifest',
@@ -328,11 +329,11 @@ function offlinePage() {
       // string in the app that cannot read `config.ts`. A title that named the wrong race
       // would be worse than a title that names none, and the sentence below says the rest.
       `<title>Sin conexión</title>` +
-      `<style>html{background:#12151a}body{margin:0;min-height:100dvh;display:grid;place-items:center;` +
-      `padding:2rem;background:#12151a;color:#f7f8fa;font-family:Inter,system-ui,sans-serif;text-align:center}` +
+      `<style>html{background:#13151a}body{margin:0;min-height:100dvh;display:grid;place-items:center;` +
+      `padding:2rem;background:#13151a;color:#f7f8fa;font-family:Inter,system-ui,sans-serif;text-align:center}` +
       `h1{font-size:1.375rem;margin:0 0 .5rem}p{margin:0;font-size:.8125rem;line-height:1.5;` +
       `color:rgba(247,248,250,.68)}a{display:inline-block;margin-top:1.25rem;padding:.75rem 1.25rem;` +
-      `border-radius:.75rem;background:#18c49a;color:#12151a;font-size:.8125rem;font-weight:600;` +
+      `border-radius:.75rem;background:#18c49a;color:#13151a;font-size:.8125rem;font-weight:600;` +
       `text-decoration:none}</style></head><body><main><h1>Sin conexión</h1>` +
       `<p>Esta pantalla todavía no se había abierto en este teléfono, así que no hay ninguna copia` +
       ` guardada de ella. Vuelve a intentarlo cuando tengas cobertura.</p>` +

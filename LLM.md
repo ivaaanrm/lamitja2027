@@ -34,6 +34,7 @@ say so rather than picking silently.
 | **Auth** | One password (`APP_PASSWORD`) exchanged for a year-long signed cookie. No accounts, no multi-tenancy. |
 | **Data in** | Strava, via OAuth + webhook + a nightly cron. Nothing before the block's start date is ever fetched. |
 | **Agent surface** | The same data as an MCP server on `POST /api/mcp`, bearer-authenticated with that same password. Eleven tools. |
+| **The name** | *Treximo*. The app's own identity, distinct from whatever race it is pointed at — `PUBLIC_APP_NAME` and its two siblings carry it to every title, the launch screen, `/login`, `404`, the Open Graph card and the manifest. |
 | **Ships configured as** | *La Mitja 2027* — La Mitja de Granollers, 24 Jan 2027, sub-1:20, a 23-week block from Mon 17 Aug 2026. That is the reference instance; eleven `PUBLIC_*` values move it to another race. |
 
 The interface is Spanish. The code, the comments and every tool description are English.

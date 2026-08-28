@@ -34,16 +34,19 @@ export const prerender = true
     class="mx-auto flex min-h-full max-w-sm flex-col justify-center gap-5 px-gutter py-10 pb-[calc(2.5rem+env(safe-area-inset-bottom))]"
   >
     <header class="fade-up">
-      {/* Decorative, so the alt is empty — the heading under it carries the message. */}
+      {/* Decorative, so the alt is empty — the heading under it carries the message. The
+          bare mark, as on `/login`: the tile is already here in markup. */}
       <span
         class="performance-shadow grid size-16 place-items-center rounded-2xl border border-line bg-surface-raised"
       >
-        <img src="/favicon.svg" alt="" width="40" height="40" class="size-10" />
+        <img src="/mark.svg" alt="" width="40" height="40" class="size-10" />
       </span>
 
-      <p class="mt-5 text-caption2 font-semibold uppercase tracking-[0.16em] text-label-3">
-        {APP_NAME}
-      </p>
+      {/* `/login` fills this slot with a description and puts the wordmark in the hero;
+          here the hero is the number, so the wordmark takes the eyebrow — the app saying
+          which app you are lost inside. Quiet and small, but not uppercase: the brand
+          sheet forbids that outright, and it is the rule this line used to break. */}
+      <p class="wordmark mt-5 text-subhead text-label-2">{APP_NAME}</p>
 
       {/* The heading is the sentence, not the number: a screen reader announcing "404" and
           stopping has said nothing. The figure is inside it, read first and out loud, and

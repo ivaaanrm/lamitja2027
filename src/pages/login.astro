@@ -42,20 +42,25 @@ export const prerender = true
     class="mx-auto flex min-h-full max-w-sm flex-col justify-center gap-5 px-gutter py-10 pb-[calc(2.5rem+env(safe-area-inset-bottom))]"
   >
     <header class="fade-up">
-      {/* The mark is this block's course profile — the app's own trace motif, and the only
-          decoration on the screen. It carries no information the text below does not, so
-          it is a decorative image with an empty alt. A fork that redraws `favicon.svg`
-          replaces it here and nowhere else. */}
+      {/* The mark, and the only decoration on the screen. `mark.svg` and not `favicon.svg`:
+          the favicon carries its own gradient azulejo, which a home-screen icon needs and
+          a tile that is already sitting on a page does not — nesting the two would be a
+          tile inside a tile. It carries no information the heading below does not, so it
+          is a decorative image with an empty alt. A fork that redraws the mark replaces it
+          here, on `/alta`, on `/404` and in `Boot.astro`, and nowhere else. */}
       <span
         class="performance-shadow grid size-16 place-items-center rounded-2xl border border-line bg-surface-raised"
       >
-        <img src="/favicon.svg" alt="" width="40" height="40" class="size-10" />
+        <img src="/mark.svg" alt="" width="40" height="40" class="size-10" />
       </span>
 
       <p class="mt-5 text-caption2 font-semibold uppercase tracking-[0.16em] text-label-3">
         Cuaderno de entrenamiento
       </p>
-      <h1 class="mt-2 font-display text-display font-bold leading-none text-label">{APP_NAME}</h1>
+      {/* The wordmark, and the one place in the app it is set at full size. `wordmark`
+          rather than `font-display font-bold`: this is the logotype, and Manrope at 800
+          was neither the brand's face nor a weight it permits. */}
+      <h1 class="wordmark mt-2 text-display leading-none text-bone">{APP_NAME}</h1>
       <p class="mt-3 text-footnote leading-relaxed text-label-2">{APP_DESCRIPTION}</p>
     </header>
 

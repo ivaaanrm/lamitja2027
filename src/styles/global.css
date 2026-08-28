@@ -41,10 +41,18 @@
      training app whose hero numbers change shape per platform is not one typeface, it is
      three.
 
-     Both fall back to the *other* one first: a display heading that lost Manrope should
+     `brand` is Schibsted Grotesk and is spent on exactly one role: the wordmark, beside
+     the mark, on the four screens that carry a lockup — the launch overlay, `/login`,
+     `/alta` and `/404`. It is the brand's own face and it is never the app's: nothing
+     inside a screen is set in it. Always 400, always lowercase, always at `.12em`, which
+     is the logotype's spec and the reason `.wordmark` below exists rather than three
+     hand-tuned copies of the same three declarations.
+
+     All three fall back to the *others* first: a display heading that lost Manrope should
      land on Inter, not on whatever the platform calls a sans. */
   --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-display: 'Manrope', 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-brand: 'Schibsted Grotesk', 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: ui-monospace, 'SF Mono', 'Roboto Mono', monospace;
 
   /* The one outer margin every page and its floating dock align to. 12px, not 16 — on a
@@ -54,11 +62,25 @@
   /* Three steps of ground and nothing between them: `surface-deep` is what the dock and
      the sheet scrim sit on, `surface` is the page, `surface-raised` is a card lifted off
      it. `ink` is the near-white everything is drawn in, and also the fill of an inverted
-     control — `bg-ink text-surface` is a white button. */
+     control — `bg-ink text-surface` is a white button.
+
+     `surface` is the brand's *carbón*, `#13151A`, and it is the same value the icon tile
+     is built to sit against — so the home-screen icon, the launch overlay and the first
+     screen it uncovers are one continuous surface rather than three near-misses. It is
+     also the value the three literal copies of this token carry (`theme-color`, the
+     manifest, the offline page); change it here and grep the hex. */
   --color-surface-deep: #08090c;
-  --color-surface: #12151a;
+  --color-surface: #13151a;
   --color-surface-raised: #1b2027;
   --color-ink: #f7f8fa;
+
+  /* The brand's *hueso*, and the mark's own ink on a dark ground. It is a warmer, softer
+     white than `ink` — #f2efe9 against #f7f8fa — and the difference is the whole reason it
+     is a second token rather than a reuse: the mark is baked into `favicon.svg`, `icon.svg`
+     and every PNG exported from them at exactly this value, so an in-app lockup drawn in
+     `ink` would be a shade off the same mark on the home screen. Nothing but the mark and
+     the wordmark beside it may use it. */
+  --color-bone: #f2efe9;
 
   /* `fill` is a pressed row or a form control, `line` is every rule. Ink at an opacity,
      so the same two values sit correctly on all three grounds. */
@@ -80,9 +102,18 @@
      `src/components/ui/index.tsx` maps them onto both the session types and the five
      heart-rate zones and no one name fits both. Their higher chroma is deliberate: these
      colours mostly appear as slim rails, dots, chart marks and text, where a dusty tint
-     reads grey. `accent` is separate: Strava orange, and the one state hue for done, now,
-     ahead, focus and the primary action. Mint remains a training hue for cross sessions. */
-  --color-accent: #fc4c02;
+     reads grey.
+
+     `accent` is separate, and it is now the *brand's* orange — `#FC4C01`, the apex of the
+     mark — rather than a borrowed one. It had been Strava's `#fc4c02`, and the two are a
+     single digit apart: close enough that the Strava connect button in `Dashboard.tsx` can
+     go on wearing `bg-accent` and read as Strava's colour to anyone who knows it, while
+     every other use of it on screen — today's date, the race-day line, the focus ring, the
+     selection — is the app speaking in its own. One orange, and it belongs to us. Never
+     put it on the mark's base or the carbón on its apex; the brand sheet is explicit.
+
+     Mint remains a training hue for cross sessions. */
+  --color-accent: #fc4c01;
   --color-lime: #b5ca20;
   --color-green: #36c866;
   --color-mint: #18c49a;
@@ -154,7 +185,7 @@
 }
 
 /**
- * Latin subset only, both of them — U+0000-00FF covers every accent Spanish needs (á é í
+ * Latin subset only, all three — U+0000-00FF covers every accent Spanish needs (á é í
  * ó ú ñ ü ¿ ¡ ·) and the ranges above it carry the — and the − that `Delta` renders. One
  * variable file per family spans the whole weight range, so every weight in the app costs
  * one download: 48 KB for Inter, 24 KB for Manrope. Adding a glyph outside this range
@@ -162,6 +193,14 @@
  *
  * Manrope's variable default instance is 200, not 400 — declaring `font-weight: 200 800`
  * is what keeps an unstyled heading from rendering hairline.
+ *
+ * Schibsted Grotesk is the odd one and deliberately so: a *static* 400, 24 KB, because the
+ * wordmark is the only thing set in it and the brand sheet allows it exactly one weight —
+ * "nunca en negrita, nunca condensada". Shipping the variable file would buy six weights
+ * nothing is permitted to use. It is subset to the same latin range as the other two
+ * rather than to the seven letters of `treximo`, because `APP_NAME` is configuration: a
+ * fork that renames the app has to get its own name in the brand face, not a row of
+ * tofu. All three are SIL OFL 1.1 — see `public/fonts/LICENSE.md`.
  */
 @font-face {
   font-family: 'Inter';
@@ -180,6 +219,17 @@
   font-weight: 200 800;
   font-display: swap;
   src: url('/fonts/manrope-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+    U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Schibsted Grotesk';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/schibsted-grotesk-latin.woff2') format('woff2');
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
     U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
     U+FEFF, U+FFFD;
@@ -362,6 +412,29 @@
 }
 
 /**
+ * The wordmark: the brand's logotype, and the only place `--font-brand` is spent.
+ *
+ * Three declarations that always travel together, because the brand sheet states them as
+ * one rule and every one of them is a way to get the logotype wrong: 400 ("nunca en
+ * negrita"), lowercase ("nunca en mayúsculas", enforced here rather than trusted to
+ * whatever `APP_NAME` a fork typed), and `.12em` of tracking, which is what stops the
+ * lowercase from setting tight and reading as body copy at 34px.
+ *
+ * `text-transform` and not a lowercased constant: `APP_NAME` is also the accessible name
+ * of the page and the text a screen reader announces, and *Treximo* is how it is spelled.
+ * Lowercasing is a typographic treatment of the logotype, so it belongs in the type layer.
+ *
+ * Size is deliberately not set. The lockup scales from the 34px on `/login` down to the
+ * launch overlay, and the brand's floor is 16px of text — below that use the mark alone.
+ */
+@utility wordmark {
+  font-family: var(--font-brand);
+  font-weight: 400;
+  text-transform: lowercase;
+  letter-spacing: 0.12em;
+}
+
+/**
  * The gradient down a session card's spine, as a mask rather than as a colour.
  *
  * Nine session types means nine hues, and a gradient written in colour needs both stops
@@ -479,6 +552,30 @@
     opacity: 1;
   }
 }
+/**
+ * The apex of the mark arriving — the launch overlay's one piece of choreography.
+ *
+ * The old mark was five strokes and drew itself on `chart-draw`. This one is two filled
+ * shapes and a dash animation cannot draw a fill, so the motion had to be re-thought
+ * rather than ported. What it animates is the brand's own idea: the cúspide is separated
+ * from the base because it is *what is still missing*, so it comes down and settles into
+ * that gap instead of the base growing up to meet it. It stops short — the gap is the
+ * message and nothing may close it.
+ *
+ * `transform-box: fill-box` is required: without it a percentage translate on an SVG path
+ * resolves against the nearest viewport rather than the path's own box, and 18% of a
+ * viewBox is a different distance from 18% of a 20-unit triangle.
+ */
+@keyframes mark-apex {
+  from {
+    opacity: 0;
+    transform: translateY(-18%);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
 
 @keyframes sheet-rise {
   from {
@@ -530,6 +627,12 @@
 @utility chart-draw {
   stroke-dasharray: 1;
   animation: chart-draw var(--duration-sheet) var(--ease-ios) both;
+}
+
+@utility mark-apex {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: mark-apex var(--duration-standard) var(--ease-ios-spring) both;
 }
 
 @utility skeleton {

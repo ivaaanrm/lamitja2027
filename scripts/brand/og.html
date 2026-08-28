@@ -1,0 +1,89 @@
+<!doctype html>
+<!--
+  The source of `public/og.png` — the Open Graph card, 1200 × 630.
+
+  It is HTML rather than an SVG because the wordmark has to be *set*, in the brand's own
+  face at the brand's own tracking, and an SVG that referenced a webfont would render as
+  whatever the rasteriser happened to have. Here the font is the same file the app ships.
+
+  Regenerate after changing the mark, the wordmark or `PUBLIC_APP_DESCRIPTION`:
+
+      cd public && python3 -m http.server 8899 &
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+        --headless --disable-gpu --hide-scrollbars --force-device-scale-factor=1 \
+        --window-size=1200,630 --screenshot=og.png \
+        "http://localhost:8899/../scripts/brand/og.html"
+
+  The server has to be rooted at `public/` so the two `@font-face` URLs resolve; serve the
+  repository root instead and point the URL at `scripts/brand/og.html` with the font paths
+  rewritten. Copy the result to `public/og.png`.
+
+  The description is a copy of `DEFAULTS.appDescription` and is the one string here that
+  can drift from `config.ts`. A fork that changes the sentence re-renders this or ships a
+  card that says something the app does not.
+-->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>og</title>
+<style>
+  @font-face {
+    font-family: 'Schibsted Grotesk';
+    font-style: normal;
+    font-weight: 400;
+    src: url('/fonts/schibsted-grotesk-latin.woff2') format('woff2');
+  }
+  @font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 100 900;
+    src: url('/fonts/inter-latin.woff2') format('woff2');
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1200px; height: 630px; overflow: hidden; }
+  body {
+    /* The icon tile's own radial gradient, at card scale — same three stops, same
+       26%/14% centre, so the OG card and the home-screen icon are one surface. */
+    background: radial-gradient(circle at 26% 14%, #262A33 0%, #16181E 52%, #0D0F13 100%);
+    color: #F2EFE9;
+    font-family: 'Inter', system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 0 80px;
+  }
+  /* Ratios straight off the lockup spec: mark at 1.06em, gap at .42em of the wordmark. */
+  .lockup { display: flex; align-items: center; gap: 0.42em; font-size: 104px; }
+  .lockup svg { width: 1.06em; height: 1.06em; flex: none; }
+  .lockup .name {
+    font-family: 'Schibsted Grotesk', system-ui, sans-serif;
+    font-weight: 400;
+    font-size: 104px;
+    line-height: 1;
+    letter-spacing: 0.12em;
+    /* Tracking is applied to the right of the last letter too; pull it back so the word's
+       optical edge is where it looks like it is and the lockup centres honestly. */
+    margin-right: -0.12em;
+  }
+  .desc {
+    margin-top: 52px;
+    font-size: 33px;
+    line-height: 1.4;
+    color: rgba(242, 239, 233, 0.6);
+    max-width: 30ch;
+  }
+</style>
+</head>
+<body>
+  <div class="lockup">
+    <svg viewBox="17.2 18.45 65.6 65.55" aria-hidden="true">
+      <path d="M35.6 42 Q50 45 64.4 42 L81.4 75.1 Q86 84 76 84 L24 84 Q14 84 18.6 75.1 Z" fill="#F2EFE9"/>
+      <path d="M39.7 34 Q50 37 60.3 34 L54.6 22.9 Q50 14 45.4 22.9 Z" fill="#FC4C01"/>
+    </svg>
+    <span class="name">treximo</span>
+  </div>
+  <p class="desc">Plan, carga y progreso hacia tu próxima carrera, en un único cuaderno.</p>
+</body>
+</html>
