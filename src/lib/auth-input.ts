@@ -45,6 +45,21 @@ const blockConfig = z
     goalTimeS: z.number().int().min(600).max(21_600),
     raceDistanceM,
     raceName: z.string().trim().min(1, 'Falta el nombre de la carrera').max(60),
+    /**
+     * Optional, and a blank field is *no place* rather than an empty one — the column is
+     * read as prose beside the race's name, and `''` there would print a stray separator.
+     *
+     * Absent means null too, rather than "leave it alone": `block` is a whole-block write
+     * (the endpoint upserts every column of it), so a patch that omits the place is a
+     * block with no place — the same reading every other field here already has.
+     */
+    racePlace: z
+      .string()
+      .trim()
+      .max(60)
+      .nullable()
+      .default(null)
+      .transform((value) => value || null),
   })
   .refine(
     ({ startsOn, raceOn }) => {

@@ -85,7 +85,7 @@ parse an object rather than a multipart body of strings.
 |---|---|
 | `users` | One row per athlete: email, PBKDF2 password hash, display name, `is_admin`, HR max, baseline key, current avatar key. |
 | `invites` | Single-use invite tokens (hashed), minted by an admin, redeemed once. |
-| `blocks` | One row per athlete: block start, race date, goal time, race distance/name. |
+| `blocks` | One row per athlete: block start, race date, goal time, race distance/name, and where it is run. |
 | `strava_accounts` | One row per athlete who connected Strava: encrypted refresh token, athlete id, last sync time. |
 | `activities` | Runs and rides inside an athlete's block, owned by `user_id`. Strava units, one row per activity. |
 | `plan_weeks` | One row per athlete per week of their block: phase, volume target, down-week flag. |
@@ -630,6 +630,50 @@ summaries — and only from runs that were *efforts* (Z4+, or faster than steady
 function takes `Activity[]` and a window, which is what lets both seasons run through
 identical code.
 
+**The two lactate thresholds are estimated, not configured** (`src/lib/thresholds.ts`,
+the **Umbrales** card on `/progreso`). Pure and read-time like everything beside it — no
+fetch, no storage, no new column — which is the constraint that shapes the whole method:
+the app keeps *summaries*, not streams, so none of the textbook field protocols are
+reachable. There is no rolling best-20-minute heart rate here and no lap scatter, only
+~150 rows a block of (pace, heart rate, duration).
+
+Three parts, and which of them is measurement is printed on the card rather than left to
+the reader. A **cardiac cost line** — recency-weighted least squares of average heart rate
+against average speed over a twelve-week window — is what makes the estimate adaptive: as
+fitness improves the line shifts and every pace read off it moves with it. Interval
+sessions are deliberately *kept* in that fit, because a session's repetitions and its
+recoveries offset each other almost linearly and it lands within a couple of beats of the
+line the continuous runs draw. **LT2** comes from efforts actually sustained, not from the
+line, and the filter that finds them is the one thing the summary rows happen to make
+possible: `maxHeartrate − averageHeartrate`. A race sits at 13–15 beats of spread; the 4 km
+tempo buried inside a warm-up sits at 26 and is thrown out, because its average of 156 is a
+statement about the warm-up and its tempo kilometres were run at 177. Survivors are
+corrected to a 60-minute equivalent and shrunk towards 90% of maximum with the prior worth
+one effort — which is what stops the first hard run back from a lay-off, on a dry strap in
+August, declaring a threshold at 93% of maximum on the strength of one afternoon.
+**LT1** takes a segmented fit when the scatter genuinely bends and an anchor a tenth of
+maximum below LT2 when it does not; `basis` says which, and the card says so too.
+
+It is calibrated against the owner's own 2025-26 season and the test pins that: a 40-minute
+10K at 176 average and an 84-minute half at 172, eleven weeks apart, resolve to 173.5 and
+174.0 — nothing was fitted to make them agree, which is the only reason to believe the
+duration correction. 174 is 90.6% of maximum and the line puts 3:55/km under it, against a
+half raced at 3:57.6.
+
+The editorial half matters as much: **the pulse is the headline and the pace is the story**.
+A threshold heart rate is close to a constant within an athlete, so a chart of bpm through a
+successful block draws two flat lines and reads as nothing happening. What training moves is
+the speed carried at them — which is why the evolution chart opens on pace, why every week
+of it is recomputed from the activities that existed *by that Sunday* rather than
+back-projected from today, and why the card is legible in week one with no data at all
+rather than hiding behind an empty state.
+
+The method prose itself is folded away behind a *Cómo se calcula* disclosure, collapsed by
+default — six lines explaining an estimate are worth reading once and are furniture on every
+visit after. The FCmáx warning folds in with it, which is the one concession: it is the only
+actionable line in the card, so the trigger carries it in amber (*· revisa tu FCmáx*) rather
+than burying it without a trace.
+
 **The charts are hand-rolled** (`src/components/charts.tsx`): an SVG polyline for the
 trends and flexbox divs for the bars. A library is ~100 KB into a PWA that is otherwise a
 few tens, it renders its own text at its own sizes, and none of these charts want a tooltip
@@ -726,12 +770,20 @@ Tailwind classes so a chart is styled like everything else on the page.
   *progresiones*, *fartlek*.
 - **Numbers are written Spanish too.** `src/lib/format.ts` owns `decimal()`, and nothing
   renders a bare `toFixed(1)` — `12.4 km` on screen is as wrong as an English label.
-- **Intensity is Z1–Z5, never a heart rate.** `src/lib/paces.ts` owns the five-zone model:
-  `PACE_ZONE_NUMBER` maps each pace band onto a zone, and `hrZone(bpm, hrMax)` maps an
-  average heart rate onto one. The exact bpm is never rendered — it drifts with heat, sleep
-  and the strap, and no decision in the plan is made on it. `DEFAULT_HR_MAX` and the zone
-  floors are calibrated against the two races in docs/01, not a textbook formula, and are
-  only the fallback for an athlete with no `hr_max` of their own set in `/ajustes`.
+- **Intensity is Z1–Z5, never a heart rate — with exactly one exception.**
+  `src/lib/paces.ts` owns the five-zone model: `PACE_ZONE_NUMBER` maps each pace band onto a
+  zone, and `hrZone(bpm, hrMax)` maps an average heart rate onto one. A *session* never
+  reports a bpm — it drifts with heat, sleep and the strap, and no decision in the plan is
+  made on it. `DEFAULT_HR_MAX` and the zone floors are calibrated against the two races in
+  docs/01, not a textbook formula, and are only the fallback for an athlete with no `hr_max`
+  of their own set in `/ajustes`.
+
+  The exception is the **Umbrales** card on `/progreso`, and it is not a loosening of the
+  rule so much as the reason for it. LT1 and LT2 *are* heart rates: a threshold is a number
+  you hold a strap to, the whole output of estimating one is that number, and rounding it to
+  "Z4" would delete the estimate. So that card prints bpm, prints the observed maximum when
+  it exceeds the configured one, and draws the five zones underneath as the ruler that makes
+  the number legible. Nothing else in the app may follow it.
 - **Units follow Strava**: metres, seconds, m/s. Paces (s/km) are derived at read time.
 - **Cadence is stored as spm**, already doubled from Strava's rpm. 85 rpm ≈ 170 spm, and
   cadence is the primary marker in the knee protocol — halving it misreads the metric.
@@ -740,8 +792,8 @@ Tailwind classes so a chart is styled like everything else on the page.
   "which day was this run" does not depend on the viewing device.
 - **Pure logic stays out of I/O modules.** `src/lib/config.ts`, `src/lib/activity.ts`, `src/lib/block.ts`,
   `src/lib/plan.ts`, `src/lib/workout.ts`, `src/lib/paces.ts`, `src/lib/format.ts`,
-  `src/lib/generator.ts`, `src/lib/metrics.ts`, `src/lib/analytics.ts`
-  and `src/lib/baseline.ts` import nothing from `cloudflare:workers`,
+  `src/lib/generator.ts`, `src/lib/metrics.ts`, `src/lib/analytics.ts`,
+  `src/lib/thresholds.ts` and `src/lib/baseline.ts` import nothing from `cloudflare:workers`,
   take `now` explicitly, and are unit-tested in plain Node; `src/lib/sync.ts` and
   `src/lib/strava.ts` own the side effects. `src/lib/mcp/*` belongs to the first group by
   taking its `Database` and its credential as arguments rather than reading either.

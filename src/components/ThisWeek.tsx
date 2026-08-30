@@ -3,34 +3,64 @@ import { formatDuration, formatKm } from '@/lib/activity'
 import { DAY_MS, startOfDay } from '@/lib/block'
 import { cn } from '@/lib/cn'
 import type { Activity } from '@/lib/db/schema'
-import type { DayPlan, MatchedSession, WeekPlan } from '@/lib/plan'
+import { sessionEffort, type DayPlan, type MatchedSession, type SessionType, type WeekPlan } from '@/lib/plan'
 import type { Bands } from '@/lib/workout'
 import { SessionCard } from './SessionCard'
-import { ACCENT, Card, CardTitle, DoneToggle, EmptyState, TextLink } from './ui'
+import { ACCENT, Card, CardTitle, CHECK, EmptyState, Icon, IconAction, PENCIL, TextLink } from './ui'
 
 /**
- * The week as seven lines, and the session you are about to run in full.
+ * Two sections under one title: the session you are about to run, and the week it sits in.
  *
- * A card per day is a scroll; a line per day is a glance. A line carries only what says
- * whether a day is behind you — its kind, what it asks for, and what answered it — and
- * the detail that used to be repeated on every card is spent once, on the one session
- * that has not happened yet. Tapping a line moves that detail onto it, so the days
- * already run are one tap away rather than permanently in the way. Tapping it again, or
- * the "ver la siguiente" link the pinned state grows, hands the card back to the plan:
- * a detail pinned to last Tuesday with no way out is a screen that has quietly stopped
- * answering "what do I run today".
+ * The top half is one `SessionCard` opened in full — what is owed next, with its steps, its
+ * note and the way into `/sesion`. The bottom half is the ledger: seven days as lines, each
+ * carrying only what says whether a day is behind you. Tapping a line moves the card above
+ * onto it, so a day already run is one tap away rather than permanently in the way; tapping
+ * it again, or the "ver la siguiente" link the pinned state grows, hands the card back to
+ * the plan.
  *
- * Every row opens with a 28px tile in the session's own hue, and that tile is what the
- * week is scanned by: at a rail's four pixels a hue is a tint, and telling violet from
- * coral meant comparing two rows rather than reading one. Shape still separates the three
- * kinds of line, so none of this rests on colour alone — a filled tile is a prescribed
- * session, a hollow one is a run nobody asked for, a neutral one is a rest day — and
- * whether a day is behind you is said by the tick at the end of the row and by the accent on
- * a distance that was actually run.
+ * **A row is read left to right in the order the questions are asked**: what kind of
+ * session, which day, what it is called, and how much of it. Tile, date, title, numbers —
+ * one line, four fields, and the columns are fixed widths so seven titles start at one x
+ * rather than at seven.
+ *
+ * **One mark per row, and it is the tile.** A row used to open with a 28px gradient tile in
+ * the session's hue *and* close with a hollow tick, so a week rendered sixteen marks: eight
+ * saying what kind, eight saying nothing at all. The tile is the good half — at fifty times
+ * a rail's area a hue is a colour rather than a tint, and it is what lets a week be scanned
+ * at arm's length — so the tick moved *into* it rather than sitting in a column of its own.
+ * The tile now carries both channels at once, type in the hue it always had and state in
+ * what is drawn on it:
+ *
+ * - **owed** — the tile, plain. The hue, at full strength, and nothing else on it.
+ * - **done** — the same tile with a tick knocked out of it in `surface`, the way a stamp is
+ *   pressed into paper. Nothing is dimmed: a week gone grey by Sunday is a week that stops
+ *   reading as a week.
+ * - **missed** — the tile faded to 40%. A day behind you that nothing answered.
+ * - **unplanned** — hollow, no hue: it happened, nobody asked for it.
+ * - **rest** — the neutral fill, so the column stays straight without claiming a colour.
+ *
+ * Colour is never the only carrier. The tick is a shape, the fade is a luminance, and the
+ * row's ink drops a step behind each of them — so the three states are told apart with the
+ * hues covered up.
+ *
+ * The tile is also the *control*: it is what you tap to tick a session Strava will never
+ * report, with the app's own 44px hit area grown from a pseudo-element so the face stays
+ * 28px. That is one object doing what two used to, which is the whole reason the row lost a
+ * column and its titles stopped truncating.
+ *
+ * **The numbers are stacked, not strung out.** How far over how long — `9,0 km` with
+ * `≈ 47m` under it — because at the end of a row those are one answer to one question and
+ * `9,0 km · ≈ 47m` on a single line costs 50px of the title beside it. The `≈` is the
+ * honest half: it is there for a duration this app *estimated* from a distance and a band,
+ * and gone the moment the number is one Strava actually recorded.
+ *
+ * A row is 44px because it is a target; a rest day is 36 and an unplanned run 40 because
+ * they are not. That is the list's rhythm, and it is what stops seven lines reading as one
+ * block.
  *
  * The rows arrive staggered 30 ms apart, so the eye is walked down the week rather than
- * handed all seven at once — brightening rather than travelling, because the card they
- * sit in is already doing the travelling. See `DayLines`.
+ * handed all seven at once — brightening rather than travelling, because the card they sit
+ * in is already doing the travelling. See `DayLines`.
  */
 
 const rowFmt = new Intl.DateTimeFormat('es-ES', {
@@ -84,11 +114,7 @@ export function ThisWeek({
           // Nothing to edit on a week nobody has written yet, and the empty state below
           // already carries the one link that matters. Two routes to `/plan` in one card
           // is a card asking the same question twice.
-          empty ? null : (
-            <TextLink href="/plan" inset>
-              Editar plan
-            </TextLink>
-          )
+          empty ? null : <IconAction icon={PENCIL} label="Editar plan" href="/plan" />
         }
       >
         Esta semana
@@ -117,9 +143,7 @@ export function ThisWeek({
                   <span className="text-label-2">
                     {whenLabel(startOfDay(selected.session.scheduledOn), today)}
                   </span>
-                  {/* Mint is state, and "the next thing you owe" is the state this card
-                      exists to report. */}
-                  {pinned ? null : <span className="text-accent"> · siguiente</span>}
+                  <span className="text-accent">{pinned ? null : ' · siguiente'}</span>
                 </p>
                 {pinned && upcoming ? (
                   <TextLink inset className="-mr-2" onClick={() => setPicked(null)}>
@@ -150,17 +174,18 @@ export function ThisWeek({
             </EmptyState>
           )}
 
-          {/* No rule between the rows any more: seven tiles down the left edge already
-              group the list, and a hairline under each one was a second grid drawn over
-              the first. The single rule at the top is what separates the list from the
-              session card above it. */}
-          <ul className="-mx-1.5 mt-2 border-t border-line pt-1">
+          {/* The rule bleeds to the card's own edges — it is the seam between the two
+              halves of this card, not a hairline between two paragraphs of one. Nothing
+              separates the rows below it: seven tiles down the left edge already group the
+              list, and a hairline under each one was a second grid drawn over the first. */}
+          <ul className="-mx-3 mt-3 border-t border-line px-3 pt-2">
             {week.days.map((day, i) => (
               <DayLines
                 key={day.date}
                 day={day}
                 index={i}
                 today={today}
+                bands={bands}
                 selectedId={selected?.session.id ?? null}
                 onSelect={select}
                 onToggle={onToggle}
@@ -196,6 +221,7 @@ function DayLines({
   day,
   index,
   today,
+  bands,
   selectedId,
   onSelect,
   onToggle,
@@ -204,12 +230,14 @@ function DayLines({
   /** Position in the week, which is also its place in the reveal. */
   index: number
   today: number
+  bands: Bands
   selectedId: string | null
   onSelect: (id: string) => void
   onToggle: (match: MatchedSession) => void
 }) {
   const label = rowFmt.format(new Date(day.date))
   const isToday = day.date === today
+  const past = day.date < today
 
   return (
     // `fade-in` rather than `fade-up`, and this is the one place on the screen where that
@@ -221,18 +249,24 @@ function DayLines({
     // The stagger is per *day*, not per row: a double day arrives as one block under one
     // date. Seven days, so the eighth-row cap on the delay can never bind here.
     <li className="fade-in" style={{ animationDelay: `${index * 30}ms` }}>
-      {day.sessions.map((match, i) => (
-        <SessionLine
-          key={match.session.id}
-          match={match}
-          // A double day is one block under one date, not the same date said twice.
-          label={i === 0 ? label : ''}
-          isToday={isToday}
-          selected={match.session.id === selectedId}
-          onSelect={() => onSelect(match.session.id)}
-          onToggle={() => onToggle(match)}
-        />
-      ))}
+      {day.sessions.map((match, i) =>
+        match.session.type === 'rest' ? (
+          <RestLine key={match.session.id} label={i === 0 ? label : ''} isToday={isToday} />
+        ) : (
+          <SessionLine
+            key={match.session.id}
+            match={match}
+            bands={bands}
+            // A double day is one block under one date, not the same date said twice.
+            label={i === 0 ? label : ''}
+            isToday={isToday}
+            past={past}
+            selected={match.session.id === selectedId}
+            onSelect={() => onSelect(match.session.id)}
+            onToggle={() => onToggle(match)}
+          />
+        ),
+      )}
 
       {day.extras.map((activity, i) => (
         <ExtraLine
@@ -250,8 +284,81 @@ function DayLines({
   )
 }
 
-/** Shared by all three kinds of line, so their titles start at the same x. */
-const LINE = 'flex min-h-12 min-w-0 flex-1 items-center gap-2.5 py-1.5 pl-1.5 text-left'
+/** The tile's geometry, shared by all three kinds of row so their dates start at one x. */
+const TILE =
+  'motion-standard flex size-7 shrink-0 items-center justify-center rounded-[0.625rem] transition-opacity'
+
+/** Drawn, never typed: `✓` resolves to whichever font the device has, at whichever weight. */
+const TICK = <Icon path={CHECK} strokeWidth={3.5} className="size-3.5 text-surface" />
+
+/** Everything after the tile, so the three kinds of line share one set of columns. */
+const LINE = 'flex min-h-11 min-w-0 flex-1 items-center gap-2.5 text-left'
+
+/**
+ * The 28px tile every row opens with — the session's kind, and whether it happened.
+ *
+ * It replaced a 4px rail in an 8px column. The rail was correct and unreadable: at four
+ * pixels a hue is a tint, and telling violet from coral at that width is a thing the eye
+ * does by comparing two rows rather than by reading one. A tile is the same information at
+ * fifty times the area, and it is what lets a week be scanned by colour at arm's length,
+ * which is the whole reason the session types have hues at all. Squared off at
+ * `rounded-[0.625rem]` rather than round, because a circle at this size reads as an avatar.
+ *
+ * What it gained is the tick, knocked out of the hue in `surface` — the app's own glyph at
+ * the app's own weight, drawn rather than typed, so it does not arrive at whatever weight
+ * and baseline the device's font happens to give `✓`. That tick is why the row no longer
+ * ends in a 24px circle: "which session is this" and "did I do it" are one question asked
+ * of one object, and the second used to be answered in a column of seven empty rings.
+ *
+ * It is a `<button>` wherever there is something to toggle and a `<span>` where an activity
+ * has already settled the question. The hit area is grown to 44px by a pseudo-element
+ * rather than by padding, which is the trick `DoneToggle` uses and for the same reason:
+ * padding it out would eat the gap to the date and drag every column after it off its grid.
+ */
+function Tile({
+  type,
+  state,
+  label,
+  onToggle,
+}: {
+  type: SessionType
+  state: 'done' | 'owed' | 'missed'
+  /** The session's title, which is what the toggle's spoken label names. */
+  label: string
+  /** Absent for a session an activity already answered — there is nothing to tick. */
+  onToggle?: () => void
+}) {
+  const done = state === 'done'
+  const shape = cn(
+    TILE,
+    ACCENT[type].swatch,
+    // Held at full strength on a done row — the tick and the accent distance already say
+    // so twice, and a fade there would take the whole back half of the week with it. A
+    // missed day is the one thing this list recedes.
+    state === 'missed' && 'opacity-40',
+  )
+
+  if (!onToggle)
+    return (
+      <span role="img" aria-label={done ? 'Hecha' : 'Pendiente'} className={shape}>
+        {done ? TICK : null}
+      </span>
+    )
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={done}
+      aria-label={done ? `Marcar ${label} como pendiente` : `Marcar ${label} como hecho`}
+      className={cn(
+        shape,
+        'relative active:opacity-60 after:absolute after:-inset-2 after:content-[""]',
+      )}
+    >
+      {done ? TICK : null}
+    </button>
+  )
+}
 
 function DayLabel({ children, isToday }: { children: string; isToday: boolean }) {
   return (
@@ -271,47 +378,64 @@ function DayLabel({ children, isToday }: { children: string; isToday: boolean })
 }
 
 /**
- * The 28px tile every row opens with — the session's kind, as an object rather than a rule.
+ * How far, over how long — the two numbers a line ends on, stacked and right-aligned.
  *
- * It replaced a 4px rail in an 8px column. The rail was correct and unreadable: at four
- * pixels a hue is a tint, and telling violet from coral at that width is a thing the eye
- * does by comparing two rows rather than by reading one. A tile is the same information at
- * fifty times the area, and it is what lets a week be scanned by colour at arm's length,
- * which is the whole reason the session types have hues at all.
- *
- * Shape still separates the three kinds of line, so nothing here rests on colour alone: a
- * filled tile is a prescribed session, a hollow one is a run nobody asked for, and a rest
- * day gets the neutral fill. Squared off at `rounded-[0.625rem]` rather than
- * round, because a circle at this size reads as an avatar.
+ * Stacked because they are one answer: `9,0 km · ≈ 47m` strung along the row costs 50px of
+ * the title beside it and buys nothing, where two lines of tabular figures against a common
+ * right edge is a column the eye runs down. The second line is always the quiet one — the
+ * distance is what the week is counted in, the duration is what it will cost you.
  */
-function Swatch({ className }: { className?: string }) {
-  return <span aria-hidden className={cn('size-7 shrink-0 rounded-[0.625rem]', className)} />
+function Metric({ value, under, tone }: { value: string; under: string | null; tone: string }) {
+  return (
+    <span className="flex shrink-0 flex-col items-end">
+      <span className={cn('data-number text-footnote leading-tight', tone)}>{value}</span>
+      {under ? (
+        <span className="data-number text-caption2 leading-tight text-label-3">{under}</span>
+      ) : null}
+    </span>
+  )
 }
 
-/** Where a tick would be on a row that cannot have one, so the column stays straight. */
-function TickSpacer() {
-  return <span aria-hidden className="size-6 shrink-0" />
-}
-
+/**
+ * One prescribed session, as a line.
+ *
+ * Three steps of ink and no fourth: today's owed session is at full strength, everything
+ * else still standing is a step down, and a day behind you that nothing answered is a step
+ * below that. Done sits with the living rows rather than below them — a week that greys out
+ * as it is run is a week that stops reading as a week — and says so through the tile's tick
+ * and through the one accent number at the end of the row.
+ *
+ * The distance is the actual one where there is one and the prescribed one otherwise, never
+ * both: `WeekHero` one card up already carries planned against actual, and the accent is
+ * what tells the two apart here. The duration under it follows the same rule and drops its
+ * `≈` when the number stops being an estimate.
+ */
 function SessionLine({
   match,
+  bands,
   label,
   isToday,
+  past,
   selected,
   onSelect,
   onToggle,
 }: {
   match: MatchedSession
+  bands: Bands
   label: string
   isToday: boolean
+  past: boolean
   selected: boolean
   onSelect: () => void
   onToggle: () => void
 }) {
   const { session, activity, done } = match
-  // What happened, or failing that what was asked for — one number, never both, because
-  // the weekly summary above already carries planned against actual. Mint is what tells
-  // the two apart: a accent distance is one that was actually run.
+  const missed = past && !done
+
+  // Strength and cycling are prescribed in minutes and carry no distance, so their one
+  // number is the duration itself — printing it twice, once as the headline and once as an
+  // estimate under it, would be the row saying the same thing to itself.
+  const effort = sessionEffort(session, bands)
   const value = activity
     ? `${formatKm(activity.distanceM)} km`
     : session.targetDistanceM != null
@@ -319,62 +443,62 @@ function SessionLine({
       : session.targetDurationS != null
         ? formatDuration(session.targetDurationS)
         : null
+  const under = activity
+    ? formatDuration(activity.movingS)
+    : session.targetDistanceM != null && effort.estimateS != null
+      ? `≈ ${formatDuration(effort.estimateS)}`
+      : null
 
   return (
+    // The 6px bleed is the selected row's background reaching past the card's text column
+    // on both sides, so a pinned day reads as a lifted row rather than as a pill floating
+    // inside one. `px-1.5` puts the content back where it was. It wraps the tile and the
+    // date as well as the title: the row is the day, and half a day highlighted is a
+    // selection that looks like a rendering fault.
     <div
       className={cn(
-        'motion-standard flex items-center gap-2 rounded-xl pr-2 transition-colors',
+        'motion-standard -mx-1.5 flex items-center gap-2.5 rounded-xl px-1.5 transition-colors',
         selected && 'bg-fill',
       )}
     >
+      <Tile
+        type={session.type}
+        state={done ? 'done' : missed ? 'missed' : 'owed'}
+        label={session.title}
+        onToggle={activity ? undefined : onToggle}
+      />
       <button type="button" onClick={onSelect} aria-pressed={selected} className={cn('tappable', LINE)}>
-        {/* The tile leads the row rather than following the date, because the hue is what
-            the week is scanned by — the date is the index you land on once a colour has
-            already caught the eye. Held at full strength on a done row: "have I run this"
-            is said three times over by the tick, the accent distance and the dimmed title,
-            and a week gone grey by Sunday is a week that stops reading as a week. */}
-        <Swatch className={ACCENT[session.type].swatch} />
         <DayLabel isToday={isToday}>{label}</DayLabel>
         <span
           className={cn(
             'min-w-0 flex-1 truncate text-subhead',
-            done ? 'text-label-3' : 'text-label',
+            missed ? 'text-label-3' : isToday && !done ? 'text-label' : 'text-label-2',
           )}
         >
           {session.title}
         </span>
         {value ? (
-          <span
-            className={cn(
-              'data-number shrink-0 text-footnote',
-              activity ? 'text-accent' : done ? 'text-label-3' : 'text-label-2',
-            )}
-          >
-            {value}
-          </span>
+          <Metric
+            value={value}
+            under={under}
+            tone={done ? 'text-accent' : missed ? 'text-label-3' : 'text-label-2'}
+          />
         ) : null}
-
       </button>
-
-      {/* The system's toggle rather than a second, squarer one drawn here: it keeps its
-          face at 24px and grows the *hit area* to 44 with a pseudo-element, so it is both
-          the same control as everywhere else in the app and narrower than the 44px button
-          this row used to end with. */}
-      {session.type === 'rest' ? (
-        <TickSpacer />
-      ) : (
-        <DoneToggle
-          done={done}
-          label={session.title}
-          // Nothing to tick on a session an activity already answered.
-          onToggle={activity ? undefined : onToggle}
-        />
-      )}
     </div>
   )
 }
 
-/** A run that answered no prescribed session — listed so the week still adds up. */
+/**
+ * A run that answered no prescribed session — listed so the week still adds up.
+ *
+ * Hollow, not filled: it happened, it just was not asked for, so it takes the tile's
+ * outline and none of its colour — a session's hue belongs to the plan. The outline is the
+ * faint `line` rather than `line-strong`, because at full strength an empty rounded square
+ * in a column of filled ones reads as an unticked box, which is the one thing it is not.
+ * Its name comes from Strava and so is whatever the phone called it, which is why it sits a
+ * step back in ink from the sessions around it. Nothing to tap: 40px rather than 44.
+ */
 function ExtraLine({
   activity,
   label,
@@ -385,33 +509,37 @@ function ExtraLine({
   isToday: boolean
 }) {
   return (
-    <div className="flex items-center gap-2 pr-2">
-      <span className={LINE}>
-        {/* Hollow, not filled: it happened, it just was not asked for. */}
-        <Swatch className="ring-1 ring-inset ring-line-strong" />
+    <div className="flex items-center gap-2.5">
+      <span aria-hidden className={cn(TILE, 'ring-1 ring-inset ring-line')} />
+      <span className={cn(LINE, 'min-h-10')}>
         <DayLabel isToday={isToday}>{label}</DayLabel>
-        <span className="min-w-0 flex-1 truncate text-subhead text-label-2">{activity.name}</span>
-        <span className="data-number shrink-0 text-footnote text-label-2">
-          {formatKm(activity.distanceM)} km
-        </span>
+        <span className="min-w-0 flex-1 truncate text-subhead text-label-3">{activity.name}</span>
+        <Metric
+          value={`${formatKm(activity.distanceM)} km`}
+          under={formatDuration(activity.movingS)}
+          tone="text-accent"
+        />
       </span>
-      <TickSpacer />
     </div>
   )
 }
 
-/** A day with nothing on it reads as deliberate, not as missing data. */
+/**
+ * A day with nothing on it reads as deliberate, not as missing data.
+ *
+ * It keeps the tile — the neutral fill, so the column stays straight without claiming a hue
+ * — and gives back the height instead: 36px against a session's 44, because there is
+ * nothing here to put a thumb on. That difference is the list's beat. Seven identical rows
+ * are a block; five tall ones with two short ones between them are a week.
+ */
 function RestLine({ label, isToday }: { label: string; isToday: boolean }) {
   return (
-    <div className="flex items-center gap-2 pr-2">
-      <span className={LINE}>
-        {/* The neutral fill, so a rest day keeps the column straight without claiming a
-            hue. It is a day with nothing on it, not a day missing its data. */}
-        <Swatch className={ACCENT.rest.swatch} />
+    <div className="flex items-center gap-2.5">
+      <span aria-hidden className={cn(TILE, ACCENT.rest.swatch)} />
+      <span className={cn(LINE, 'min-h-9')}>
         <DayLabel isToday={isToday}>{label}</DayLabel>
-        <span className="min-w-0 flex-1 truncate text-subhead text-label-3">Descanso</span>
+        <span className="min-w-0 flex-1 truncate text-footnote text-label-3">Descanso</span>
       </span>
-      <TickSpacer />
     </div>
   )
 }

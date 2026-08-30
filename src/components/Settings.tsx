@@ -540,6 +540,7 @@ function SettingsScreen() {
   const [profileSaved, setProfileSaved] = useState(false)
 
   const [raceName, setRaceName] = useState('')
+  const [racePlace, setRacePlace] = useState('')
   const [raceDate, setRaceDate] = useState('')
   const [goalTime, setGoalTime] = useState('')
   const [blockStart, setBlockStart] = useState('')
@@ -563,6 +564,7 @@ function SettingsScreen() {
   useEffect(() => {
     if (data?.block && !blockSynced) {
       setRaceName(data.block.raceName)
+      setRacePlace(data.block.racePlace ?? '')
       setRaceDate(toDateInput(data.block.raceOn))
       setGoalTime(formatClock(data.block.goalTimeS))
       setBlockStart(toDateInput(data.block.startsOn))
@@ -664,6 +666,7 @@ function SettingsScreen() {
             goalTimeS,
             raceDistanceM: currentBlock.raceDistanceM,
             raceName: raceName.trim(),
+            racePlace: racePlace.trim() || null,
           },
         }),
       })
@@ -782,6 +785,20 @@ function SettingsScreen() {
             <p className="mt-1.5 text-caption text-label-3">
               Distancia: {decimal(data.block.raceDistanceM / 1000)} km
             </p>
+
+            <div className="mt-3">
+              <Field label="Lugar (opcional)">
+                <TextInput
+                  id="stg-race-place"
+                  value={racePlace}
+                  onChange={(e) => {
+                    setRacePlace(e.target.value)
+                    setBlockSaved(false)
+                    setBlockError(null)
+                  }}
+                />
+              </Field>
+            </div>
 
             <div className="mt-3">
               <Field label="Fecha de la carrera">

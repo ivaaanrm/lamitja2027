@@ -10,13 +10,14 @@ import { type Block, blocks, users } from '@/lib/db/schema'
 
 export const prerender = false
 
-/** The five fields the rest of the app knows as `BlockConfig` — `userId`/`updatedAt` are storage detail. */
+/** The six fields the rest of the app knows as `BlockConfig` — `userId`/`updatedAt` are storage detail. */
 const toBlockConfig = (row: Block): BlockConfig => ({
   startsOn: row.startsOn,
   raceOn: row.raceOn,
   goalTimeS: row.goalTimeS,
   raceDistanceM: row.raceDistanceM,
   raceName: row.raceName,
+  racePlace: row.racePlace,
 })
 
 /**

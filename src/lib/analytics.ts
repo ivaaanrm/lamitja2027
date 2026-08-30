@@ -314,6 +314,26 @@ export interface Projection {
 }
 
 /**
+ * What one benchmark on its own says the race would be. `null` when nothing was run at
+ * that distance — a benchmark with no effort behind it projects nothing, rather than zero.
+ */
+export const projectEffort = (effort: BestEffort, distanceM: number): number | null =>
+  effort.timeS == null ? null : riegel(effort.timeS, effort.distanceM, distanceM)
+
+/**
+ * The goal said at another distance: the time over `distanceM` that projects to exactly
+ * the goal, through the same Riegel exponent the projection above runs forwards.
+ *
+ * That inverse is the point of it. A column of "goal pace × distance" would be simpler
+ * arithmetic and a different, quieter claim — 5 km at race pace is 18:57, which projects
+ * to a 1:27 half, so an athlete hitting it at every benchmark would still be seven minutes
+ * off. Reading the goal *back* through Riegel gives the number that actually has to be run
+ * today: hit it and `projectEffort` answers with the goal.
+ */
+export const goalEquivalent = (block: BlockConfig, distanceM: number): number =>
+  riegel(block.goalTimeS, block.raceDistanceM, distanceM)
+
+/**
  * The fastest race this season's running says is in there, over `distanceM`.
  *
  * Every benchmark is projected and the best one wins, with the effort it came from kept
@@ -327,8 +347,8 @@ export interface Projection {
 export function projectHalf(efforts: BestEffort[], distanceM: number): Projection | null {
   let best: Projection | null = null
   for (const effort of efforts) {
-    if (effort.timeS == null) continue
-    const timeS = riegel(effort.timeS, effort.distanceM, distanceM)
+    const timeS = projectEffort(effort, distanceM)
+    if (timeS == null) continue
     if (!best || timeS < best.timeS) best = { timeS, from: effort }
   }
   return best

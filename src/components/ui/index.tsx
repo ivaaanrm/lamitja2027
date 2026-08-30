@@ -109,6 +109,16 @@ export const CHEVRON_DOWN = 'm6 9 6 6 6-6'
 export const ARROW_OUT = 'M7 17 17 7M9 7h8v8'
 export const PLUS = 'M12 5v14M5 12h14'
 export const CHECK = 'm5 13 4.5 4.5L19 7'
+// Trimmed 12% about the centre of the box: drawn corner to corner it spans half again what
+// CHECK and the chevrons do, and at 14px beside one of them it reads a size larger.
+export const PENCIL = 'M16.4 4.1a2.5 2.5 0 1 1 3.5 3.5L8 19.5l-4.8 1.3 1.3-4.8z'
+export const UNDO = 'M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5'
+// The same arc as UNDO, twice and clockwise: two half-circles chasing each other, which is
+// the one shape a refresh cannot be mistaken for anything else. Four subpaths in one `d`
+// rather than four `<path>`s, because `Icon` renders exactly one and a stroked `d` may hold
+// as many as it likes.
+export const SYNC =
+  'M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M3 21v-5h5'
 
 export function Icon({
   path,
@@ -577,6 +587,170 @@ export function TextLink({
       className={cn(shape, 'disabled:opacity-50')}
     >
       {children}
+    </button>
+  )
+}
+
+/**
+ * The third kind of action: a glyph and a word, with no underline and no box.
+ *
+ * `Button` is the filled shape, `TextLink` is the underlined word — and this is what a
+ * *navigation* or a *verb* looks like when it sits loose on the page rather than inside a
+ * card's title row. The underline is what tells a bare word it is tappable; a glyph says
+ * the same thing louder and says *what kind* of tap it is on top of it, which an underline
+ * never could. So an icon here replaces the underline rather than joining it: a pencil
+ * before `Editar en el plan` is already unmistakably an action, and underlining it too is
+ * two affordances stacked on one target.
+ *
+ * It existed as a hand-rolled `<a>` in four places first — the back link and the outbound
+ * link at the top of `SessionDetail` and `ActivityDetail` — all four with the same class
+ * string typed out again, which is how the row above a screen's heading drifts one caption
+ * size apart from the next screen's.
+ *
+ * The glyph goes *before* the label for anything you are doing (`Marcar como hecha`) and
+ * for the way back, and `after` for anything that leaves — an outbound arrow reads as the
+ * direction of travel, and direction of travel points at the edge of the screen.
+ *
+ * Tone carries the hierarchy the same way `TextLink`'s does: `quiet` is caption-sized
+ * chrome, `primary` is footnote-sized accent for the one action the screen is offering.
+ */
+export function ActionLink({
+  children,
+  icon,
+  after = false,
+  href,
+  onClick,
+  disabled,
+  tone = 'quiet',
+  inset = false,
+  newTab = false,
+  className,
+}: {
+  children: ReactNode
+  /** One of the glyph constants above. */
+  icon: string
+  /** Put the glyph after the label — for an action that leaves this screen. */
+  after?: boolean
+  /** A link renders an `<a>`; without one it renders a `<button>`. */
+  href?: string
+  onClick?: () => void
+  disabled?: boolean
+  tone?: 'quiet' | 'primary'
+  /** `TextLink`'s pull-back, and it means the same thing: the target stays 44px and the row
+   * keeps the height of its text. On its own the 44px box *is* the row, which is what the
+   * navigation row at the head of a detail screen wants. */
+  inset?: boolean
+  newTab?: boolean
+  className?: string
+}) {
+  const shape = cn(
+    'tappable inline-flex min-h-11 items-center gap-1.5 px-1',
+    tone === 'quiet' && 'text-caption font-medium text-label-2',
+    tone === 'primary' && 'text-footnote font-semibold text-accent',
+    inset && '-my-2',
+    className,
+  )
+  // The glyph tracks the label: 14px beside a caption, 16px beside a footnote, so the two
+  // sizes never meet at one weight.
+  const glyph = <Icon path={icon} className={tone === 'primary' ? 'size-4' : 'size-3.5'} />
+  const body = (
+    <>
+      {after ? null : glyph}
+      {children}
+      {after ? glyph : null}
+    </>
+  )
+
+  if (href)
+    return (
+      <a
+        href={href}
+        {...(newTab ? { target: '_blank', rel: 'noreferrer' } : null)}
+        className={shape}
+      >
+        {body}
+      </a>
+    )
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(shape, 'disabled:opacity-50')}
+    >
+      {body}
+    </button>
+  )
+}
+
+/**
+ * The fourth kind of action, and the smallest: the glyph on its own.
+ *
+ * `Button` is the filled shape, `TextLink` the underlined word, `ActionLink` a glyph with
+ * its word beside it — and this is what is left when the word is the part that costs more
+ * than it carries. That is a narrow case and it belongs to `CardTitle`'s action slot: a
+ * title row is eleven uppercase pixels naming the card, and `Sincronizar` beside it was
+ * the widest thing in the row while being the least of what the card is about. It only
+ * works for a verb whose glyph is unambiguous — a refresh, a pencil. Anything a reader
+ * would have to guess at keeps its word and stays an `ActionLink`.
+ *
+ * Two details are what make an icon-only control honest rather than merely smaller.
+ *
+ * `label` is required and becomes the `aria-label`, so the word the glyph replaced is
+ * still there for anyone who cannot see the glyph — pass the *state's* word when there is
+ * one (`Sincronizando…` while it runs), because a spinning arrow says "working" only to
+ * somebody watching it.
+ *
+ * And the face stays `size-4` while the *target* grows to 44px through a pseudo-element —
+ * the trick `DoneToggle` uses, for the same reason. Padding the button out to 44px would
+ * push the glyph 14px off the card's right edge, where every row below it ends in a
+ * `size-4` chevron sitting exactly on that edge, and stretch the title row to a height its
+ * heading does not have.
+ */
+export function IconAction({
+  icon,
+  label,
+  href,
+  onClick,
+  busy = false,
+  disabled,
+  className,
+}: {
+  /** One of the glyph constants above. */
+  icon: string
+  /** What the glyph says, for a screen reader. Never rendered. */
+  label: string
+  /** A link renders an `<a>`; without one it renders a `<button>`. */
+  href?: string
+  onClick?: () => void
+  /** The action is in flight: the glyph turns and the button stops taking taps. */
+  busy?: boolean
+  disabled?: boolean
+  className?: string
+}) {
+  const shape = cn(
+    // `after:-inset-3.5` is 14px around a 16px face: 44px exactly, and none of it in the
+    // layout. `relative` is what the pseudo-element is measured from.
+    "tappable relative inline-flex text-label-2 after:absolute after:-inset-3.5 after:content-['']",
+    className,
+  )
+  const glyph = <Icon path={icon} className={cn(busy && 'animate-spin')} />
+
+  if (href)
+    return (
+      <a href={href} aria-label={label} className={shape}>
+        {glyph}
+      </a>
+    )
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled || busy}
+      aria-label={label}
+      className={cn(shape, 'disabled:opacity-50')}
+    >
+      {glyph}
     </button>
   )
 }

@@ -71,6 +71,7 @@ export function Onboarding() {
   }, [data])
 
   const [raceName, setRaceName] = useState('')
+  const [racePlace, setRacePlace] = useState('')
   const [raceDate, setRaceDate] = useState('')
   const [goalTime, setGoalTime] = useState('')
   const [blockStart, setBlockStart] = useState(() => toDateInput(startOfWeek(Date.now())))
@@ -127,6 +128,7 @@ export function Onboarding() {
             goalTimeS,
             raceDistanceM: HALF_MARATHON_M,
             raceName: raceName.trim(),
+            racePlace: racePlace.trim() || null,
           },
         }),
       })
@@ -171,6 +173,22 @@ export function Onboarding() {
           {...mark('race-name')}
         />
       </Field>
+
+      <div className="mt-3">
+        {/* Optional, and unmarked among four required fields, so it says so. */}
+        <Field label="Lugar (opcional)">
+          <TextInput
+            id="ob-race-place"
+            value={racePlace}
+            onChange={(e) => {
+              setRacePlace(e.target.value)
+              clear()
+            }}
+            enterKeyHint="next"
+            aria-describedby="ob-error"
+          />
+        </Field>
+      </div>
 
       <div className="mt-3">
         <Field label="Fecha de la carrera">

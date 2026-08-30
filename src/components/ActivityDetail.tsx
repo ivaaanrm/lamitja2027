@@ -21,12 +21,12 @@ import { useRouteParams, type Route } from './router'
 import {
   ARROW_OUT,
   CHEVRON_LEFT,
+  ActionLink,
   Card,
   CardTitle,
   EmptyState,
   ErrorCard,
   HeroMetric,
-  Icon,
   Segmented,
   Skeleton,
   Stat,
@@ -329,25 +329,20 @@ function Overview({
   return (
     <Card className="fade-up">
       <div className="-mx-1 -mt-2 flex items-center justify-between gap-2">
-        <a
-          href="/registro"
-          className="tappable inline-flex min-h-11 items-center gap-1 px-1 text-caption font-medium text-label-2"
-        >
-          <Icon path={CHEVRON_LEFT} className="size-3.5" />
+        <ActionLink icon={CHEVRON_LEFT} href="/registro">
           Registro
-        </a>
+        </ActionLink>
         {/* Strava is the escape hatch for everything this screen deliberately does not
             store — the map, the photos, the segments — so it sits with the navigation
             rather than in a card of its own at the bottom. */}
-        <a
+        <ActionLink
+          icon={ARROW_OUT}
+          after
+          newTab
           href={`https://www.strava.com/activities/${activity.id}`}
-          target="_blank"
-          rel="noreferrer"
-          className="tappable inline-flex min-h-11 items-center gap-1 px-1 text-caption font-medium text-label-2"
         >
           Ver en Strava
-          <Icon path={ARROW_OUT} className="size-3.5" />
-        </a>
+        </ActionLink>
       </div>
 
       <h2 className="font-display text-title3 font-bold leading-tight tracking-tight text-label">

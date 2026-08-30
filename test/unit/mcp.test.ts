@@ -44,6 +44,7 @@ const BLOCK: BlockConfig = {
   goalTimeS: 4799,
   raceDistanceM: HALF_MARATHON_M,
   raceName: 'La Mitja',
+  racePlace: 'Granollers',
 }
 
 const stubTools = (): ToolRegistry => ({
@@ -605,6 +606,7 @@ describe('get_block', () => {
     const brief = blockBrief(CTX, Date.UTC(2026, 7, 26))
 
     expect(brief.race.name).toBe(BLOCK.raceName)
+    expect(brief.race.place).toBe(BLOCK.racePlace)
     expect(brief.race.date).toBe(toIsoDate(BLOCK.raceOn))
     expect(brief.block.startsOn).toBe(toIsoDate(BLOCK.startsOn))
     expect(brief.block.totalWeeks).toBe(totalWeeks(BLOCK))

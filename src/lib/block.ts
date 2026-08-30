@@ -27,6 +27,13 @@ export interface BlockConfig {
   goalTimeS: number
   raceDistanceM: number
   raceName: string
+  /**
+   * Where the race is run, or `null`. It is the one field of a block that no arithmetic
+   * reads — it is printed beside the name on `/` and nowhere else — which is also why it
+   * is not a `PUBLIC_*` value like the five above it: those are the *shape* of the block a
+   * fork trains for, and a town is a detail each athlete fills in for their own race.
+   */
+  racePlace: string | null
 }
 
 /**
@@ -44,6 +51,7 @@ export const DEFAULT_BLOCK: BlockConfig = {
   goalTimeS: GOAL_TIME_S,
   raceDistanceM: RACE_DISTANCE_M,
   raceName: RACE_NAME,
+  racePlace: null,
 }
 
 /**

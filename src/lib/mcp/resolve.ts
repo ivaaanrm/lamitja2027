@@ -44,6 +44,7 @@ export async function resolveMcpToken(db: Database, token: string): Promise<Tool
     goalTimeS: row.goalTimeS,
     raceDistanceM: row.raceDistanceM,
     raceName: row.raceName,
+    racePlace: row.racePlace,
   }
   const hrMax = user.hrMax ?? DEFAULT_HR_MAX
 

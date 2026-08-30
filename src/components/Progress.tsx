@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { formatClock, formatDuration, formatKm, formatPace } from '@/lib/activity'
 import { DAY_MS, daysToRace, goalPaceSKm, startOfDay, totalWeeks, type BlockConfig } from '@/lib/block'
 import { baselineFor, type Baseline } from '@/lib/baseline'
@@ -8,7 +8,9 @@ import {
   days,
   fitnessSeries,
   formLabel,
+  goalEquivalent,
   percentDelta,
+  projectEffort,
   projectHalf,
   summarise,
   weeklyTotals,
@@ -18,19 +20,29 @@ import {
 import { cn } from '@/lib/cn'
 import type { Activity } from '@/lib/db/schema'
 import { decimal } from '@/lib/format'
-import { DEFAULT_HR_MAX, ZONE_NAME } from '@/lib/paces'
+import { DEFAULT_HR_MAX, ZONE_NAME, zoneFloorsBpm, type Zone } from '@/lib/paces'
+import {
+  domains,
+  domainsByWeek,
+  estimateThresholds,
+  thresholdSeries,
+  type Threshold,
+  type Thresholds,
+} from '@/lib/thresholds'
 import { BarRow, ChartLegend, ChartScale, LineChart, Sparkline, StackedBar } from './charts'
 import { NoBlockCard, useBlock } from './useBlock'
 import { island } from './Island'
 import {
   Card,
   CardTitle,
+  Chevron,
   Chip,
   Delta,
   EmptyState,
   ErrorCard,
   HeroMetric,
   LoadingCard,
+  Segmented,
   Skeleton,
   Stat,
   StatStrip,
@@ -48,9 +60,15 @@ import {
  *
  * This is a *reading* screen — Hoy is where a decision gets made — so the tempo is one
  * dashboard card at the top and then a descent into denser and denser evidence. The
- * order is the order of the questions: what have I actually run, what shape is it putting
- * me in, what does that project to, how did I get there, and finally the whole ledger
- * side by side.
+ * order is the order of the questions: what have I actually run, what does that project
+ * the race to be, what shape am I in to hold it, how did I get there, and finally the
+ * whole ledger side by side.
+ *
+ * The projection sits directly under the volume rather than after the form curves because
+ * it is the one card on the page that answers the question the block is *for*, and a
+ * screen that makes you scroll past two trend charts to reach its own headline has buried
+ * it. Fitness and fatigue read better after it anyway: on their own they are two abstract
+ * curves, and behind a projected finishing time they are the explanation for it.
  *
  * Six cards, down from seven, and the merge that got it there was a demotion. The screen
  * used to open on a hero card whose only other content was a full-width cumulative km
@@ -93,9 +111,10 @@ function ProgressScreen() {
   return (
     <>
       <VolumeCard block={data.block} view={view} progress={progress} currentWeek={currentWeek} />
-      <FormCard view={view} />
       <ProjectionCard block={data.block} view={view} />
-      <IntensityCard view={view} />
+      <FormCard view={view} />
+      <ThresholdCard view={view} currentWeek={currentWeek} />
+      <IntensityCard view={view} currentWeek={currentWeek} />
       <ConsistencyCard view={view} />
       <HeadToHead block={data.block} view={view} />
     </>
@@ -129,6 +148,8 @@ function build(
 
   const fitness = fitnessSeries([...(baseline?.preBlock ?? []), ...activities], block.startsOn, today)
   const lastFitness = baseline ? fitnessSeries(baseline.activities, block.startsOn, block.raceOn) : []
+
+  const thresholds = estimateThresholds(activities, hrMax, now)
 
   const efforts = bestEfforts(block, activities, hrMax)
   // The baseline is this same athlete's own earlier season, so it is read against the same
@@ -171,6 +192,16 @@ function build(
     projection: projectHalf(efforts, block.raceDistanceM),
     zones: zoneShares(activities, hrMax),
     zoneCoverage: zoneCoverage(activities),
+    hrMax,
+    thresholds,
+    // The estimate as it stood at the end of every week so far, each computed from the
+    // activities that existed by then — see `thresholdSeries`.
+    thresholdWeeks: thresholdSeries(block, activities, hrMax, now),
+    // Split at this athlete's own two thresholds rather than at zone floors, so the card
+    // that reads "how much of this was easy" and the card that estimates where easy ends
+    // are answering with the same number.
+    domains: domains(activities, thresholds),
+    domainsWeekly: domainsByWeek(block, activities, thresholds, weeks),
   }
 }
 
@@ -234,8 +265,8 @@ function Loading() {
           <Skeleton className="h-9" />
         </div>
       </Card>
-      <LoadingCard rows={4} busy={false} />
       <LoadingCard rows={3} busy={false} />
+      <LoadingCard rows={4} busy={false} />
     </>
   )
 }
@@ -385,6 +416,184 @@ function VolumeCard({
 }
 
 /**
+ * What the running so far says the race would be, and the four bars it is read off.
+ *
+ * The delta column is the point of the table rather than a decoration on it: a 10K three
+ * percent faster than last season's is the single most direct answer this screen has to
+ * "am I ahead". `better="down"` because a race time that shrinks is the good one.
+ *
+ * Rows that came from a real activity link to its trace. The benchmark that is currently
+ * the ceiling is the run most worth reopening, and `/actividad` is already the screen for
+ * it — the last-season column never links, because those rows are CSV, not Strava.
+ *
+ * The one place this table does *not* follow the page's same-distance-from-race-day rule
+ * is that column: `bestEfforts(baseline.activities)` reads the whole of last season, not
+ * last season up to this point, because a personal best is the record to beat rather than
+ * a snapshot. The whole column — header, cells and delta — disappears for an athlete with
+ * no season on file, rather than comparing against a benchmark that is not there.
+ *
+ * **The rule splits the table into what happened and what has to happen.** Left of it are
+ * measurements — this block's best, last season's, the gap between them. Right of it are
+ * two numbers about the goal, and they are a pair: `Meta` is the goal read back to that
+ * distance and `Riegel` is what that row's own effort projects the race to be, so the two
+ * columns of any row answer "what today would have to be" and "what today says it will
+ * be" in the same units. Both run through the same exponent, which is what lets them be
+ * read against each other at all — and is why `Meta` is not simply goal pace × distance,
+ * a number that would sit in this column looking comparable and not be (see
+ * `goalEquivalent`). `Media` projecting to itself is not a bug: that row *is* the race.
+ *
+ * The paragraph that used to sit under the table is gone. What it explained that the table
+ * could not say on its own now has a place to live: the projection's own eyebrow names the
+ * effort it came from, and the column header names the formula.
+ */
+function ProjectionCard({ block, view }: { block: BlockConfig; view: View }) {
+  const projection = view.projection
+  const goalDelta = projection ? projection.timeS - block.goalTimeS : null
+  const hasBaseline = view.last != null
+  const anyEffort =
+    view.efforts.some((e) => e.timeS != null) || view.lastEfforts.some((e) => e.timeS != null)
+  // Six columns on a phone is a budget, so it was measured rather than guessed: Inter's
+  // digit is 0.646em, which makes `1:23:34` 49.5px at footnote and 45.7px at caption, and
+  // `+120%` 43px. Hence w-14 / w-12 / w-11 / w-14 (the rule's border and padding sit
+  // inside that one) / w-12 = 252px, and gap-1.5 rather than the usual gap-2 for the five
+  // gaps. On a 375px screen that leaves the label 45px, which holds both `Media` (37.7px)
+  // and its own header (43.3px) — it is the only cell that may truncate, and the last one
+  // that should have to.
+  const row = 'flex min-h-11 items-center gap-1.5'
+  // The vertical rule, on the first cell right of it. `self-stretch` on the data rows is
+  // what makes it a *rule* rather than a tick beside one line of text: an `items-center`
+  // flex child is only as tall as its own text, so without it the line would float in the
+  // middle of a 44px row.
+  const rule = 'border-l border-line pl-2'
+
+  return (
+    <Card className="fade-up">
+      <CardTitle
+        action={
+          <span className="text-caption tabular-nums text-label-3">
+            Objetivo {formatClock(block.goalTimeS)} · {formatPace(goalPaceSKm(block))}/km
+          </span>
+        }
+      >
+        Proyección
+      </CardTitle>
+
+      {projection && goalDelta != null ? (
+        <>
+          <p className="data-number font-display text-title1 font-bold leading-none">
+            {formatClock(projection.timeS)}
+            <span className="ml-1.5 font-sans text-footnote font-normal tracking-normal text-label-3">
+              media proyectada
+            </span>
+          </p>
+          <p className="mt-2 text-footnote leading-relaxed">
+            <span className={cn(goalDelta <= 0 ? 'text-accent' : 'text-amber')}>
+              {goalDelta <= 0
+                ? `${formatClock(Math.abs(goalDelta))} por dentro del objetivo`
+                : `a ${formatClock(goalDelta)} del objetivo`}
+            </span>
+            <span className="text-label-3"> · desde tu {projection.from.label}</span>
+          </p>
+        </>
+      ) : (
+        <EmptyState>
+          Aún no hay ningún esfuerzo de 5 km o más desde el que proyectar. Un rodaje no cuenta:
+          hace falta Z4 o más, o correr por debajo de tu ritmo medio.
+        </EmptyState>
+      )}
+
+      {anyEffort ? (
+        <>
+          <div
+            className={cn(
+              row,
+              // `label-3`, not `label-4`: these name the columns under them, which makes
+              // them data, and `label-4` is the one step that misses AA.
+              //
+              // `items-stretch` and the padding moved off the row onto every cell: the
+              // rule below is drawn by a cell's own left border, and it has to reach the
+              // header's bottom line rather than stopping 6px above it.
+              'mt-3 min-h-0 items-stretch border-b border-line text-caption2 uppercase tracking-wider text-label-3',
+            )}
+          >
+            <span className="flex-1 truncate pb-1.5">Listón</span>
+            <span className="w-14 shrink-0 pb-1.5 text-right">Bloque</span>
+            {hasBaseline ? (
+              <>
+                <span className="w-12 shrink-0 pb-1.5 text-right">2025-26</span>
+                <span className="w-11 shrink-0" />
+              </>
+            ) : null}
+            <span className={cn(rule, 'w-14 shrink-0 pb-1.5 text-right')}>Meta</span>
+            <span className="w-12 shrink-0 pb-1.5 text-right">Riegel</span>
+          </div>
+
+          <ul className="divide-y divide-line">
+            {view.efforts.map((effort, i) => {
+              const last = hasBaseline ? view.lastEfforts[i] : undefined
+              const delta =
+                effort.timeS == null || last?.timeS == null
+                  ? null
+                  : percentDelta(effort.timeS, last.timeS)
+              const projected = projectEffort(effort, block.raceDistanceM)
+              const cells = (
+                <>
+                  <span className="flex-1 truncate text-footnote text-label-2">{effort.label}</span>
+                  <span className="data-number w-14 shrink-0 text-right text-footnote">
+                    {effort.timeS == null ? (
+                      <span className="text-label-3">—</span>
+                    ) : (
+                      formatClock(effort.timeS)
+                    )}
+                  </span>
+                  {hasBaseline ? (
+                    <>
+                      <span className="data-number w-12 shrink-0 text-right text-caption text-label-3">
+                        {last?.timeS == null ? '' : formatClock(last.timeS)}
+                      </span>
+                      <span className="w-11 shrink-0 text-right">
+                        <Delta value={delta} better="down" />
+                      </span>
+                    </>
+                  ) : null}
+                  <span
+                    className={cn(
+                      rule,
+                      'data-number flex w-14 shrink-0 items-center justify-end self-stretch text-caption text-label-3',
+                    )}
+                  >
+                    {formatClock(goalEquivalent(block, effort.distanceM))}
+                  </span>
+                  <span className="data-number w-12 shrink-0 text-right text-caption text-label-2">
+                    {projected == null ? (
+                      <span className="text-label-3">—</span>
+                    ) : (
+                      formatClock(projected)
+                    )}
+                  </span>
+                </>
+              )
+              return (
+                <li key={effort.label}>
+                  {effort.activity ? (
+                    <a href={`/actividad?id=${effort.activity.id}`} className={cn(row, 'tappable')}>
+                      {cells}
+                    </a>
+                  ) : (
+                    <div className={row}>{cells}</div>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        </>
+      ) : null}
+
+    </Card>
+  )
+}
+
+/**
  * The 42/7-day pair, and what the difference between them says about today.
  *
  * `baseline` is on because this plot's floor is a real zero — no training is no load —
@@ -473,144 +682,345 @@ function FormCard({ view }: { view: View }) {
 }
 
 /**
- * What the running so far says the race would be, and the four bars it is read off.
+ * Where the two lactate thresholds are, and — the part that is actually worth a card —
+ * where they are going.
  *
- * The delta column is the point of the table rather than a decoration on it: a 10K three
- * percent faster than last season's is the single most direct answer this screen has to
- * "am I ahead". `better="down"` because a race time that shrinks is the good one.
+ * The estimator is `src/lib/thresholds.ts` and its reasoning lives there. What belongs
+ * here is the one editorial decision the card makes: **the pulse is the headline and the
+ * pace is the story**. A threshold heart rate is close to a constant within an athlete —
+ * it is a property of the muscle, not of the week — so a card that charted bpm through a
+ * successful block would draw two nearly flat lines and read as "nothing is happening".
+ * What training moves is the *speed* carried at those heart rates, which is why the chart
+ * opens on pace and the pulse is the option behind the switch rather than the other way
+ * round.
  *
- * Rows that came from a real activity link to its trace. The benchmark that is currently
- * the ceiling is the run most worth reopening, and `/actividad` is already the screen for
- * it — the last-season column never links, because those rows are CSV, not Strava.
- *
- * The one place this table does *not* follow the page's same-distance-from-race-day rule
- * is that column: `bestEfforts(baseline.activities)` reads the whole of last season, not
- * last season up to this point, because a personal best is the record to beat rather than
- * a snapshot. That is only safe while it is said out loud, which is what the last clause
- * of the note under the table is for — a green arrow against an unstated baseline is a
- * claim, not a number. The whole column — header, cells and note — disappears for an
- * athlete with no season on file, rather than comparing against a benchmark that is not
- * there.
+ * The card never hides behind an empty state. With no runs at all it still prints two
+ * numbers — the textbook shares of maximum heart rate — and says in the prose that they
+ * are the textbook and not a measurement. Week one of a block is exactly when an athlete
+ * wants to know what to hold, and "vuelve cuando tengas datos" is not an answer.
  */
-function ProjectionCard({ block, view }: { block: BlockConfig; view: View }) {
-  const projection = view.projection
-  const goalDelta = projection ? projection.timeS - block.goalTimeS : null
-  const hasBaseline = view.last != null
-  const anyEffort =
-    view.efforts.some((e) => e.timeS != null) || view.lastEfforts.some((e) => e.timeS != null)
-  const anyLink = view.efforts.some((e) => e.activity != null)
-  const row = 'flex min-h-11 items-center gap-2'
+function ThresholdCard({ view, currentWeek }: { view: View; currentWeek: number }) {
+  const [metric, setMetric] = useState<'pace' | 'bpm'>('pace')
+  const [notesOpen, setNotesOpen] = useState(false)
+  const { thresholds: t, thresholdWeeks } = view
+
+  /** The strap has seen a beat above the configured maximum, so every share here is low. */
+  const hrMaxTooLow = t.observedMaxBpm != null && t.observedMaxBpm > view.hrMax
+
+  const pace = metric === 'pace'
+  const series = thresholdWeeks.map((week) => ({
+    at: week.weekIndex,
+    lt1: pace ? week.lt1PaceSKm : week.lt1Bpm,
+    lt2: pace ? week.lt2PaceSKm : week.lt2Bpm,
+  }))
+  const values = series.flatMap((p) => [p.lt1, p.lt2]).filter((v): v is number => v != null)
+  // Two of anything makes a trend; one point is a dot, and a dot on an axis is furniture.
+  const plotted = values.length >= 4
+
+  // Heart rate and pace both sit a long way from zero, so the floor is just under the
+  // lowest point — the same rule `LineChart` states for a heart-rate trace. A zero floor
+  // would flatten a fifteen-second improvement into nothing.
+  const lo = Math.min(...values)
+  const hi = Math.max(...values)
+  const room = Math.max(metric === 'bpm' ? 2 : 6, (hi - lo) * 0.2)
+
+  // The axis stops at this week rather than running to the race, which is the opposite of
+  // the volume bars and deliberate: an unrun week of volume still says something — the plan
+  // asked for a number and it has not happened yet — and an unrun week of *threshold* says
+  // nothing at all. Twenty-one empty steps would compress the whole trend into the left
+  // eighth of the plot, which is the same reason the cumulative trace above stops at today.
+  const steps = currentWeek + 1
+  const at = (i: number, of: 'lt1' | 'lt2') => series.find((p) => p.at === i)?.[of] ?? null
+  const line = (of: 'lt1' | 'lt2') => Array.from({ length: steps }, (_, i) => at(i, of))
 
   return (
     <Card className="fade-up">
       <CardTitle
         action={
-          <span className="text-caption tabular-nums text-label-3">
-            Objetivo {formatClock(block.goalTimeS)} · {formatPace(goalPaceSKm(block))}/km
-          </span>
+          // Amber only for `baja`, which is the one reading that changes what you should do
+          // with the numbers — it means they are the textbook rather than you. `alta` in the
+          // accent would put the screen's loudest colour on a piece of metadata.
+          <Chip tone={t.confidence === 'baja' ? 'down' : 'neutral'}>
+            confianza {t.confidence}
+          </Chip>
         }
       >
-        Proyección
+        Umbrales
       </CardTitle>
 
-      {projection && goalDelta != null ? (
-        <>
-          <p className="data-number font-display text-title1 font-bold leading-none">
-            {formatClock(projection.timeS)}
-            <span className="ml-1.5 font-sans text-footnote font-normal tracking-normal text-label-3">
-              media proyectada
-            </span>
-          </p>
-          <p className="mt-2 text-footnote leading-relaxed">
-            <span className={cn(goalDelta <= 0 ? 'text-accent' : 'text-amber')}>
-              {goalDelta <= 0
-                ? `${formatClock(Math.abs(goalDelta))} por dentro del objetivo`
-                : `a ${formatClock(goalDelta)} del objetivo`}
-            </span>
-            <span className="text-label-3"> · desde tu {projection.from.label}</span>
-          </p>
-        </>
-      ) : (
-        <EmptyState>
-          Aún no hay ningún esfuerzo de 5 km o más desde el que proyectar. Un rodaje no cuenta:
-          hace falta Z4 o más, o correr por debajo de tu ritmo medio.
-        </EmptyState>
-      )}
+      <div className="mt-2.5 grid grid-cols-2 gap-2.5">
+        <ThresholdReading
+          label="LT1 · Aeróbico"
+          hint="hasta aquí, fácil"
+          threshold={t.lt1}
+          className="text-blue"
+        />
+        <ThresholdReading
+          label="LT2 · Funcional"
+          hint="lo que aguantas una hora"
+          threshold={t.lt2}
+          className="text-amber"
+        />
+      </div>
 
-      {anyEffort ? (
-        <>
-          <div
-            className={cn(
-              row,
-              // `label-3`, not `label-4`: these name the three columns under them, which
-              // makes them data, and `label-4` is the one step that misses AA.
-              'mt-3 min-h-0 border-b border-line pb-1.5 text-caption2 uppercase tracking-wider text-label-3',
-            )}
-          >
-            <span className="flex-1">Listón</span>
-            <span className="w-16 text-right">Bloque</span>
-            {hasBaseline ? (
-              <>
-                <span className="w-16 text-right">2025-26</span>
-                <span className="w-12" />
-              </>
-            ) : null}
-          </div>
+      <ThresholdScale className="mt-3" hrMax={view.hrMax} lt1={t.lt1.bpm} lt2={t.lt2.bpm} />
 
-          <ul className="divide-y divide-line">
-            {view.efforts.map((effort, i) => {
-              const last = hasBaseline ? view.lastEfforts[i] : undefined
-              const delta =
-                effort.timeS == null || last?.timeS == null
-                  ? null
-                  : percentDelta(effort.timeS, last.timeS)
-              const cells = (
-                <>
-                  <span className="flex-1 truncate text-footnote text-label-2">{effort.label}</span>
-                  <span className="data-number w-16 text-right text-footnote">
-                    {effort.timeS == null ? (
-                      <span className="text-label-3">—</span>
-                    ) : (
-                      formatClock(effort.timeS)
-                    )}
-                  </span>
-                  {hasBaseline ? (
-                    <>
-                      <span className="data-number w-16 text-right text-caption text-label-3">
-                        {last?.timeS == null ? '' : formatClock(last.timeS)}
-                      </span>
-                      <span className="w-12 text-right">
-                        <Delta value={delta} better="down" />
-                      </span>
-                    </>
-                  ) : null}
-                </>
-              )
-              return (
-                <li key={effort.label}>
-                  {effort.activity ? (
-                    <a href={`/actividad?id=${effort.activity.id}`} className={cn(row, 'tappable')}>
-                      {cells}
-                    </a>
-                  ) : (
-                    <div className={row}>{cells}</div>
-                  )}
-                </li>
-              )
-            })}
-          </ul>
+      {plotted ? (
+        <>
+          <Segmented<'pace' | 'bpm'>
+            className="mt-3"
+            options={[
+              { value: 'pace', label: 'Ritmo' },
+              { value: 'bpm', label: 'Pulso' },
+            ]}
+            value={metric}
+            onChange={setMetric}
+            label="Qué trazar de los umbrales"
+          />
+
+          <figure className="mt-2.5">
+            <LineChart
+              label={
+                pace
+                  ? 'Ritmo en cada umbral, semana a semana. Más arriba es más rápido.'
+                  : 'Pulsaciones en cada umbral, semana a semana.'
+              }
+              steps={steps}
+              height={88}
+              yMin={lo - room}
+              yMax={hi + room}
+              invert={pace}
+              series={[
+                { values: line('lt1'), className: 'stroke-blue', strokeWidth: 1.5, points: true, pointClassName: 'stroke-blue', pointHaloClassName: 'stroke-surface-raised' },
+                { values: line('lt2'), className: 'stroke-amber', strokeWidth: 1.5, points: true, pointClassName: 'stroke-amber', pointHaloClassName: 'stroke-surface-raised' },
+              ]}
+            />
+            <ChartScale start="S1" end={`S${steps}`}>
+              <ChartLegend
+                dense
+                items={[
+                  { label: 'LT1', className: 'bg-blue' },
+                  { label: 'LT2', className: 'bg-amber' },
+                ]}
+              />
+            </ChartScale>
+          </figure>
         </>
       ) : null}
 
-      <p className="mt-2.5 text-caption2 leading-relaxed text-label-3">
-        Cada listón es el ritmo medio de una salida completa de al menos esa distancia, llevado a
-        la distancia exacta — la app guarda resúmenes, no parciales — y solo cuentan los
-        esfuerzos: Z4 o más, o más rápido que ritmo medio.
-        {hasBaseline ? ' La columna de 2025-26 es la mejor marca de toda aquella temporada.' : ''} La
-        media se proyecta con Riegel.
-        {anyLink ? ' Toca un listón para abrir esa salida.' : ''}
-      </p>
+      {/*
+        The method, folded away.
+
+        It is six lines of prose explaining an estimate, and prose you have read once is
+        furniture on every visit after that — the numbers above are what the card is for.
+        Collapsed by default and reopened by choice, which is also why the state lives in
+        this component rather than in a ref: `/progreso` is one of the four tabs `Activity`
+        keeps mounted, so a reader who opened it stays opened across tab taps.
+
+        The FCmáx warning folds in with it, at the cost of one concession. It is the only
+        actionable line in the card — every percentage on this screen is a share of that
+        number — so burying it with no trace would be a regression rather than a tidy-up.
+        The trigger carries it instead: amber, and naming the thing to fix, so the warning
+        is still legible while closed and one tap from its detail.
+      */}
+      <div className="mt-3 border-t border-line pt-1">
+        <button
+          type="button"
+          onClick={() => setNotesOpen((open) => !open)}
+          aria-expanded={notesOpen}
+          aria-controls="umbrales-metodo"
+          className="tappable flex min-h-11 w-full items-center gap-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+        >
+          {/* Not the uppercase label treatment the stat rows wear: this row has to be able
+              to say "FCmáx", and `text-transform` would print it FCMÁX. The chevron, the
+              rule above and the 44px row are what make it read as a control. */}
+          <span className="flex-1 truncate text-caption2 font-medium text-label-3">
+            Cómo se calcula
+            {hrMaxTooLow ? <span className="text-amber"> · revisa tu FCmáx</span> : null}
+          </span>
+          <Chevron open={notesOpen} />
+        </button>
+
+        {notesOpen ? (
+          <div id="umbrales-metodo" className="pb-1">
+            <p className="text-caption2 leading-relaxed text-label-3">
+              <ThresholdMethod thresholds={t} />
+            </p>
+
+            {hrMaxTooLow ? (
+              <p className="mt-2 text-caption2 leading-relaxed text-amber">
+                Tu pulsómetro ha marcado {t.observedMaxBpm} lpm, por encima de la FCmáx que
+                tienes puesta ({view.hrMax}). Ajústala en Ajustes: todo lo de esta pantalla son
+                porcentajes de ese número.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
     </Card>
+  )
+}
+
+/** One threshold: the pulse big, the pace and the share of maximum under it. */
+function ThresholdReading({
+  label,
+  hint,
+  threshold,
+  className,
+}: {
+  label: string
+  hint: string
+  threshold: Threshold
+  className: string
+}) {
+  return (
+    <div className="min-w-0 rounded-lg bg-surface-deep/40 px-2.5 py-2">
+      <p className={cn('truncate text-caption2 font-semibold uppercase tracking-[0.09em]', className)}>
+        {label}
+      </p>
+      <p className="data-number mt-1 font-display text-title2 font-bold leading-none text-label">
+        {threshold.bpm}
+        <span className="ml-1 font-sans text-caption font-normal tracking-normal text-label-3">
+          lpm
+        </span>
+      </p>
+      <p className="mt-1 text-caption2 tabular-nums text-label-2">
+        {threshold.paceSKm == null ? '—' : `${formatPace(threshold.paceSKm)}/km`} ·{' '}
+        {Math.round(threshold.shareOfMax * 100)}% FCmáx
+      </p>
+      <p className="mt-0.5 truncate text-caption2 text-label-3">{hint}</p>
+    </div>
+  )
+}
+
+/**
+ * The five zones as a ruler, with the two thresholds marked on it.
+ *
+ * Local to this card rather than an eighth shape in `charts.tsx`: that file holds the
+ * shapes more than one screen draws, and this one is a picture of a single idea — where
+ * two numbers sit against the zones the rest of the app already speaks in. It is also the
+ * one place in the app an actual heart rate is printed, which is a deliberate exception to
+ * "intensity is Z1–Z5, never a heart rate": a threshold *is* the bpm, that is the whole
+ * point of estimating it, and the zones under it are what make the number legible.
+ *
+ * The scale opens at 60% of maximum rather than at zero, because nothing below it is ever
+ * run and a ruler that spends half its width on heart rates the athlete never sees is half
+ * a ruler.
+ */
+function ThresholdScale({
+  hrMax,
+  lt1,
+  lt2,
+  className,
+}: {
+  hrMax: number
+  lt1: number
+  lt2: number
+  className?: string
+}) {
+  const floors = zoneFloorsBpm(hrMax)
+  const from = Math.round(0.6 * hrMax)
+  const span = hrMax - from
+  const at = (bpm: number) => ((bpm - from) / span) * 100
+
+  const bands: { zone: Zone; from: number; to: number }[] = [
+    { zone: 1, from, to: floors[2] },
+    { zone: 2, from: floors[2], to: floors[3] },
+    { zone: 3, from: floors[3], to: floors[4] },
+    { zone: 4, from: floors[4], to: floors[5] },
+    { zone: 5, from: floors[5], to: hrMax },
+  ]
+
+  const marks = [
+    { label: 'LT1', bpm: lt1, className: 'bg-blue', text: 'text-blue' },
+    { label: 'LT2', bpm: lt2, className: 'bg-amber', text: 'text-amber' },
+  ]
+
+  return (
+    <div className={className}>
+      <div
+        role="img"
+        aria-label={`Las cinco zonas entre ${from} y ${hrMax} lpm, con el LT1 en ${lt1} y el LT2 en ${lt2}.`}
+        className="relative h-4 overflow-hidden rounded-full bg-fill"
+      >
+        <div aria-hidden className="flex h-full">
+          {bands.map((band) => (
+            <span
+              key={band.zone}
+              // A third of the opacity the zone bar uses elsewhere: this is a backdrop for
+              // two markers, not a reading of its own, and at full chroma the markers
+              // disappear into it.
+              className={cn('h-full opacity-35', ZONE_ACCENT[band.zone].bar)}
+              style={{ width: `${((band.to - band.from) / span) * 100}%` }}
+            />
+          ))}
+        </div>
+        {marks.map((mark) => (
+          <span
+            key={mark.label}
+            aria-hidden
+            // Ringed in the card's own ground, because a marker has no say in which band
+            // it lands on: LT2 sits inside Z4 and LT1 on the Z2/Z3 seam, so amber-on-amber
+            // and blue-on-blue are the *expected* cases, not the edge ones. The ring is
+            // the gap that separates the mark from whatever is behind it.
+            className={cn(
+              'absolute inset-y-0 w-0.5 rounded-full ring-2 ring-surface-raised',
+              mark.className,
+            )}
+            style={{ left: `calc(${Math.min(100, Math.max(0, at(mark.bpm)))}% - 1px)` }}
+          />
+        ))}
+      </div>
+
+      <div aria-hidden className="relative mt-1 h-3.5">
+        {marks.map((mark) => (
+          <span
+            key={mark.label}
+            className={cn(
+              'absolute -translate-x-1/2 whitespace-nowrap text-caption2 font-semibold tabular-nums',
+              mark.text,
+            )}
+            // Clamped off both ends so a threshold near the top of the scale keeps its
+            // label inside the card instead of hanging off the gutter.
+            style={{ left: `${Math.min(88, Math.max(12, at(mark.bpm)))}%` }}
+          >
+            {mark.label} {mark.bpm}
+          </span>
+        ))}
+      </div>
+      <div className="flex items-baseline justify-between text-caption2 tabular-nums text-label-3">
+        <span>{from} lpm</span>
+        <span>{hrMax} lpm · FCmáx</span>
+      </div>
+    </div>
+  )
+}
+
+/** How the two numbers above were arrived at, in the words the basis actually justifies. */
+function ThresholdMethod({ thresholds }: { thresholds: Thresholds }) {
+  if (thresholds.lt2.basis === 'hrmax')
+    return (
+      <>
+        Todavía no hay ningún esfuerzo sostenido con pulso en las últimas semanas, así que
+        estos dos son el 90% y el 80% de tu FCmáx — el punto de partida de manual, no una
+        medida tuya. Una salida dura y continua de veinte minutos o más y el LT2 pasa a
+        medirse.
+      </>
+    )
+
+  const n = thresholds.evidence.length
+  return (
+    <>
+      El LT2 sale de {n === 1 ? 'tu esfuerzo sostenido' : `tus ${n} esfuerzos sostenidos`} de
+      las últimas semanas, llevad{n === 1 ? 'o' : 'os'} a lo que habría{n === 1 ? '' : 'n'} dado
+      en una hora
+      {thresholds.lt1.basis === 'measured'
+        ? '; el LT1, del punto en que tu pulso empieza a subir más deprisa que el ritmo.'
+        : '; el LT1 va un 10% de FCmáx por debajo hasta que haya salidas suficientes para encontrarlo en tus datos.'}{' '}
+      Las pulsaciones de un umbral apenas se mueven: lo que mejora es el ritmo que sostienes en
+      ellas.
+      {thresholds.line == null ? ' Aún faltan salidas con pulso para poder darles uno.' : ''}
+    </>
   )
 }
 
@@ -618,19 +1028,76 @@ function ProjectionCard({ block, view }: { block: BlockConfig; view: View }) {
  * Where the time actually went, which is the check on the plan's second promise: that
  * frequency goes up and intensity does not.
  *
+ * Three readings, coarse to fine, and the order is the order of the questions. The strip
+ * splits the block at this athlete's own two thresholds, because "how much of this was
+ * genuinely easy" is the question polarised training is about and five zones is more
+ * resolution than that question has. The bar and the list under it are the five zones,
+ * for the session-level reading. And the weekly row is the one thing a total cannot show:
+ * whether the easy end erodes as the volume climbs.
+ *
  * The bar is drawn whether or not there is anything in it — an empty track plus the
  * sentence that says why is the shape of the answer, and it stops the card collapsing to
  * a title for the weeks before the strap records anything.
  */
-function IntensityCard({ view }: { view: View }) {
+function IntensityCard({ view, currentWeek }: { view: View; currentWeek: number }) {
   const present = view.zones.filter((z) => z.movingS > 0)
   const total = present.reduce((sum, z) => sum + z.movingS, 0)
+  const { domains: split } = view
+
+  const share = (seconds: number) =>
+    split.totalS === 0 ? '—' : `${Math.round((seconds / split.totalS) * 100)}%`
+
+  /**
+   * The *hard* share of every week run so far, against a rule at a fifth.
+   *
+   * The easy share was the obvious series and it is the wrong one, for a mechanical reason
+   * and an editorial one. Mechanically, `BarRow` scales to the tallest thing in it — bars
+   * and target alike — so an 80% rule over weeks that never reach it pins itself to the top
+   * edge and reads as a lid rather than as a reference. A 20% rule sits in the middle of the
+   * plot where a rule belongs. Editorially it is the sharper reading anyway: this card's own
+   * sentence is that frequency should rise and intensity should not, and the polarity is
+   * right — bars growing towards the line is the thing to notice, not bars shrinking away
+   * from one.
+   *
+   * Only as far as this week. The weeks ahead would be a row of empty slots, which reads as
+   * twenty weeks of nothing rather than as twenty weeks not yet run; the volume card can
+   * draw its future because a target rule gives an unrun week something to say, and there
+   * is nothing to put in one here.
+   */
+  const weekly = view.domainsWeekly.slice(0, currentWeek + 1).map((week, i) => {
+    const hard = week.totalS === 0 ? 0 : (week.hardS / week.totalS) * 100
+    return {
+      key: i,
+      value: hard,
+      target: 20,
+      // The same neutral-past / accent-now the weekly volume bars use, so two rows of bars
+      // on one screen do not mean two different things by the same colour. The reading is
+      // in the rule, not in the hue — one step dimmer than the volume row's `label-2`
+      // because this card already carries five zone colours above it.
+      className: i === currentWeek ? 'bg-accent' : 'bg-label-3',
+      title:
+        week.totalS === 0
+          ? `S${i + 1}: sin pulso`
+          : `S${i + 1}: ${Math.round(hard)}% duro`,
+    }
+  })
 
   return (
     <Card className="fade-up">
       <CardTitle>Reparto por zonas</CardTitle>
 
+      <StatStrip>
+        <Stat label="Fácil" value={share(split.easyS)} hint={`bajo ${view.thresholds.lt1.bpm} lpm`} />
+        <Stat
+          label="Moderado"
+          value={share(split.moderateS)}
+          hint={`${view.thresholds.lt1.bpm}–${view.thresholds.lt2.bpm}`}
+        />
+        <Stat label="Duro" value={share(split.hardS)} hint={`sobre ${view.thresholds.lt2.bpm} lpm`} />
+      </StatStrip>
+
       <StackedBar
+        className="mt-3"
         parts={present.map((z) => ({
           key: z.zone,
           value: z.movingS,
@@ -646,9 +1113,15 @@ function IntensityCard({ view }: { view: View }) {
         <ul className="mt-2.5 space-y-2">
           {[...present].reverse().map((zone) => (
             <li key={zone.zone} className="flex items-baseline justify-between gap-2">
-              <span className="flex items-center gap-1.5">
+              <span className="flex min-w-0 items-center gap-1.5">
                 <span className={cn('size-2 shrink-0 rounded-full', ZONE_ACCENT[zone.zone].bar)} />
-                <span className="text-footnote text-label-2">{ZONE_NAME[zone.zone]}</span>
+                <span className="truncate text-footnote text-label-2">{ZONE_NAME[zone.zone]}</span>
+                {/* The kilometres run in the zone, which the time alone does not say: an
+                    hour of Z2 and an hour of Z4 are very different distances, and volume
+                    is what every other card on this screen counts in. */}
+                <span className="shrink-0 text-caption2 tabular-nums text-label-3">
+                  {formatKm(zone.distanceM)} km
+                </span>
               </span>
               <span className="shrink-0 text-caption tabular-nums text-label-3">
                 {formatDuration(zone.movingS)} · {Math.round((zone.movingS / total) * 100)}%
@@ -656,6 +1129,19 @@ function IntensityCard({ view }: { view: View }) {
             </li>
           ))}
         </ul>
+      ) : null}
+
+      {weekly.length > 1 ? (
+        <figure className="mt-3">
+          <BarRow
+            label="Porcentaje del tiempo corriendo por encima del LT2, semana a semana. La discontinua marca el 20%."
+            height={44}
+            bars={weekly}
+          />
+          <ChartScale start="S1" end={`S${weekly.length}`}>
+            % duro · discontinua = 20%
+          </ChartScale>
+        </figure>
       ) : null}
 
       <p className="mt-2.5 text-caption2 leading-relaxed text-label-3">
