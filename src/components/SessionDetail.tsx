@@ -29,14 +29,17 @@ import { useRouteParams, type Route } from './router'
 import {
   ACCENT,
   ARROW_OUT,
+  CHECK,
   CHEVRON_LEFT,
+  PENCIL,
+  UNDO,
+  ActionLink,
   Card,
   CardTitle,
   Chip,
   EmptyState,
   ErrorCard,
   HeroMetric,
-  Icon,
   LoadingCard,
   Skeleton,
   Stat,
@@ -177,21 +180,25 @@ function SessionDetailScreen({ route }: { route: Route }) {
       {/* Not a card, and not a filled button. The two actions a session detail offers are
           both secondary to reading it — one of them only exists for the sessions Strava
           will never report — and a accent slab across the foot of the screen made the last
-          thing on it the loudest. A pair of text actions on the page ground weighs what
-          they are worth and still holds a 44px target each. */}
-      <div className="flex flex-wrap items-center justify-between gap-x-4 px-1">
+          thing on it the loudest. A pair of glyph-led actions on the page ground weighs
+          what they are worth and still holds a 44px target each — and they are the same
+          shape as the two at the head of the screen, so every tappable word on `/sesion`
+          is a glyph and a label rather than three different ideas of an action. */}
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-1">
         {toggle ? (
-          // Mint on the word rather than behind it: still the affirmative action, at the
-          // weight of one.
-          <TextLink
+          // The tick is the app's own word for done — the same glyph `DoneToggle` draws in
+          // every week row — so ticking it off here is spelled the way it is spelled there,
+          // and the undo arrow is what takes it back.
+          <ActionLink
+            icon={done ? UNDO : CHECK}
             tone={done ? 'quiet' : 'primary'}
             disabled={saving}
             inset
-            className="-ml-2"
+            className="-ml-1"
             onClick={() => void toggle()}
           >
             {done ? 'Marcar como pendiente' : 'Marcar como hecha'}
-          </TextLink>
+          </ActionLink>
         ) : session.type === 'rest' ? (
           <span />
         ) : (
@@ -199,9 +206,9 @@ function SessionDetailScreen({ route }: { route: Route }) {
             Se marca sola en cuanto Strava reporte la salida.
           </p>
         )}
-        <TextLink href="/plan" inset className="-mr-2">
+        <ActionLink icon={PENCIL} href="/plan" inset className="-mr-1">
           Editar en el plan
-        </TextLink>
+        </ActionLink>
       </div>
       {actionError ? (
         <p role="alert" className="px-1 text-caption text-red">
@@ -261,24 +268,16 @@ function Overview({
   return (
     <Card className="fade-up">
       <div className="-mx-1 -mt-1.5 flex items-center justify-between gap-2">
-        <a
-          href={back.href}
-          className="tappable inline-flex min-h-11 items-center gap-1 px-1 text-caption font-medium text-label-2"
-        >
-          <Icon path={CHEVRON_LEFT} className="size-3.5" />
+        <ActionLink icon={CHEVRON_LEFT} href={back.href}>
           {back.label}
-        </a>
+        </ActionLink>
         {activity ? (
           // The trace is a screen of its own and it is the natural next tap once a session
           // has been answered, so it sits with the navigation rather than buried under the
           // result card below.
-          <a
-            href={`/actividad?id=${activity.id}`}
-            className="tappable inline-flex min-h-11 items-center gap-1 px-1 text-caption font-medium text-label-2"
-          >
+          <ActionLink icon={ARROW_OUT} after href={`/actividad?id=${activity.id}`}>
             Ver la traza
-            <Icon path={ARROW_OUT} className="size-3.5" />
-          </a>
+          </ActionLink>
         ) : null}
       </div>
 

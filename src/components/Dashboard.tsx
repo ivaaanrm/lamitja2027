@@ -20,12 +20,13 @@ import {
   ErrorCard,
   HeroMetric,
   Icon,
+  IconAction,
   LoadingCard,
   ProgressRing,
+  SYNC,
   Skeleton,
   Stat,
   StatStrip,
-  TextLink,
 } from './ui'
 
 /**
@@ -262,6 +263,13 @@ function SolidIcon({ path, className }: { path: string; className?: string }) {
  * Both carry a filled accent glyph because accent here is not decoration but the destination
  * the whole screen is oriented at; the values stay `text-label` so the colour is the
  * marker and the fact is the ink.
+ *
+ * Each of the two carries a quieter second fact rather than a third glyph: the place under
+ * the race's name, and goal pace under the goal time. Goal pace is the goal *said per
+ * kilometre* — the number every band in `paces.ts` is a ratio of, and the one the athlete
+ * actually reads off a watch — so it belongs beside the finish time it is derived from,
+ * not in a row of its own. `label-3` on both is what keeps the line one fact deep at a
+ * glance and two when read.
  */
 function RaceCountdown({ block, now }: { block: BlockConfig; now: number }) {
   const days = daysToRace(block, now)
@@ -291,11 +299,17 @@ function RaceCountdown({ block, now }: { block: BlockConfig; now: number }) {
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-caption text-label-2">
         <span className="flex min-w-0 items-center gap-1.5">
           <SolidIcon path={FLAG_SOLID} className="text-accent" />
-          <span className="truncate font-medium text-label">{block.raceName}</span>
+          <span className="truncate">
+            <span className="font-medium text-label">{block.raceName}</span>
+            {block.racePlace ? <span className="text-label-3"> · {block.racePlace}</span> : null}
+          </span>
         </span>
         <span className="flex items-center gap-1.5">
           <SolidIcon path={TARGET_SOLID} className="text-accent" />
-          <span className="data-number font-semibold text-label">{formatClock(block.goalTimeS)}</span>
+          <span className="data-number">
+            <span className="font-semibold text-label">{formatClock(block.goalTimeS)}</span>
+            <span className="text-label-3"> · {formatPace(goalPaceSKm(block))}/km</span>
+          </span>
         </span>
       </div>
     </div>
@@ -417,10 +431,13 @@ function RecentRuns({
         action={
           // The manual sync lives on the card whose freshness it decides. The webhook and
           // the nightly cron do this on their own; this is the button for the morning they
-          // did not.
-          <TextLink inset onClick={onSync} disabled={busy}>
-            {busy ? 'Sincronizando…' : 'Sincronizar'}
-          </TextLink>
+          // did not — which is exactly the kind of action that can afford to be a glyph.
+          <IconAction
+            icon={SYNC}
+            label={busy ? 'Sincronizando…' : 'Sincronizar'}
+            busy={busy}
+            onClick={onSync}
+          />
         }
       >
         Últimas salidas

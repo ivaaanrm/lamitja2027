@@ -309,6 +309,7 @@ export function blockBrief({ block, bands, hrMax }: McpCtx, now: number) {
   return {
     race: {
       name: block.raceName,
+      place: block.racePlace,
       date: toIsoDate(block.raceOn),
       distanceM: block.raceDistanceM,
       daysToRace: daysToRace(block, now),
@@ -734,7 +735,7 @@ const TOOLS: Tool[] = [
     name: 'get_block',
     title: 'Block brief',
     description:
-      'CALL THIS FIRST. The brief needed to write anything: race name and date, block start and end, how many weeks it has, the goal time and goal pace, the six pace bands with their zone numbers and labels, the session types with their meta (which are quality days, which count as running volume), the step and recovery vocabulary, and today\'s date and week index. Reads nothing you have to page through — one call is enough to write a correct plan. Takes no arguments.',
+      'CALL THIS FIRST. The brief needed to write anything: race name, place and date, block start and end, how many weeks it has, the goal time and goal pace, the six pace bands with their zone numbers and labels, the session types with their meta (which are quality days, which count as running volume), the step and recovery vocabulary, and today\'s date and week index. Reads nothing you have to page through — one call is enough to write a correct plan. Takes no arguments.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     // Reads nothing: every field is a constant out of `config.ts`, `block.ts` and
     // `paces.ts`, which is also what makes the brief testable without a database.

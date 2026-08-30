@@ -34,6 +34,7 @@ const OWNER: BlockConfig = {
   goalTimeS: 4799,
   raceDistanceM: HALF_MARATHON_M,
   raceName: 'La Mitja',
+  racePlace: 'Granollers',
 }
 
 
@@ -43,6 +44,7 @@ const OTHER: BlockConfig = {
   goalTimeS: 2400,
   raceDistanceM: 10_000,
   raceName: 'Cursa dels Nassos',
+  racePlace: null,
 }
 
 describe('block boundaries', () => {

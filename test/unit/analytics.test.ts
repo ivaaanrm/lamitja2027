@@ -20,6 +20,8 @@ import {
   fitnessSeries,
   formLabel,
   percentDelta,
+  goalEquivalent,
+  projectEffort,
   projectHalf,
   riegel,
   summarise,
@@ -280,6 +282,44 @@ describe('projection', () => {
   it('is null when nothing has been run far enough', () => {
     const efforts = bestEfforts(BLOCK, [activity({ distanceM: 3_000, movingS: 900 })], HR_MAX)
     expect(projectHalf(efforts, HALF_MARATHON_M)).toBeNull()
+  })
+
+  /**
+   * The two columns `/progreso` puts to the right of its rule. They are only comparable
+   * because they are the same formula run in opposite directions, which is the whole
+   * reason `goalEquivalent` is not goal pace × distance — so the round trip is the test.
+   */
+  it('reads the goal back to a benchmark, so hitting it projects the goal', () => {
+    for (const distanceM of [5_000, 10_000, 15_000, HALF_MARATHON_M]) {
+      const equivalent = goalEquivalent(BLOCK, distanceM)
+      const asEffort = { distanceM, label: '', paceSKm: null, timeS: equivalent, activity: null }
+      expect(projectEffort(asEffort, BLOCK.raceDistanceM)).toBeCloseTo(BLOCK.goalTimeS, 6)
+    }
+    // And the equivalent is genuinely harder than the same pace over a shorter distance:
+    // 5 km at goal pace is 18:57, and 18:57 does not project to a 1:19:59 half.
+    expect(goalEquivalent(BLOCK, 5_000)).toBeLessThan(
+      (BLOCK.goalTimeS / BLOCK.raceDistanceM) * 5_000,
+    )
+  })
+
+  it('projects each benchmark on its own, and the card’s headline is the best of them', () => {
+    const efforts = bestEfforts(
+      BLOCK,
+      [
+        activity({ distanceM: 10_000, movingS: 2_260 }), // a sharp 10K
+        activity({ distanceM: 16_000, movingS: 4_800 }), // a steady long run
+      ],
+      HR_MAX,
+    )
+    const each = efforts.map((effort) => projectEffort(effort, HALF_MARATHON_M))
+
+    // Nothing was run over 21 km, so that row projects nothing — while the 5K row is the
+    // 10K read at 5 km, which is what `bestEfforts` means by a benchmark.
+    expect(each[3]).toBeNull()
+    expect(each[0]).not.toBeNull()
+    expect(projectHalf(efforts, HALF_MARATHON_M)!.timeS).toBe(
+      Math.min(...each.filter((timeS): timeS is number => timeS != null)),
+    )
   })
 })
 

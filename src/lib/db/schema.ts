@@ -110,6 +110,9 @@ export const blocks = sqliteTable('blocks', {
   goalTimeS: integer('goal_time_s').notNull(),
   raceDistanceM: real('race_distance_m').notNull(),
   raceName: text('race_name').notNull(),
+  /** Where it is run — the town on the bib. Nullable: a race always has a name, and an
+   * athlete who does not care where theirs is should not have to invent one. */
+  racePlace: text('race_place'),
   updatedAt: integer('updated_at').notNull().default(now),
 })
 

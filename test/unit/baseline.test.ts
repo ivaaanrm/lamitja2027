@@ -23,6 +23,7 @@ const OWNER: BlockConfig = {
   goalTimeS: 4799,
   raceDistanceM: HALF_MARATHON_M,
   raceName: 'La Mitja',
+  racePlace: 'Granollers',
 }
 
 const hasBaseline = BASELINE_RAW.length > 0

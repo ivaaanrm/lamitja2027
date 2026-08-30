@@ -168,6 +168,7 @@ describe('buildBlock', () => {
     goalTimeS: 2400,
     raceDistanceM: 10_000,
     raceName: 'Cursa dels Nassos',
+    racePlace: null,
   }
 
   it('spans as many weeks as the block it is handed', () => {

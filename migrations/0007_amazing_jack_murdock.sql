@@ -1,0 +1,1 @@
+ALTER TABLE `blocks` ADD `race_place` text;
