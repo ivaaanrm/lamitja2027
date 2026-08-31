@@ -356,6 +356,84 @@ describe('service worker · build assets', () => {
   })
 })
 
+describe('service worker · the exercise illustrations', () => {
+  let sw: Harness
+
+  const webp = () =>
+    new Response('RIFF....WEBP', { status: 200, headers: { 'content-type': 'image/webp' } })
+
+  const IMAGE = '/api/exercises/img/fe878dc7/side-plank/card.webp'
+
+  beforeEach(() => {
+    sw = load()
+  })
+
+  it('answers from the cache once, and keeps answering with the network gone', async () => {
+    // The catalogue generation is in the path, so the bytes under one of these URLs can
+    // never change — cache-first is honest here in a way it is not for `/api/data`.
+    sw.fetch.mockResolvedValueOnce(webp())
+    await sw.request(IMAGE)
+
+    sw.fetch.mockRejectedValue(new TypeError('Failed to fetch'))
+    const offline = await sw.request(IMAGE)
+
+    expect(await offline!.text()).toBe('RIFF....WEBP')
+    expect(sw.fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps its own cache, so a browse through the picker cannot evict the app', async () => {
+    // The reason this is not a corner of `lm-assets`: that cache is LRU-60 and holds the
+    // chunks of the running build. Fifty thumbnails from one picker browse would take it.
+    sw.fetch.mockImplementation(async () => new Response('chunk'))
+    await sw.request('/_astro/Dashboard.abc123.js')
+
+    sw.fetch.mockImplementation(async () => webp())
+    for (let i = 0; i < 100; i++) await sw.request(`/api/exercises/img/fe878dc7/move-${i}/card.webp`)
+
+    const assets = await sw.caches.open('lm-assets')
+    expect(assets.store.has('https://app.test/_astro/Dashboard.abc123.js')).toBe(true)
+    const media = await sw.caches.open('lm-media')
+    expect(media.store.size).toBe(100)
+  })
+
+  it('trims itself oldest-first rather than growing to the whole catalogue', async () => {
+    // 16 MB of illustrations is not something to leave on anyone's phone.
+    sw.fetch.mockImplementation(async () => webp())
+    for (let i = 0; i < 155; i++) await sw.request(`/api/exercises/img/fe878dc7/move-${i}/card.webp`)
+
+    const media = await sw.caches.open('lm-media')
+    expect(media.store.size).toBe(150)
+    expect(media.store.has('https://app.test/api/exercises/img/fe878dc7/move-0/card.webp')).toBe(false)
+    expect(media.store.has('https://app.test/api/exercises/img/fe878dc7/move-154/card.webp')).toBe(true)
+  })
+
+  it('never stores a 404 or a portal under an immutable URL', async () => {
+    sw.fetch.mockResolvedValueOnce(new Response(null, { status: 404 }))
+    await sw.request(IMAGE)
+
+    const hop = webp()
+    Object.defineProperty(hop, 'redirected', { value: true })
+    sw.fetch.mockResolvedValueOnce(hop)
+    await sw.request('/api/exercises/img/fe878dc7/plank/card.webp')
+
+    expect((await sw.caches.open('lm-media')).store.size).toBe(0)
+  })
+
+  it('leaves the search endpoint to the network, like every other API read', async () => {
+    // A picker with no signal has nothing useful to answer with, and a template renders
+    // offline from the Spanish name it was prescribed under.
+    expect(await sw.request('/api/exercises?q=plancha')).toBeNull()
+    expect(await sw.request('/api/exercises/side-plank')).toBeNull()
+  })
+
+  it('survives an activate, because a generation in the URL cannot go stale', async () => {
+    await sw.caches.open('lm-media')
+    await sw.activate()
+
+    expect(await sw.caches.keys()).toContain('lm-media')
+  })
+})
+
 describe('service worker · the block payload', () => {
   let sw: Harness
 

@@ -25,8 +25,25 @@
     }
   ],
 
-  // Private profile photos. The browser sends one already-cropped 512 px WebP, and the
-  // Worker reads/writes it through this binding — no public bucket domain and no REST hop.
+  // One bucket, two things in it, and the binding's name is older than the second.
+  //
+  //   `avatars/<userId>/<version>.<webp|jpg>`   Private profile photos. The browser sends
+  //       one already-cropped 512 px WebP and the Worker reads/writes it through this
+  //       binding — no public bucket domain and no REST hop.
+  //   `exercises/<catalogVersion>/<id>/<pose>.webp`   The RepDB exercise illustrations,
+  //       mirrored once by `pnpm exercises:populate` rather than hotlinked: a third-party
+  //       origin sits outside the service worker's reach, and this app's whole claim is
+  //       that it works at a trailhead with no signal. Same for every athlete, so unlike
+  //       an avatar these are not private — only the URL is scoped, by being behind the
+  //       default-closed `/api` gate.
+  //
+  // A second bucket was considered and rejected: it would be another thing every fork and
+  // the live deployment must create and bind before the feature works, for no isolation
+  // gain (both stores are reachable only through this Worker's own routes) and no
+  // bucket-level behaviour we would want to differ. The key namespaces cannot collide.
+  // Renaming the binding to match was rejected too — it touches five files and two docs
+  // for a purely cosmetic gain.
+  //
   // Forks create their own bucket and replace this name; see docs/setup.md.
   "r2_buckets": [{ "binding": "AVATARS", "bucket_name": "lamitja2027-avatars" }],
 

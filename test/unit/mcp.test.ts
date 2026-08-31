@@ -19,7 +19,9 @@ import {
 } from '@/lib/mcp/tools'
 import { HALF_MARATHON_M, goalPaceSKm, totalWeeks, type BlockConfig } from '@/lib/block'
 import { DEFAULT_HR_MAX, PACE_ZONES, paceBands } from '@/lib/paces'
-import { SESSION_TYPES } from '@/lib/plan'
+import { PRESCRIPTION_KINDS, SESSION_TYPES } from '@/lib/plan'
+import { STRATEGIES } from '@/lib/prescription'
+import { BUILTIN_TEMPLATES, sessionFromTemplate } from '@/lib/starters'
 import type { Database } from '@/lib/db/client'
 
 /**
@@ -585,6 +587,13 @@ describe('the registry', () => {
       'create_sessions',
       'update_session',
       'delete_session',
+      'search_exercises',
+      'get_exercise',
+      'list_templates',
+      'create_template',
+      'update_template',
+      'delete_template',
+      'attach_template',
     ])
   })
 
@@ -593,6 +602,28 @@ describe('the registry', () => {
     expect(instructions).toContain('get_block')
     expect(instructions).toContain('steps')
     expect(instructions).toMatch(/consecutive days/)
+  })
+
+  it('tells the agent how to approach a strength day, and in which language to write it', () => {
+    expect(SERVER_INSTRUCTIONS).toContain('attach_template')
+    expect(SERVER_INSTRUCTIONS).toContain('search_exercises')
+    // The whole point of the copy, stated where an agent will read it before it revises a
+    // template and expects last month's Mondays to follow.
+    expect(SERVER_INSTRUCTIONS).toMatch(/COPIES it onto the session|copied onto the session|COPIES/i)
+    expect(SERVER_INSTRUCTIONS).toMatch(/Spanish/)
+  })
+
+  it('offers `steps` as a union rather than as an array, and assembles it from the registry', () => {
+    const create = registry().list().find((tool) => tool.name === 'create_session')
+    const steps = (create!.inputSchema as { properties: { steps: Record<string, unknown> } })
+      .properties.steps
+
+    // Both arms, in PRESCRIPTION_KINDS order — the run one first, because every row ever
+    // written is one and its prose has to keep reading the way it always did.
+    expect(steps.type).toEqual(['array', 'object', 'null'])
+    const arms = steps.oneOf as { type: string }[]
+    expect(arms.map((arm) => arm.type)).toEqual(['array', 'object'])
+    expect(JSON.stringify(arms[1])).toContain('"strength"')
   })
 })
 
@@ -619,6 +650,24 @@ describe('get_block', () => {
       expect(band.hiSKm).toBe(CTX.bands[band.zone].hi)
     }
     expect(brief.sessionTypes.map((type) => type.type)).toEqual([...SESSION_TYPES])
+  })
+
+  it('describes each kind of prescription from the strategy that owns it, never a second copy', () => {
+    const brief = blockBrief(CTX, Date.UTC(2026, 7, 26))
+
+    // Same rule as the pace zones above: the brief is a *view*. If these stop matching, the
+    // MCP surface has begun telling agents a different shape from the one the app stores.
+    expect(Object.keys(brief.prescriptions)).toEqual([...PRESCRIPTION_KINDS])
+    for (const kind of PRESCRIPTION_KINDS) {
+      expect(brief.prescriptions[kind]).toBe(STRATEGIES[kind].authoring.brief)
+    }
+
+    // And which type takes which, so an agent never has to guess that a Fuerza day is not
+    // a list of running steps.
+    const byType = new Map(brief.sessionTypes.map((row) => [row.type, row.prescribes]))
+    expect(byType.get('easy')).toBe('run')
+    expect(byType.get('strength')).toBe('strength')
+    expect(byType.get('rest')).toBeNull()
   })
 
   it('answers without touching the database', async () => {
@@ -716,6 +765,230 @@ describe('write validation happens before the database does', () => {
     const { isError, text } = await resultOf('upsert_week', { weekIndex: totalWeeks(BLOCK), phase: 'Base' })
     expect(isError).toBe(true)
     expect(text).toContain('weekIndex')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The exercise catalogue and the template library
+// ---------------------------------------------------------------------------
+
+/**
+ * Everything below runs with `CTX.db` null, so every assertion is about a path that
+ * refuses *before* it would reach the database. That is the shape the tests want anyway:
+ * a write that is rejected after touching D1 is a write that half happened.
+ */
+
+/** What an agent writes: two moves, one measured in repetitions and one in seconds. */
+const STRENGTH_STEPS = {
+  kind: 'strength',
+  exercises: [
+    { exerciseId: 'plank', name: 'Plancha', sets: 3, durationS: 40, restS: 30 },
+    { exerciseId: 'glute-bridge', name: 'Puente de Glúteos', sets: 2, reps: 15, restS: 30 },
+  ],
+}
+
+describe('search_exercises', () => {
+  it('answers without touching the database, in Spanish and in English alike', async () => {
+    for (const q of ['plancha lateral', 'side plank', 'side-plank']) {
+      const { isError, text } = await resultOf('search_exercises', { q })
+      expect(isError, q).toBe(false)
+      expect(JSON.parse(text).results.map((hit: { id: string }) => hit.id)).toContain('side-plank')
+    }
+  })
+
+  it('carries the tags, because that is what a rebuild filters on', async () => {
+    const { text } = await resultOf('search_exercises', { tags: ['knee_safe'], limit: 5 })
+    const results = JSON.parse(text).results as { tags: string[]; name: string }[]
+    expect(results.length).toBeGreaterThan(0)
+    for (const hit of results) expect(hit.tags).toContain('knee_safe')
+    // The Spanish name is what a prescription must copy, so it has to be on the hit.
+    for (const hit of results) expect(hit.name).not.toBe('')
+  })
+
+  it('reads equipment "none" as bodyweight rather than as a slug', async () => {
+    const { text } = await resultOf('search_exercises', { equipment: 'none', limit: 5 })
+    const results = JSON.parse(text).results as { equipment: string | null }[]
+    expect(results.length).toBeGreaterThan(0)
+    for (const hit of results) expect(hit.equipment).toBeNull()
+  })
+
+  it('names a facet it does not know instead of answering with an empty list', async () => {
+    // An empty result reads as "there is no such exercise", which is the wrong conclusion
+    // to hand a model — so a typo comes back as an error carrying the valid values.
+    const { isError, text } = await resultOf('search_exercises', { muscle: 'glutes' })
+    expect(isError).toBe(true)
+    expect(text).toContain('muscle')
+    expect(text).toContain('gluteus_maximus')
+  })
+
+  it('caps the result set, so this is a search and never a listing', async () => {
+    const { isError, text } = await resultOf('search_exercises', { limit: 500 })
+    expect(isError).toBe(true)
+    expect(text).toContain('limit')
+  })
+})
+
+describe('get_exercise', () => {
+  it('returns the Spanish record for a known id', async () => {
+    const { isError, text } = await resultOf('get_exercise', { id: 'plank' })
+    expect(isError).toBe(false)
+    const exercise = JSON.parse(text) as { name: string; instructions: string[] }
+    expect(exercise.name).toBe('Plancha')
+    expect(exercise.instructions.length).toBeGreaterThan(0)
+  })
+
+  it('refuses an id the catalogue does not have', async () => {
+    const { isError, text } = await resultOf('get_exercise', { id: 'copenhagen-plank' })
+    expect(isError).toBe(true)
+    expect(text).toContain('search_exercises')
+  })
+})
+
+describe('template writes validate before the database does', () => {
+  it('names an exercise id the catalogue does not have, by its index, and writes nothing', async () => {
+    const { isError, text } = await resultOf('create_template', {
+      id: 'fuerza-lunes',
+      name: 'Fuerza de lunes',
+      exercises: [
+        { exerciseId: 'plank', name: 'Plancha', sets: 3, durationS: 40 },
+        { exerciseId: 'copenhagen-plank', name: 'Plancha de aductores', sets: 3, durationS: 30 },
+      ],
+    })
+    expect(isError).toBe(true)
+    expect(text).toContain('nothing was written')
+
+    const issues = JSON.parse(text.slice(text.indexOf('\n') + 1)) as { path: string }[]
+    expect(issues.map((issue) => issue.path)).toEqual(['exercises.1.exerciseId'])
+  })
+
+  it('lets a written-in move through — a null id is a prescription, not a typo', async () => {
+    // The physio's own cue outranks whatever RepDB files it under, so this has to reach
+    // the database rather than be refused. `CTX.db` is null, so reaching it is the proof.
+    const { isError, text } = await resultOf('create_template', {
+      name: 'Fuerza de lunes',
+      exercises: [{ name: 'Almejas (banda media)', sets: 2, reps: 15 }],
+    })
+    expect(isError).toBe(true)
+    expect(text).not.toContain('nothing was written')
+  })
+
+  it('insists an exercise is measured in repetitions or in seconds, never both', async () => {
+    const { isError, text } = await resultOf('create_template', {
+      name: 'Fuerza de lunes',
+      exercises: [{ exerciseId: 'plank', name: 'Plancha', sets: 3, reps: 10, durationS: 40 }],
+    })
+    expect(isError).toBe(true)
+    expect(text).toContain('repeticiones o segundos')
+  })
+
+  it('refuses the ids that belong to the templates shipping with the app', async () => {
+    for (const tool of ['create_template', 'update_template', 'delete_template']) {
+      const { isError, text } = await resultOf(tool, {
+        id: 'treximo-core',
+        name: 'Mío',
+        exercises: [{ exerciseId: 'plank', name: 'Plancha', sets: 3, durationS: 40 }],
+      })
+      expect(isError, tool).toBe(true)
+      expect(text, tool).toContain('treximo-')
+    }
+  })
+})
+
+describe('attach_template', () => {
+  it('insists on exactly one of a day and a session', async () => {
+    const day = toIsoDate(BLOCK.startsOn)
+    for (const args of [
+      { templateId: 'treximo-core' },
+      { templateId: 'treximo-core', scheduledOn: day, sessionId: 'w00-mon-0' },
+    ]) {
+      const { isError, text } = await resultOf('attach_template', args)
+      expect(isError).toBe(true)
+      expect(text).toContain('exactly one')
+    }
+  })
+
+  it('resolves a built-in without a database and runs the copy through the session schema', async () => {
+    // Outside the block, so the only thing that can answer is the app's own validator —
+    // which means the built-in was found and composed into a session before it got there.
+    const { isError, text } = await resultOf('attach_template', {
+      templateId: 'treximo-rodilla-caderas',
+      scheduledOn: '2025-01-01',
+    })
+    expect(isError).toBe(true)
+    expect(text).toContain('bloque')
+  })
+
+  it('clears the distance it is covering, so no run’s metres survive under a list of planks', () => {
+    const stamped = sessionFromTemplate(BUILTIN_TEMPLATES[0])
+    expect(stamped.targetDistanceM).toBeNull()
+    expect(stamped.targetDurationS).toBe(2100)
+    expect(stamped.steps.kind).toBe('strength')
+    // The title comes from the template, which is what makes the copy legible on the card.
+    expect(stamped.title).toBe(BUILTIN_TEMPLATES[0].name)
+  })
+
+  it('refuses to stamp a template onto a running day', async () => {
+    const { isError, text } = await resultOf('attach_template', {
+      templateId: 'treximo-core',
+      scheduledOn: toIsoDate(BLOCK.startsOn),
+      type: 'tempo',
+    })
+    expect(isError).toBe(true)
+    expect(text).toContain('tempo')
+  })
+})
+
+describe('a strength prescription on a session', () => {
+  it('derives no distance from a list of planks', () => {
+    // `workoutDistanceM` on a list of holds is not a smaller number, it is a wrong one —
+    // and a strength day is measured in the minutes the session states, never in metres.
+    const data = withDerivedDistance({ type: 'strength', steps: STRENGTH_STEPS }, CTX.bands)
+    expect(data.targetDistanceM).toBeUndefined()
+    expect(data.steps).toBe(STRENGTH_STEPS)
+  })
+
+  it('validates row by row in a batch, and a good strength row passes', async () => {
+    const day = toIsoDate(BLOCK.startsOn)
+    const { isError, text } = await resultOf('create_sessions', {
+      sessions: [
+        { id: 'w00-mon-0', scheduledOn: day, type: 'strength', title: 'Fuerza', steps: STRENGTH_STEPS },
+        {
+          id: 'w00-wed-0',
+          scheduledOn: day,
+          type: 'strength',
+          title: 'Fuerza',
+          steps: {
+            kind: 'strength',
+            exercises: [{ exerciseId: 'no-such-move', name: 'Inventado', sets: 3, reps: 10 }],
+          },
+        },
+      ],
+    })
+    expect(isError).toBe(true)
+
+    const failures = JSON.parse(text.slice(text.indexOf('\n') + 1)) as {
+      index: number
+      issues: { path: string }[]
+    }[]
+    // Only the second row: the first one's strength payload is valid, which is the half of
+    // this assertion that is easy to lose.
+    expect(failures.map((failure) => failure.index)).toEqual([1])
+    expect(failures[0].issues.map((issue) => issue.path)).toEqual(['steps.exercises.0.exerciseId'])
+  })
+
+  it('still reports a bad step array at the step that is bad', async () => {
+    // The union must not swallow the array arm's own paths — `steps: Invalid input` is
+    // what the plan editor renders when it does, and it is what this guards against.
+    const { isError, text } = await resultOf('create_session', {
+      scheduledOn: toIsoDate(BLOCK.startsOn),
+      type: 'interval',
+      title: 'Series',
+      steps: [{ kind: 'warmup', distanceM: 3000 }, { kind: 'sprint', distanceM: 400 }],
+    })
+    expect(isError).toBe(true)
+
+    const issues = JSON.parse(text.slice(text.indexOf('\n') + 1)) as { path: string }[]
+    expect(issues.map((issue) => issue.path)).toEqual(['steps.1.kind'])
   })
 })
 
@@ -832,5 +1105,25 @@ describe('tenancy · every query is scoped to one athlete', () => {
     const source = await import('../../src/lib/mcp/tools.ts?raw').then((m) => m.default as string)
     expect(source).not.toMatch(/target:\s*planSessions\.id\b/)
     expect(source).not.toMatch(/target:\s*planWeeks\.weekIndex\b/)
+    // `workout_templates` is keyed the same way and for exactly the same reason: an id like
+    // `fuerza-lunes` is a slug two athletes will both pick.
+    expect(source).not.toMatch(/target:\s*workoutTemplates\.id\b/)
+  })
+
+  it('filters every template statement on the template table’s own userId column', async () => {
+    // Stronger than the scan above, and deliberately so. That one asks whether the word
+    // `userId` appears anywhere in the statement, which a statement filtering some *other*
+    // table by it would satisfy. This asks the question that actually matters for the
+    // newest table: is this athlete's column the one in the where clause.
+    const source = await import('../../src/lib/mcp/tools.ts?raw').then((m) => m.default as string)
+
+    const statements = source.match(
+      /\bdb\s*\n?\s*\.(select|insert|update|delete)\b[\s\S]*?(?=\n\n|\n\s{0,6}\breturn\b|\n\s{0,6}\})/g,
+    )!
+    const templateStatements = statements.filter((s) => s.includes('workoutTemplates'))
+    expect(templateStatements.length).toBeGreaterThanOrEqual(4)
+
+    const unscoped = templateStatements.filter((s) => !s.includes('workoutTemplates.userId'))
+    expect(unscoped.map((s) => s.replace(/\s+/g, ' ').slice(0, 100))).toEqual([])
   })
 })

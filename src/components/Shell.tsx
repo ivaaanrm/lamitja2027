@@ -8,6 +8,8 @@ import { Planner } from './Planner'
 import { Progress } from './Progress'
 import { SessionDetail } from './SessionDetail'
 import { Settings } from './Settings'
+import { TemplateEditor } from './TemplateEditor'
+import { Templates } from './Templates'
 import { TrainingLog } from './TrainingLog'
 import { HeaderAvatar } from './useBlock'
 import { cn } from '@/lib/cn'
@@ -131,6 +133,12 @@ function Screens({ route }: { route: Route }) {
       {route.path === '/sesion' ? <SessionDetail route={route} /> : null}
       {route.path === '/actividad' ? <ActivityDetail route={route} /> : null}
       {route.path === '/ajustes' ? <Settings /> : null}
+      {/* Mounted only while open, like the three above and for the same two reasons: the
+          library is addressed by a query string, and the editor carries a form. A draft
+          kept alive behind a closed screen is a draft belonging to a template nobody is
+          looking at any more. */}
+      {route.path === '/plantillas' ? <Templates /> : null}
+      {route.path === '/plantilla' ? <TemplateEditor route={route} /> : null}
     </>
   )
 }

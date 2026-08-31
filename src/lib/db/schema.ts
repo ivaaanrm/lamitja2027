@@ -14,7 +14,8 @@ import { index, integer, primaryKey, real, sqliteTable, text } from 'drizzle-orm
 // A leaf module with no imports, so loading this schema never drags `block.ts` and its
 // `import.meta.env` into drizzle-kit's CommonJS transform. See `session-types.ts`.
 import { SESSION_TYPES } from '../session-types'
-import type { Step } from '../workout'
+import type { StoredPrescription } from '../prescription'
+import type { StrengthExercise } from '../strength'
 
 const now = sql`(unixepoch() * 1000)`
 
@@ -226,12 +227,18 @@ export const planSessions = sqliteTable(
     /** Coaching prose — terrain, cadence, what to abort on. Never the numbers themselves. */
     notes: text('notes'),
     /**
-     * The workout as data: warm-up, reps, rep pace, recovery, cool-down. Stored as JSON
-     * rather than a `plan_steps` table because a step has no identity of its own — it is
-     * never queried, sorted or joined, only read back whole with the session that owns it.
-     * `null` for a session that is just a distance at a pace.
+     * What the session prescribes, as data. Stored as JSON rather than a `plan_steps`
+     * table because a step has no identity of its own — it is never queried, sorted or
+     * joined, only read back whole with the session that owns it. `null` for a session
+     * that is just a distance at a pace.
+     *
+     * Historically named, and deliberately not renamed: the column holds a *prescription*
+     * now, of which a bare array of running steps is one encoding — the original one, so
+     * every row written before this existed reads back unchanged with no migration. A
+     * strength day stores `{kind:'strength', exercises:[…]}` instead. `prescription.ts`
+     * owns the discriminant rule and is the only place allowed to test the shape.
      */
-    steps: text('steps', { mode: 'json' }).$type<Step[]>(),
+    steps: text('steps', { mode: 'json' }).$type<StoredPrescription>(),
     targetDistanceM: real('target_distance_m'),
     /** For sessions measured in time, not distance — strength, cycling, cross-training. */
     targetDurationS: integer('target_duration_s'),
@@ -265,5 +272,52 @@ export type Activity = typeof activities.$inferSelect
 export type NewActivity = typeof activities.$inferInsert
 export type PlanWeek = typeof planWeeks.$inferSelect
 export type NewPlanWeek = typeof planWeeks.$inferInsert
+/**
+ * Reusable strength prescriptions, one row per template — the library a Fuerza day is
+ * stamped from, never the day itself.
+ *
+ * A template carries no date on purpose, which is the whole reason it is not a
+ * `plan_sessions` row: `scheduled_on` is `NOT NULL` because a session without a day is not
+ * a session. Applying a template *copies* its content onto a session (title ← name, notes,
+ * targetDurationS, steps ← `{kind:'strength', exercises}`), so revising a template in
+ * November can never rewrite a session already prescribed — still less one already
+ * trained. That is the same rule as everywhere else in this schema: a finished record must
+ * not change under you. There is deliberately no `template_id` on `plan_sessions` — a
+ * back-reference would be a column with no reader and a standing invitation to "sync" what
+ * was copied.
+ *
+ * `exercises` is JSON on the row for the reason `plan_sessions.steps` is: an entry has no
+ * identity of its own. Each names a catalogue exercise by id (or none, for a written-in
+ * move) and carries the prescription — series, repeticiones o segundos, descanso, carga.
+ * The Spanish name is on the entry itself, so the row still renders if a re-vendored
+ * catalogue ever drops the id: the catalogue enriches on read, it is not load-bearing.
+ *
+ * `id` is a stable slug over MCP (`fuerza-lunes`) and a UUID from the app, exactly like
+ * `plan_sessions` — and those slugs collide across athletes by construction, which is why
+ * the key is `(userId, id)` and every statement filters on `userId`. Ids beginning
+ * `treximo-` are reserved for the built-in templates that ship in code and never have rows.
+ */
+export const workoutTemplates = sqliteTable(
+  'workout_templates',
+  {
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    id: text('id').notNull(),
+    name: text('name').notNull(),
+    /** Coaching prose for the whole block — cuándo progresar, qué señales respetar. */
+    notes: text('notes'),
+    exercises: text('exercises', { mode: 'json' }).$type<StrengthExercise[]>().notNull(),
+    /** What the session it becomes is measured in — a strength day never has a distance. */
+    targetDurationS: integer('target_duration_s'),
+    updatedAt: integer('updated_at').notNull().default(now),
+  },
+  // No second index: the primary key already leads with `userId`, and the only query shape
+  // is `WHERE user_id = ?` with an optional `AND id = ?`.
+  (t) => [primaryKey({ columns: [t.userId, t.id] })],
+)
+
 export type PlanSession = typeof planSessions.$inferSelect
 export type NewPlanSession = typeof planSessions.$inferInsert
+export type WorkoutTemplate = typeof workoutTemplates.$inferSelect
+export type NewWorkoutTemplate = typeof workoutTemplates.$inferInsert

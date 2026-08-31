@@ -5,6 +5,8 @@ import { invalid, json, readJson } from '@/lib/api'
 import { createDb } from '@/lib/db/client'
 import { blocks, planSessions } from '@/lib/db/schema'
 import { sessionInputs } from '@/lib/plan-input'
+import { unknownExerciseIds } from '@/lib/exercises/catalog'
+import { strengthEntriesOf, unknownExercisesResponse } from '@/lib/templates'
 
 export const prerender = false
 
@@ -25,6 +27,15 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const { createSessionInput } = sessionInputs(block)
   const parsed = createSessionInput.safeParse(await readJson(request))
   if (!parsed.success) return invalid(parsed.error)
+
+  // A strength day prescribes catalogue exercises, and only the catalogue knows whether
+  // its ids are real. A run's steps have none, so this is a no-op for every session that
+  // was writable before templates existed.
+  const exercises = strengthEntriesOf(parsed.data.steps)
+  if (exercises) {
+    const refused = unknownExercisesResponse(unknownExerciseIds(exercises), 'steps.exercises')
+    if (refused) return refused
+  }
 
   const row = { id: crypto.randomUUID(), userId: user.id, ...parsed.data, updatedAt: Date.now() }
   await db.insert(planSessions).values(row)

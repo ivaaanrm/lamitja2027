@@ -27,11 +27,25 @@ import {
   activities,
   planSessions,
   planWeeks,
+  workoutTemplates,
   type Activity,
   type NewPlanSession,
   type PlanSession,
   type PlanWeek,
 } from '../db/schema'
+import {
+  BODY_PARTS,
+  CATEGORIES,
+  EQUIPMENT,
+  MAX_RESULTS,
+  MUSCLES,
+  TAGS,
+  DEFAULT_RESULTS,
+  exerciseById,
+  searchExercises,
+  unknownExerciseIds,
+  type CatalogExercise,
+} from '../exercises/catalog'
 import { weekMetrics } from '../metrics'
 import {
   PACE_ZONES,
@@ -42,8 +56,9 @@ import {
   type PaceBand,
   type PaceZone,
 } from '../paces'
-import { sessionInputs, updateWeekInput } from '../plan-input'
+import { createTemplateInput, sessionInputs, updateTemplateInput, updateWeekInput } from '../plan-input'
 import {
+  PRESCRIPTION_KINDS,
   SESSION_META,
   SESSION_TYPES,
   buildBlock,
@@ -51,7 +66,22 @@ import {
   type SessionType,
   type WeekPlan,
 } from '../plan'
-import { RECOVERY_KINDS, STEP_KINDS, formatWorkout, workoutDistanceM, type Bands, type Step } from '../workout'
+import {
+  STRATEGIES,
+  formatPrescription,
+  prescriptionOf,
+  type PrescriptionKind,
+  type StoredPrescription,
+} from '../prescription'
+import {
+  BUILTIN_PREFIX,
+  BUILTIN_TEMPLATES,
+  builtInTemplate,
+  isBuiltInTemplateId,
+  sessionFromTemplate,
+  type TemplateContent,
+} from '../starters'
+import { RECOVERY_KINDS, STEP_KINDS, type Bands } from '../workout'
 import type { ToolDefinition, ToolRegistry, ToolResult } from './protocol'
 
 /**
@@ -244,6 +274,7 @@ function weekOut(block: BlockConfig, plan: WeekPlan) {
 }
 
 function sessionOut(block: BlockConfig, session: PlanSession, match?: MatchedSession) {
+  const prescription = prescriptionOf(session.steps)
   return {
     id: session.id,
     date: toIsoDate(session.scheduledOn),
@@ -253,9 +284,20 @@ function sessionOut(block: BlockConfig, session: PlanSession, match?: MatchedSes
     isQuality: SESSION_META[session.type].isQuality,
     title: session.title,
     notes: session.notes,
+    /** The column as stored: a bare array for a run, a tagged object for anything else. */
     steps: session.steps,
-    /** The steps as the app renders them — Spanish, because that is the app's own prose. */
-    workout: session.steps?.length ? formatWorkout(session.steps) : null,
+    /**
+     * The prescription as the app renders it — Spanish, because that is the app's own
+     * prose, and dispatched on the tag so a strength day reads as its list of moves rather
+     * than as nothing at all.
+     *
+     * `formatPrescription` is left on its default bands, which are the *owner's*, exactly
+     * as `formatWorkout` was here before. It is an oddity worth naming rather than
+     * quietly correcting to `ctx.bands`: this line is the one place in the MCP surface
+     * that renders a pace it did not derive, and changing it would move every agent's
+     * `workout` string on a surface whose whole contract is that it does not drift.
+     */
+    workout: prescription ? formatPrescription(prescription) : null,
     targetDistanceM: session.targetDistanceM,
     targetDurationS: session.targetDurationS,
     targetPaceLo: session.targetPaceLoSKm == null ? null : toPace(session.targetPaceLoSKm),
@@ -341,9 +383,20 @@ export function blockBrief({ block, bands, hrMax }: McpCtx, now: number) {
       type,
       label: SESSION_META[type].label,
       family: SESSION_META[type].family,
+      /** Which shape this type's `steps` carries — see `prescriptions` below. */
+      prescribes: SESSION_META[type].prescribes,
       countsAsVolume: SESSION_META[type].countsAsVolume,
       isQuality: SESSION_META[type].isQuality,
     })),
+    /**
+     * What each kind of prescription is made of, assembled from the strategies rather than
+     * described a second time here. That is what makes a new kind of prescription cost the
+     * MCP server no edit at all: it declares its own `authoring.brief` beside its model and
+     * appears in this map the moment it is registered.
+     */
+    prescriptions: Object.fromEntries(
+      PRESCRIPTION_KINDS.map((kind) => [kind, STRATEGIES[kind].authoring.brief]),
+    ) as Record<PrescriptionKind, Record<string, unknown>>,
     stepKinds: [...STEP_KINDS],
     recoveryKinds: [...RECOVERY_KINDS],
     units: {
@@ -481,26 +534,40 @@ function parseSession(
 }
 
 /**
- * The stored distance of a session that carries steps is what those steps add up to.
+ * What a session's prescription writes into its derived columns.
  *
  * `targetDistanceM` is the column every screen sums and the one the activity matcher
- * measures against, and this boundary is the write time — the seed used to compute it
- * with `workoutDistanceM` before inserting, and a session written here without it is
- * invisible to the week bars and unmatchable to a run. Derived with the athlete's own
- * bands so a timed step is costed at their paces, never the owner's table. An explicit
- * `steps: null` leaves a hand-set distance alone, which is what keeps update_session's
- * two documented modes — "change the number, drop the steps" and "rewrite the steps" —
- * both true.
+ * measures against, and this boundary is the write time — a session written here without
+ * it is invisible to the week bars and unmatchable to a run. Derived with the athlete's
+ * own bands so a timed step is costed at their paces, never the owner's table. An explicit
+ * `steps: null` leaves a hand-set distance alone, which is what keeps update_session's two
+ * documented modes — "change the number, drop the steps" and "rewrite the steps" — both
+ * true.
+ *
+ * The name is now half a lie and is kept anyway: the *distance* is what the run strategy
+ * derives, and a strength prescription derives nothing at all (its minutes are stated on
+ * the session, not computed from a list of planks). Renaming it would rewrite a
+ * six-assertion test whose value is that it has not changed — so the dispatch moved
+ * inside and the signature did not move at all.
  */
 export function withDerivedDistance(
   data: Record<string, unknown>,
   bands: Bands,
 ): Record<string, unknown> {
-  const steps = data.steps as Step[] | null | undefined
-  if (!Array.isArray(steps) || steps.length === 0) return data
+  const prescription = prescriptionOf(data.steps as StoredPrescription | null | undefined)
+  if (!prescription) return data
+
+  // Resolved here rather than read inside the strategy, so `prescription.ts` never has to
+  // import `plan.ts` — the module graph runs the other way.
   const type = data.type as SessionType | undefined
-  if (type && !SESSION_META[type].countsAsVolume) return data
-  return { ...data, targetDistanceM: workoutDistanceM(steps, bands) }
+  const countsAsVolume = type ? SESSION_META[type].countsAsVolume : true
+
+  const targets = STRATEGIES[prescription.kind].deriveTargets(
+    prescription as never,
+    bands,
+    countsAsVolume,
+  )
+  return Object.keys(targets).length > 0 ? { ...data, ...targets } : data
 }
 
 /**
@@ -545,15 +612,17 @@ function readWeekIndex(block: BlockConfig, raw: unknown): number {
 /** D1 rejects a query with more than 100 bound parameters — far tighter than SQLite's 999. */
 const D1_MAX_BOUND_PARAMS = 100
 
-const columnsOf = (table: typeof planWeeks | typeof planSessions) =>
-  Object.keys(getTableColumns(table)).length
+/** Every table this module upserts into. All three are keyed `(user_id, …)`. */
+type UpsertTable = typeof planWeeks | typeof planSessions | typeof workoutTemplates
+
+const columnsOf = (table: UpsertTable) => Object.keys(getTableColumns(table)).length
 
 /**
  * Rows per statement, derived from the column count rather than hardcoded, so a column
  * added to the schema cannot silently push a statement over D1's limit. Same derivation as
  * `src/lib/sync.ts`.
  */
-const chunkSize = (table: typeof planWeeks | typeof planSessions) =>
+const chunkSize = (table: UpsertTable) =>
   Math.max(1, Math.floor(D1_MAX_BOUND_PARAMS / columnsOf(table)))
 
 /**
@@ -563,7 +632,7 @@ const chunkSize = (table: typeof planWeeks | typeof planSessions) =>
  * `(user_id, id)` — and a SET that reassigns the owner of a row on conflict is a sentence
  * nobody should ever be able to write by accident.
  */
-const excludedSet = (table: typeof planWeeks | typeof planSessions, keys: string[]) =>
+const excludedSet = (table: UpsertTable, keys: string[]) =>
   Object.fromEntries(
     Object.entries(getTableColumns(table))
       .filter(([name]) => !keys.includes(name))
@@ -605,6 +674,135 @@ async function assertOwnsActivities(
 }
 
 // ---------------------------------------------------------------------------
+// The exercise catalogue and the template library
+// ---------------------------------------------------------------------------
+
+/**
+ * A catalogue row as a search hit — the twelve fields that decide whether this is the move
+ * the agent wants, and none of the prose that answers how to do it. That is `get_exercise`,
+ * one call away, and keeping the two apart is what lets a search return fifty rows without
+ * returning fifty paragraphs.
+ *
+ * `tags` is in here deliberately, unlike the HTTP surface's trimmed row: the agent reasons
+ * about `knee_safe` and `no_axial_load` while the picker renders a chip, and a tag it has
+ * to make a second call to see is a tag it will not filter on.
+ */
+const exerciseOut = (exercise: CatalogExercise) => ({
+  id: exercise.id,
+  name: exercise.name,
+  nameEn: exercise.nameEn,
+  category: exercise.category,
+  bodyPart: exercise.bodyPart,
+  difficulty: exercise.difficulty,
+  equipment: exercise.equipment,
+  isUnilateral: exercise.isUnilateral,
+  tags: exercise.tags,
+})
+
+/**
+ * A template on the way out. `builtIn` is the only field that is not on the row, and it is
+ * what tells an agent which two of these it may not write to — they ship in code and have
+ * no rows, so `update_template` on one is a mistake worth naming rather than a 404.
+ */
+const templateOut = (template: TemplateContent, builtIn = false) => ({
+  id: template.id,
+  name: template.name,
+  notes: template.notes,
+  targetDurationS: template.targetDurationS,
+  exercises: template.exercises,
+  builtIn,
+})
+
+/** A facet value has to be one the catalogue actually uses, or the answer is a silent zero. */
+function readFacet(
+  args: Record<string, unknown>,
+  key: string,
+  allowed: readonly string[],
+): string | undefined {
+  const raw = args[key]
+  if (raw === undefined || raw === null) return undefined
+  if (typeof raw !== 'string' || !allowed.includes(raw)) {
+    // An unknown facet returning an empty list reads as "there is no such exercise", which
+    // is the wrong conclusion to hand a model. The valid values ride along so it can fix
+    // the call rather than abandon the approach.
+    throw new ToolError(`"${String(raw)}" is not a known ${key}.`, { [key]: [...allowed] })
+  }
+  return raw
+}
+
+/**
+ * The ids in a prescription the catalogue does not know, as issues an agent can act on.
+ *
+ * Returned rather than thrown, because `create_sessions` has to collect one of these per
+ * failing row before it refuses the batch — the same reason `parseSession` returns issues.
+ * `unknownExerciseIds` already skips a null id: a move the catalogue does not have is a
+ * legitimate prescription, not a typo.
+ */
+const exerciseIssues = (
+  entries: readonly { exerciseId: string | null }[],
+  pathPrefix: string,
+): Issue[] =>
+  unknownExerciseIds(entries).map(({ index, exerciseId }) => ({
+    path: `${pathPrefix}.${index}.exerciseId`,
+    message: `"${exerciseId}" is not a catalogue id; search_exercises returns the ones that are. Use null for a move the catalogue does not have.`,
+  }))
+
+/** The same question asked of a session's `steps`, which only sometimes prescribes exercises. */
+function sessionExerciseIssues(steps: unknown): Issue[] {
+  const prescription = prescriptionOf(steps as StoredPrescription | null | undefined)
+  return prescription?.kind === 'strength'
+    ? exerciseIssues(prescription.exercises, 'steps.exercises')
+    : []
+}
+
+/**
+ * A template id an agent may choose — `readId`'s slug rules, plus the one namespace that
+ * is not theirs to write in.
+ *
+ * The built-ins have no rows, so an id starting `treximo-` would not collide with anything
+ * and would quietly work: the athlete would end up with a private template shadowing a
+ * built-in in every list that merges the two. Refusing it up front is cheaper than
+ * explaining that afterwards.
+ */
+function readNewTemplateId(raw: unknown): string {
+  const id = readId(raw)
+  if (isBuiltInTemplateId(id)) {
+    throw new ToolError(
+      `Ids beginning "${BUILTIN_PREFIX}" belong to the templates that ship with the app. Copy one under an id of your own instead — list_templates returns their exercises.`,
+    )
+  }
+  return id
+}
+
+/** The id of a template that must already exist, and must be the athlete's own. */
+function readOwnTemplateId(raw: unknown): string {
+  if (typeof raw !== 'string' || raw === '') throw new ToolError('`id` is required.')
+  if (isBuiltInTemplateId(raw)) {
+    throw new ToolError(
+      `"${raw}" ships with the app and has no row to change. Copy its exercises into a template of your own with create_template.`,
+    )
+  }
+  return raw
+}
+
+/**
+ * One of the athlete's templates by id, or `null`.
+ *
+ * `and(userId, id)` because `id` alone is not a key: the primary key is `(user_id, id)` and
+ * a template id is a hand-chosen slug like `fuerza-lunes` that two athletes will pick
+ * independently. Scoped by the where clause, never by a read-then-check.
+ */
+async function readTemplate({ db, userId }: McpCtx, id: string): Promise<TemplateContent | null> {
+  const [row] = await db
+    .select()
+    .from(workoutTemplates)
+    .where(and(eq(workoutTemplates.userId, userId), eq(workoutTemplates.id, id)))
+    .limit(1)
+
+  return row ?? null
+}
+
+// ---------------------------------------------------------------------------
 // JSON Schema fragments
 // ---------------------------------------------------------------------------
 
@@ -620,56 +818,28 @@ const paceString = (description: string) => ({
   description,
 })
 
-const RECOVERY_SCHEMA = {
-  type: ['object', 'null'],
-  description:
-    'What happens between two repetitions, so a set of N reps has N−1 of them. Its distance is added to the week volume, which is why it is data and not a note. Omit for a step that does not repeat.',
-  required: ['kind'],
-  properties: {
-    kind: {
-      type: 'string',
-      enum: [...RECOVERY_KINDS],
-      description:
-        '"jog" is the slow running between reps; "float" the easy running between fartlek surges; "walk" and "standing" are what they say.',
-    },
-    distanceM: { type: ['number', 'null'], description: 'Metres. Set this or durationS, not both.' },
-    durationS: { type: ['integer', 'null'], description: 'Seconds. Set this or distanceM, not both.' },
-  },
-} as const
-
+/**
+ * `steps` holds a *prescription*, and there is more than one shape of one.
+ *
+ * The arms are not written here. Each kind declares its own JSON Schema next to its own
+ * model — the running one in `prescription.ts`, the strength one in `strength.ts` — and
+ * this assembles the `oneOf` from the registry, in `PRESCRIPTION_KINDS` order. That is the
+ * whole reason the arms moved: a kind added to the union appears in this schema, in the
+ * brief and in every reader without `tools.ts` being edited at all. The array arm's prose
+ * is unchanged word for word from when it lived here, so an agent built against the old
+ * revision reads the same sentences it always did.
+ *
+ * The sentence below names no kind for the same reason, and it used to: "a strength or
+ * mobility session is the tagged object beside it" was a hand-written list under an `oneOf`
+ * that assembles itself, so a third kind would have compiled, rendered and then described
+ * itself wrongly to every agent reading the schema. It points at `get_block.prescriptions`
+ * instead, which is the registry's own answer to the same question.
+ */
 const STEPS_SCHEMA = {
-  type: ['array', 'null'],
-  maxItems: 24,
+  type: ['array', 'object', 'null'],
   description:
-    'The workout as data: warm-up, the effort, cool-down. This is what lets the app count repetitions, fold recovery jogs into the week volume and know the pace of a rep — never write the workout as prose in `notes`. Pass null to clear an existing breakdown. The session\'s distance and estimated duration are derived from these steps, so do not also set targetDistanceM when you set steps.',
-  items: {
-    type: 'object',
-    required: ['kind'],
-    properties: {
-      kind: {
-        type: 'string',
-        enum: [...STEP_KINDS],
-        description:
-          '"warmup" / "cooldown" bracket the session; "rep" is a repeated effort; "steady" is a continuous block; "strides" is a count of short accelerations.',
-      },
-      reps: {
-        type: 'integer',
-        minimum: 1,
-        maximum: 60,
-        description: 'How many times the effort repeats. Defaults to 1.',
-      },
-      distanceM: { type: ['number', 'null'], description: 'Metres, per repetition. e.g. 1000 for 1 km reps.' },
-      durationS: { type: ['integer', 'null'], description: 'Seconds, per repetition, for a step measured in time.' },
-      zone: {
-        type: ['string', 'null'],
-        enum: [...PACE_ZONES, null],
-        description:
-          'Which pace band the effort is run at; see get_block.paceZones. null means "by feel", which is a deliberate prescription during a rebuild, not a missing value.',
-      },
-      recovery: RECOVERY_SCHEMA,
-      note: { type: ['string', 'null'], maxLength: 300, description: 'Coaching prose for this step. Spanish.' },
-    },
-  },
+    'What the session prescribes. A running workout is the array of steps described below; every other kind is a tagged object, and the tag is what tells them apart. See get_block.prescriptions for the kinds, and get_block.sessionTypes[].prescribes for which types take which. Pass null to clear an existing prescription.',
+  oneOf: PRESCRIPTION_KINDS.map((kind) => STRATEGIES[kind].authoring.schema),
 } as const
 
 const SESSION_FIELDS = {
@@ -720,6 +890,44 @@ const SESSION_ID = {
   maxLength: 64,
   description:
     'A stable id you choose, e.g. "w03-tue-1". Writing the same id again overwrites that session, which is what makes re-running a plan safe. Omit it and a UUID is generated, and the call is no longer idempotent.',
+} as const
+
+/**
+ * A template's `exercises` are a strength prescription's `exercises` — the same entries,
+ * validated by the same zod schema — so they are described by the same JSON Schema rather
+ * than by a second copy of sixty lines of prose that would drift on the first field added.
+ *
+ * The cast is the seam. `authoring.schema` is typed as opaque JSON Schema because the
+ * registry cannot know what shape each kind's arm has; this is the one place that does, and
+ * it is deliberately the only place that reaches inside one.
+ */
+const TEMPLATE_EXERCISES = (
+  STRATEGIES.strength.authoring.schema as {
+    properties: { exercises: Record<string, unknown> }
+  }
+).properties.exercises
+
+/** The two types a template can be stamped onto. Attaching planks to a tempo day is a typo. */
+const TEMPLATE_SESSION_TYPES = ['strength', 'cross'] as const
+
+const TEMPLATE_FIELDS = {
+  name: {
+    type: 'string',
+    maxLength: 120,
+    description: 'What the athlete reads in the library and what the session is titled when this is applied. Spanish.',
+  },
+  notes: {
+    type: ['string', 'null'],
+    maxLength: 2000,
+    description:
+      'Coaching prose for the whole block — cuándo progresar, qué señales respetar. It is copied onto the session too. Spanish.',
+  },
+  exercises: TEMPLATE_EXERCISES,
+  targetDurationS: {
+    type: ['integer', 'null'],
+    description:
+      'How long the whole thing takes, in seconds. A strength day is measured in minutes and never in metres, and nothing derives this from the exercises — state it.',
+  },
 } as const
 
 // ---------------------------------------------------------------------------
@@ -997,6 +1205,12 @@ const TOOLS: Tool[] = [
       const parsed = parseSession(args, sessionInputs(block).createSessionInput)
       if ('issues' in parsed) throw new ToolError('The session is not valid; nothing was written.', parsed.issues)
 
+      // zod knows the shape of a strength prescription; only the catalogue knows whether
+      // the ids in it are real, and it is not in `plan-input.ts` because that would drag
+      // 630 KB of vendored prose into every session write.
+      const unknown = sessionExerciseIssues(parsed.data.steps)
+      if (unknown.length > 0) throw new ToolError('The session is not valid; nothing was written.', unknown)
+
       await assertOwnsActivities(ctx, [parsed.data as { activityId?: number | null }])
 
       const [row] = await db
@@ -1069,8 +1283,20 @@ const TOOLS: Tool[] = [
         seen.add(id)
 
         const parsed = parseSession(raw, sessionInputs(block).createSessionInput)
-        if ('issues' in parsed) failures.push({ index, issues: parsed.issues })
-        else rows.push({ userId, id, ...withDerivedDistance(parsed.data, ctx.bands), updatedAt: now } as NewPlanSession)
+        if ('issues' in parsed) {
+          failures.push({ index, issues: parsed.issues })
+          return
+        }
+
+        // Collected rather than thrown, so one mistyped exercise id in row 40 is reported
+        // beside every other bad row instead of hiding them.
+        const unknown = sessionExerciseIssues(parsed.data.steps)
+        if (unknown.length > 0) {
+          failures.push({ index, issues: unknown })
+          return
+        }
+
+        rows.push({ userId, id, ...withDerivedDistance(parsed.data, ctx.bands), updatedAt: now } as NewPlanSession)
       })
 
       if (failures.length > 0) {
@@ -1128,6 +1354,9 @@ const TOOLS: Tool[] = [
       const parsed = parseSession(args, sessionInputs(block).updateSessionInput)
       if ('issues' in parsed) throw new ToolError('The patch is not valid; nothing was written.', parsed.issues)
 
+      const unknown = sessionExerciseIssues(parsed.data.steps)
+      if (unknown.length > 0) throw new ToolError('The patch is not valid; nothing was written.', unknown)
+
       // `and(userId, id)`, because `id` alone is not a key here: the primary key is
       // (user_id, id), and ids are hand-chosen slugs like `w03-tue-1` that two athletes
       // will pick independently. Scoped by the *where clause* rather than by a read-then-
@@ -1171,6 +1400,343 @@ const TOOLS: Tool[] = [
       return { deleted: row.id }
     },
   },
+
+  {
+    name: 'search_exercises',
+    title: 'Search exercises',
+    description:
+      'Finds moves in the vendored exercise catalogue — the vocabulary a strength or mobility prescription is written from. Query in Spanish or in English: both names are indexed, along with the slug, and accents, case and hyphens are ignored, so "side plank" and "plancha lateral" both find the same row. Leave `q` out and pass a facet to browse instead. Prefer the knee_safe and no_axial_load tags when the athlete has reported knee trouble, and equipment "none" unless they have said what they own. Returns at most 50 ranked rows and has no cursor, so this is a search, not a listing: narrow it rather than paging. Call get_exercise for the instructions and the coaching cues. The Spanish `name` on a row is what a prescription must carry — copy it rather than translating it yourself.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        q: {
+          type: 'string',
+          maxLength: 80,
+          description: 'Free text over the Spanish name, the English name and the slug.',
+        },
+        muscle: {
+          type: 'string',
+          enum: [...MUSCLES],
+          description: 'Matches a primary or a secondary muscle — "what does this work" is not a strict question.',
+        },
+        equipment: {
+          type: 'string',
+          enum: [...EQUIPMENT, 'none'],
+          description: '"none" means bodyweight only, which is not the same as leaving this out (that means "any").',
+        },
+        tags: {
+          type: 'array',
+          maxItems: 6,
+          items: { type: 'string', enum: [...TAGS] },
+          description: 'Every tag must be present. knee_safe, no_axial_load and mobility are the ones a rebuild cares about.',
+        },
+        bodyPart: { type: 'string', enum: [...BODY_PARTS], description: 'The region the move belongs to.' },
+        category: { type: 'string', enum: [...CATEGORIES], description: 'What kind of move it is.' },
+        limit: {
+          type: 'integer',
+          minimum: 1,
+          maximum: MAX_RESULTS,
+          description: `How many rows to return, 1 to ${MAX_RESULTS}. Default ${DEFAULT_RESULTS}.`,
+        },
+      },
+    },
+    async run(_ctx, args) {
+      if (args.q !== undefined && args.q !== null && typeof args.q !== 'string') {
+        throw new ToolError('`q` must be a string.')
+      }
+      // "none" is the one facet value that is not a catalogue value: bodyweight is the
+      // absence of equipment, so it is a different filter rather than another slug.
+      const equipment = readFacet(args, 'equipment', [...EQUIPMENT, 'none'])
+
+      const results = searchExercises({
+        q: typeof args.q === 'string' ? args.q : undefined,
+        muscle: readFacet(args, 'muscle', MUSCLES),
+        equipment: equipment === 'none' ? undefined : equipment,
+        bodyweightOnly: equipment === 'none',
+        bodyPart: readFacet(args, 'bodyPart', BODY_PARTS),
+        category: readFacet(args, 'category', CATEGORIES),
+        tags: readTags(args.tags),
+        limit: args.limit === undefined ? undefined : readWithin(args.limit, 1, MAX_RESULTS, 'limit'),
+      })
+
+      return { count: results.length, results: results.map(exerciseOut) }
+    },
+  },
+
+  {
+    name: 'get_exercise',
+    title: 'Get one exercise',
+    description:
+      'The whole record for one catalogue exercise: what it is, how it is done step by step, the coaching tips, the muscles it works, its tags and which illustrations exist for it. All the prose is Spanish, because it is the athlete\'s. Call this before prescribing a move you are not certain of — an exercise chosen from a name alone is how a rebuild acquires an injury vector.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['id'],
+      properties: { id: { type: 'string', description: 'The catalogue id, from search_exercises.' } },
+    },
+    async run(_ctx, args) {
+      const exercise = typeof args.id === 'string' ? exerciseById(args.id) : undefined
+      if (!exercise) {
+        throw new ToolError(`No exercise with id "${String(args.id)}". search_exercises returns the ids that exist.`)
+      }
+      return exercise
+    },
+  },
+
+  {
+    name: 'list_templates',
+    title: 'List templates',
+    description:
+      'The athlete\'s reusable strength and mobility templates, with their exercises inline, followed by the ones that ship with the app (flagged `builtIn`). A template is a session without a day: applying one copies its content onto a session, so it is the thing to write once and attach eleven times rather than typing the same nine moves into every Monday. This is also the read — there is no get_template. The built-in ones cannot be updated or deleted; copy their exercises into a template of your own instead. Takes no arguments.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    async run(ctx) {
+      const { db, userId } = ctx
+      const rows = await db
+        .select()
+        .from(workoutTemplates)
+        .where(eq(workoutTemplates.userId, userId))
+        .orderBy(asc(workoutTemplates.name))
+
+      return {
+        count: rows.length + BUILTIN_TEMPLATES.length,
+        templates: [
+          ...rows.map((row) => templateOut(row)),
+          // Merged server-side rather than left to the client, so the agent sees exactly
+          // the library the athlete sees. They ship in code and have no rows.
+          ...BUILTIN_TEMPLATES.map((template) => templateOut(template, true)),
+        ],
+      }
+    },
+  },
+
+  {
+    name: 'create_template',
+    title: 'Create a template',
+    description:
+      'Writes one reusable strength or mobility template. Pass a stable `id` (e.g. "fuerza-lunes") and writing it again rewrites that template instead of leaving a second copy — the same idempotency create_session has, and for the same reason. A template carries no date, which is the whole point: attach_template is what puts it on a day. Everything the athlete reads — the name, every exercise name, the load and every note — is Spanish. Ids beginning "treximo-" are reserved for the templates that ship with the app.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['name', 'exercises'],
+      properties: {
+        id: {
+          type: 'string',
+          maxLength: 64,
+          description:
+            'A stable id you choose. Writing the same id again overwrites that template. Omit it and a UUID is generated, and the call is no longer idempotent.',
+        },
+        ...TEMPLATE_FIELDS,
+      },
+    },
+    async run(ctx, args, now) {
+      const { db, userId } = ctx
+      const id = readNewTemplateId(args.id)
+      const { id: _ignored, ...rest } = args
+
+      const parsed = createTemplateInput.safeParse(rest)
+      if (!parsed.success) {
+        throw new ToolError(
+          'The template is not valid; nothing was written.',
+          parsed.error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message })),
+        )
+      }
+
+      const unknown = exerciseIssues(parsed.data.exercises, 'exercises')
+      if (unknown.length > 0) throw new ToolError('The template is not valid; nothing was written.', unknown)
+
+      const [row] = await db
+        .insert(workoutTemplates)
+        .values({ userId, id, ...parsed.data, updatedAt: now })
+        // The key is (user_id, id), so the conflict target has to be both — a target of
+        // `id` alone across all athletes would let one agent's `fuerza-lunes` overwrite
+        // another's. Same rule, same reasoning, as create_session's.
+        .onConflictDoUpdate({
+          target: [workoutTemplates.userId, workoutTemplates.id],
+          set: excludedSet(workoutTemplates, ['userId', 'id']),
+        })
+        .returning()
+
+      return row ? templateOut(row) : { id }
+    },
+  },
+
+  {
+    name: 'update_template',
+    title: 'Update a template',
+    description:
+      'Patches one template by id. An absent field is left alone; an explicit null clears it. `exercises` is the exception and replaces the whole list: an entry has no identity of its own, so there is nothing for a partial update to address — send the list you want, in the order you want it. Sessions already stamped from this template are NOT changed: they carry a copy, so a revision here reaches the next attachment and nothing that is already written.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['id'],
+      properties: {
+        id: { type: 'string', description: 'The template id, from list_templates.' },
+        ...TEMPLATE_FIELDS,
+      },
+    },
+    async run(ctx, args, now) {
+      const { db, userId } = ctx
+      const id = readOwnTemplateId(args.id)
+      const { id: _ignored, ...patch } = args
+
+      const parsed = updateTemplateInput.safeParse(patch)
+      if (!parsed.success) {
+        throw new ToolError(
+          'The patch is not valid; nothing was written.',
+          parsed.error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message })),
+        )
+      }
+
+      const unknown = parsed.data.exercises ? exerciseIssues(parsed.data.exercises, 'exercises') : []
+      if (unknown.length > 0) throw new ToolError('The patch is not valid; nothing was written.', unknown)
+
+      const [row] = await db
+        .update(workoutTemplates)
+        .set({ ...parsed.data, updatedAt: now })
+        .where(and(eq(workoutTemplates.userId, userId), eq(workoutTemplates.id, id)))
+        .returning()
+
+      if (!row) throw new ToolError(`No template with id "${id}".`)
+      return templateOut(row)
+    },
+  },
+
+  {
+    name: 'delete_template',
+    title: 'Delete a template',
+    description:
+      'Removes one template from the library. Permanent, and it takes its exercises with it. Sessions already stamped from it are untouched — they carry a copy, so deleting the library entry cannot blank a Monday that has already been trained. The templates that ship with the app cannot be deleted.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['id'],
+      properties: { id: { type: 'string', description: 'The template id, from list_templates.' } },
+    },
+    async run(ctx, args) {
+      const { db, userId } = ctx
+      const id = readOwnTemplateId(args.id)
+
+      const [row] = await db
+        .delete(workoutTemplates)
+        .where(and(eq(workoutTemplates.userId, userId), eq(workoutTemplates.id, id)))
+        .returning({ id: workoutTemplates.id })
+
+      if (!row) throw new ToolError(`No template with id "${id}".`)
+      return { deleted: row.id }
+    },
+  },
+
+  {
+    name: 'attach_template',
+    title: 'Apply a template to a day',
+    description:
+      'Puts a template on a day — the one call that turns a library entry into prescribed training. Pass `scheduledOn` to create the session, or `sessionId` to stamp one that already exists; exactly one of the two. The session gets a COPY of the template: its name becomes the title, its notes and duration come across, and its exercises become the session\'s prescription. Editing the template afterwards never rewrites a session already written, which is the point — a Monday that has been trained is a record, not a view. `dayOrder` is 0 for a strength day that stands on its own and 1 for a block that rides on the same day as a run. Built-in templates (ids beginning "treximo-") attach exactly like your own.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['templateId'],
+      properties: {
+        templateId: { type: 'string', description: 'The template to copy, from list_templates.' },
+        scheduledOn: isoDate('The day to create the session on, YYYY-MM-DD. Must fall inside the block. Pass this or sessionId.'),
+        sessionId: {
+          type: 'string',
+          description: 'An existing session to stamp instead, from list_sessions. Pass this or scheduledOn.',
+        },
+        id: {
+          type: 'string',
+          maxLength: 64,
+          description:
+            'Only with scheduledOn: a stable id for the session being created, e.g. "w03-mon-0", so re-running the call rewrites it rather than adding a second one.',
+        },
+        dayOrder: {
+          type: 'integer',
+          minimum: 0,
+          maximum: 9,
+          description: 'Orders sessions within one day. 0 for a strength day on its own, 1 for one that rides on a run.',
+        },
+        type: {
+          type: 'string',
+          enum: [...TEMPLATE_SESSION_TYPES],
+          description: 'Defaults to "strength" when creating; left alone when stamping an existing session.',
+        },
+      },
+    },
+    async run(ctx, args, now) {
+      const { db, userId, block } = ctx
+      if (typeof args.templateId !== 'string' || args.templateId === '') {
+        throw new ToolError('`templateId` is required; list_templates has the ids.')
+      }
+
+      const onDay = args.scheduledOn !== undefined && args.scheduledOn !== null
+      const ontoSession = args.sessionId !== undefined && args.sessionId !== null
+      if (onDay === ontoSession) {
+        throw new ToolError(
+          'Pass exactly one of `scheduledOn`, to create the session, or `sessionId`, to stamp one that already exists.',
+        )
+      }
+
+      // Built-ins first: they ship in code and have no row, so the scoped read below would
+      // answer "no such template" for an id the athlete can see in their own library.
+      const template = builtInTemplate(args.templateId) ?? (await readTemplate(ctx, args.templateId))
+      if (!template) {
+        throw new ToolError(
+          `No template with id "${args.templateId}". list_templates returns yours and the built-in ones.`,
+        )
+      }
+
+      // The copy. Deliberately not re-checked against the catalogue: these entries were
+      // checked when the template was written, and a catalogue re-vendored since must cost
+      // the athlete an illustration, never the use of their own template.
+      const content = sessionFromTemplate(template)
+      const type = args.type === undefined ? undefined : readTemplateSessionType(args.type)
+
+      if (ontoSession) {
+        const sessionId = args.sessionId
+        if (typeof sessionId !== 'string' || sessionId === '') {
+          throw new ToolError('`sessionId` must be the id of an existing session.')
+        }
+
+        const patch = {
+          ...content,
+          ...(type === undefined ? {} : { type }),
+          ...(args.dayOrder === undefined ? {} : { dayOrder: args.dayOrder }),
+        }
+        const parsed = parseSession(patch, sessionInputs(block).updateSessionInput)
+        if ('issues' in parsed) throw new ToolError('The session is not valid; nothing was written.', parsed.issues)
+
+        const [stamped] = await db
+          .update(planSessions)
+          .set({ ...withDerivedDistance(parsed.data, ctx.bands), updatedAt: now })
+          .where(and(eq(planSessions.userId, userId), eq(planSessions.id, sessionId)))
+          .returning()
+
+        if (!stamped) throw new ToolError(`No session with id "${sessionId}".`)
+        return sessionOut(block, stamped)
+      }
+
+      const id = readId(args.id)
+      const fields = {
+        scheduledOn: args.scheduledOn,
+        type: type ?? 'strength',
+        ...(args.dayOrder === undefined ? {} : { dayOrder: args.dayOrder }),
+        ...content,
+      }
+      const parsed = parseSession(fields, sessionInputs(block).createSessionInput)
+      if ('issues' in parsed) throw new ToolError('The session is not valid; nothing was written.', parsed.issues)
+
+      const [row] = await db
+        .insert(planSessions)
+        .values({ userId, id, ...withDerivedDistance(parsed.data, ctx.bands), updatedAt: now } as NewPlanSession)
+        .onConflictDoUpdate({
+          target: [planSessions.userId, planSessions.id],
+          set: excludedSet(planSessions, ['userId', 'id']),
+        })
+        .returning()
+
+      return row ? sessionOut(block, row) : { id }
+    },
+  },
 ]
 
 function readWithin(raw: unknown, min: number, max: number, label: string): number {
@@ -1178,6 +1744,32 @@ function readWithin(raw: unknown, min: number, max: number, label: string): numb
     throw new ToolError(`${label} must be an integer between ${min} and ${max}.`)
   }
   return raw as number
+}
+
+function readTags(raw: unknown): string[] | undefined {
+  if (raw === undefined || raw === null) return undefined
+  if (!Array.isArray(raw)) throw new ToolError('`tags` must be an array of tag names.', { tags: [...TAGS] })
+  for (const tag of raw) {
+    if (typeof tag !== 'string' || !TAGS.includes(tag)) {
+      throw new ToolError(`"${String(tag)}" is not a known tag.`, { tags: [...TAGS] })
+    }
+  }
+  return raw as string[]
+}
+
+/**
+ * A template describes what is done, never when — so the day decides whether it lands as a
+ * strength session or a cross-training one, and those are the only two it may land as.
+ * Stamping a template onto a `tempo` day would replace a workout with a list of planks and
+ * leave the card still calling itself a quality session.
+ */
+function readTemplateSessionType(raw: unknown): (typeof TEMPLATE_SESSION_TYPES)[number] {
+  if (typeof raw !== 'string' || !TEMPLATE_SESSION_TYPES.includes(raw as 'strength' | 'cross')) {
+    throw new ToolError(`"${String(raw)}" is not a type a template can be attached as.`, {
+      type: [...TEMPLATE_SESSION_TYPES],
+    })
+  }
+  return raw as (typeof TEMPLATE_SESSION_TYPES)[number]
 }
 
 /** What the reader is told before it picks a tool. */
@@ -1189,20 +1781,27 @@ To author or revise a plan:
 3. Write the weeks with upsert_week before you write any sessions into them.
 4. Write the sessions with create_sessions — a whole week or the whole plan in one call. create_session is for a single addition.
 
+To write the strength and mobility days:
+5. Build them from templates rather than typing the same nine moves into eleven Mondays. search_exercises finds the moves (query in Spanish or English), get_exercise gives you the instructions, create_template writes the library entry and attach_template puts it on a day.
+6. Two templates ship with the app, with ids beginning "treximo-" — list_templates returns them alongside the athlete's own. Attach one directly, or copy its exercises into a template of your own to change it; they cannot be edited in place.
+7. Prefer exercises tagged knee_safe and no_axial_load when the athlete has mentioned knee trouble, and ones needing no equipment unless they have said what they own.
+8. Attaching a template COPIES it onto the session. Revising the template afterwards reaches the next attachment and never a session already written — a day that has been trained is a record, not a view of the library.
+
 Rules the plan has to respect:
 - Express a workout as structured steps, never as prose in notes. Steps are what let the app count repetitions, fold recovery jogs into the week's volume and know the pace of a rep. notes is for coaching prose only: terrain, cadence, what to abort on.
+- A strength or mobility session prescribes exercises rather than steps: the same steps field, carrying the tagged object described in its schema. Each entry takes repetitions or seconds, never both.
 - Never put two quality sessions (tempo, interval, fartlek, race) on consecutive days, and never more than three in a week.
 - A week's real volume is what its sessions add up to. Keep the week's targetVolumeM and the sessions you write for it in agreement, and ramp it by roughly 10% a week with a down week every third or fourth.
 - Give every session a stable id, so running the same call again rewrites the plan instead of duplicating it.
 - Distances are metres, durations seconds, dates YYYY-MM-DD, paces mm:ss per kilometre.
 
-The app speaks Spanish to the athlete. Tool names, arguments and these instructions are English because you are the reader — but a session's title and notes are read by a person, so write those in Spanish.`
+The app speaks Spanish to the athlete. Tool names, arguments and these instructions are English because you are the reader — but a session's title and notes are read by a person, so write those in Spanish. So are a template's name and notes, and every exercise name, load and note inside one: copy the Spanish name the catalogue gives you rather than translating the English one yourself.`
 
 /**
  * The MCP surface's own version, bumped when a tool's contract changes. Deliberately not
  * the app's package version, which moves for reasons no client cares about.
  */
-export const SERVER_VERSION = '2.1.0'
+export const SERVER_VERSION = '2.2.0'
 
 /**
  * Binds the tools to a database and a credential.

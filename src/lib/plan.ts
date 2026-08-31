@@ -2,7 +2,8 @@ import { startOfDay, totalWeeks, weekDays, weekIndex, weekStart, type BlockConfi
 import { formatPaceRange, isRun } from './activity'
 import { PACE_ZONE_NUMBER, PACES, midOf, zoneTag, type PaceBand, type PaceZone } from './paces'
 import { BY_FEEL, primaryZone, workoutBand, workoutDurationS, type Bands } from './workout'
-import { SESSION_TYPES, type SessionType } from './session-types'
+import { PRESCRIPTION_KINDS, SESSION_TYPES, type SessionType, type SportFamily } from './session-types'
+import { runSteps, type PrescriptionKind } from './prescription'
 import type { Activity, PlanSession, PlanWeek } from './db/schema'
 
 /**
@@ -19,14 +20,17 @@ import type { Activity, PlanSession, PlanWeek } from './db/schema'
  * rather than the other way round.
  */
 
-export { SESSION_TYPES, type SessionType }
-
-/** What a session type is measured in, and which activities can satisfy it. */
-export type SportFamily = 'run' | 'strength' | 'other'
+export { SESSION_TYPES, PRESCRIPTION_KINDS, type SessionType, type SportFamily }
 
 export interface SessionMeta {
   label: string
   family: SportFamily
+  /**
+   * What shape of prescription the session's `steps` column carries, or `null` for a type
+   * that prescribes nothing at all. Nine types over two kinds, deliberately: the six run
+   * types share one payload, and `rest` and `cross` have none to share.
+   */
+  prescribes: PrescriptionKind | null
   /** Whether its prescribed distance is part of the week's running volume. */
   countsAsVolume: boolean
   /** A hard day — the thing that must not land two days running. */
@@ -36,15 +40,15 @@ export interface SessionMeta {
 }
 
 export const SESSION_META: Record<SessionType, SessionMeta> = {
-  easy: { label: 'Rodaje', family: 'run', countsAsVolume: true, isQuality: false, accent: 'slate' },
-  long: { label: 'Larga', family: 'run', countsAsVolume: true, isQuality: false, accent: 'violet' },
-  tempo: { label: 'Tempo', family: 'run', countsAsVolume: true, isQuality: true, accent: 'amber' },
-  interval: { label: 'Series', family: 'run', countsAsVolume: true, isQuality: true, accent: 'rose' },
-  fartlek: { label: 'Fartlek', family: 'run', countsAsVolume: true, isQuality: true, accent: 'fuchsia' },
-  race: { label: 'Carrera', family: 'run', countsAsVolume: true, isQuality: true, accent: 'emerald' },
-  rest: { label: 'Descanso', family: 'other', countsAsVolume: false, isQuality: false, accent: 'zinc' },
-  cross: { label: 'Cruzado', family: 'other', countsAsVolume: false, isQuality: false, accent: 'cyan' },
-  strength: { label: 'Fuerza', family: 'strength', countsAsVolume: false, isQuality: false, accent: 'teal' },
+  easy: { label: 'Rodaje', family: 'run', prescribes: 'run', countsAsVolume: true, isQuality: false, accent: 'slate' },
+  long: { label: 'Larga', family: 'run', prescribes: 'run', countsAsVolume: true, isQuality: false, accent: 'violet' },
+  tempo: { label: 'Tempo', family: 'run', prescribes: 'run', countsAsVolume: true, isQuality: true, accent: 'amber' },
+  interval: { label: 'Series', family: 'run', prescribes: 'run', countsAsVolume: true, isQuality: true, accent: 'rose' },
+  fartlek: { label: 'Fartlek', family: 'run', prescribes: 'run', countsAsVolume: true, isQuality: true, accent: 'fuchsia' },
+  race: { label: 'Carrera', family: 'run', prescribes: 'run', countsAsVolume: true, isQuality: true, accent: 'emerald' },
+  rest: { label: 'Descanso', family: 'other', prescribes: null, countsAsVolume: false, isQuality: false, accent: 'zinc' },
+  cross: { label: 'Cruzado', family: 'other', prescribes: null, countsAsVolume: false, isQuality: false, accent: 'cyan' },
+  strength: { label: 'Fuerza', family: 'strength', prescribes: 'strength', countsAsVolume: false, isQuality: false, accent: 'teal' },
 }
 
 /**
@@ -77,7 +81,10 @@ export interface SessionEffort {
  * *their* goal pace and Ivan's seconds mean nothing under someone else's target.
  */
 export function sessionEffort(session: PlanSession, bands: Bands = PACES): SessionEffort {
-  const steps = session.steps?.length ? session.steps : null
+  // The one reader of the column here: a tagged payload is not running steps, so the
+  // effort falls back to the session's own columns — already what a duration-only
+  // session does, and `runSteps` is byte-identical to this line for every array.
+  const steps = runSteps(session.steps)
   // Either bound alone is still a band — the editor lets one be typed without the other.
   const lo = session.targetPaceLoSKm ?? session.targetPaceHiSKm
   const hi = session.targetPaceHiSKm ?? session.targetPaceLoSKm

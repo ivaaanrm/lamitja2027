@@ -236,6 +236,35 @@ pnpm exec wrangler d1 execute DB --local \
 # → 23 weeks and ~180 sessions, for the reference block
 ```
 
+### 1.6b Mirror the exercise illustrations (optional locally)
+
+The strength templates read a vendored exercise catalogue that is already committed
+(`src/lib/exercises/catalog.json`, 571 moves) — searching and prescribing work with no
+setup at all. What is *not* committed is the ~1,020 illustrations: each deployment mirrors
+them into its own R2 bucket rather than hotlinking somebody else's CDN into an offline-first
+app.
+
+```bash
+pnpm exercises:populate:local   # → .wrangler/state, ~20 min, resumable, run it in the background
+```
+
+Skip it if the user is not looking at strength screens: without it `/api/exercises/img/…`
+answers 404 and the app renders each exercise name with no tile, which is exactly what it
+does for a failed image load. Nothing breaks and nothing needs to be undone later.
+
+Verify (after it finishes):
+
+```bash
+pnpm exec wrangler r2 object get \
+  "$(node -p "JSON.parse(require('fs').readFileSync('wrangler.jsonc','utf8').replace(/^\s*\/\/.*$/gm,'')).r2_buckets[0].bucket_name")/exercises/$(node -p "JSON.parse(require('fs').readFileSync('src/lib/exercises/catalog.json','utf8')).version")/plank/main.webp" \
+  --local --persist-to .wrangler/state --file /tmp/plank.webp && file /tmp/plank.webp
+# → RIFF (little-endian) data, Web/P image
+```
+
+Do **not** re-run `pnpm exercises:prune`. The catalogue in the repository is the one the
+build compiles a version stamp from; regenerating it is a deliberate refresh with its own
+runbook (`docs/setup.md` §g), not a setup step.
+
 ### 1.7 Check what CI checks
 
 ```bash
@@ -427,6 +456,15 @@ transient network errors, not on your schema.
 3. Author the plan, exactly as in [1.6](#16-put-a-plan-in-the-database) but against
    `$HOST` — mint the MCP token in `/ajustes` and write the block through
    `POST $HOST/api/mcp`.
+4. Mirror the exercise illustrations into the deployment's bucket, once:
+
+   ```bash
+   pnpm exercises:populate    # ~1,020 objects, ~16 MB, 15–40 min, resumable
+   ```
+
+   Run it in the background and tell the user it is going. Until it finishes the strength
+   screens render exercise names with no picture; nothing else is affected. It is
+   idempotent, so a re-run after an interruption picks up where it stopped.
 
 ### 3.8 The webhook (optional)
 
@@ -483,6 +521,8 @@ HOST=https://<name>.<subdomain>.workers.dev
 | `pnpm exec wrangler d1 execute DB --remote --command "select count(*) from plan_sessions"` | the number of authored sessions |
 | `pnpm exec wrangler d1 execute DB --remote --command "select count(*) from activities"` | > 0 once Strava has synced |
 | `curl -s $HOST/manifest.webmanifest` | JSON carrying the user's `PUBLIC_APP_NAME` |
+| `curl -s -o /dev/null -w '%{http_code}\n' "$HOST/api/exercises?q=plancha"` | `401` signed out — signed in, at most fifty trimmed rows |
+| `pnpm exec wrangler r2 object get "<bucket>/exercises/<version>/plank/main.webp" --remote --file /tmp/p.webp` | a 512×512 WebP, once `exercises:populate` has run |
 
 Then open `$HOST` on a phone and add it to the home screen — the manifest, the icons and
 the offline layer are the parts nothing above proves.

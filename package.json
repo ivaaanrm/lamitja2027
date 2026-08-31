@@ -21,7 +21,10 @@
     "astro": "astro",
     "typecheck": "astro check",
     "typecheck:ci": "astro sync && tsc --noEmit",
-    "db:reset": "wrangler d1 execute DB --remote --file scripts/reset-db.sql && wrangler d1 migrations apply DB --remote"
+    "db:reset": "wrangler d1 execute DB --remote --file scripts/reset-db.sql && wrangler d1 migrations apply DB --remote",
+    "exercises:prune": "node scripts/exercises-prune.mjs",
+    "exercises:populate": "node scripts/exercises-populate.mjs",
+    "exercises:populate:local": "node scripts/exercises-populate.mjs --local"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^14.2.3",

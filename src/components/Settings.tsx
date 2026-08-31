@@ -874,6 +874,13 @@ function SettingsScreen() {
         <Button href="/plan" variant={data.hasPlan ? 'ghost' : 'primary'} className="mt-3 w-full">
           {data.hasPlan ? 'Ver el plan' : 'Escribir el plan'}
         </Button>
+        {/* The library lives under the plan tab and is reached from inside the session
+            sheet, which is the right place to *use* one and the wrong place to discover
+            that they exist. One line here is the door. */}
+        <p className="mt-2.5 border-t border-line pt-2.5 text-caption leading-relaxed text-label-3">
+          Los días de fuerza se prescriben desde una plantilla.{' '}
+          <TextLink href="/plantillas">Plantillas de fuerza</TextLink>
+        </p>
       </Card>
 
       <McpCard hasToken={data.user.hasMcpToken} onChanged={() => void reload()} />

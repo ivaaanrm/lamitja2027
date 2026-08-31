@@ -353,6 +353,9 @@ function PlannerScreen() {
               weekIndex={editing.weekIndex}
               session={editing.session}
               defaultDay={editing.day}
+              // The athlete's own library, straight off the payload the screen already
+              // has. The two built-ins are merged in inside the sheet, from the bundle.
+              templates={data.templates}
               onSaved={reload}
               onClose={() => setEditing(null)}
             />
