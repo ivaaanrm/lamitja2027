@@ -27,6 +27,17 @@ Astro + React islands · Cloudflare Workers + D1 + R2 · Strava · MCP · PWA
 
 One Worker, one small database, one command to deploy.
 
+## Credits
+
+Exercise data by [RepDB (repdb.co)](https://repdb.co)
+
+The strength and mobility catalogue is a pruned subset of the RepDB free-tier dataset,
+vendored for in-app use under the RepDB Free Tier License v1.0 — see
+[`src/lib/exercises/LICENSE.md`](src/lib/exercises/LICENSE.md). That licence covers the
+data, not this repository's code, and it does not permit redistributing the dataset as a
+dataset. The illustrations are **not** committed here: each deployment mirrors them into
+its own R2 bucket with `pnpm exercises:populate`.
+
 ## Make it yours
 
 - [Setup guide](docs/setup.md)

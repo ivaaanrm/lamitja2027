@@ -172,7 +172,9 @@ Each prints a config block. Copy the ids into `wrangler.jsonc`:
   OAuth state token.
 - `r2_buckets[0].bucket_name` — replace `lamitja2027-avatars` with the bucket name from the
   command. Keep the binding named `AVATARS`; the bucket stays private and needs no public
-  domain or CORS rule.
+  domain or CORS rule. One bucket holds two things under two prefixes — the profile photos
+  under `avatars/`, and the mirrored exercise illustrations under `exercises/` (section g).
+  The binding's name is older than the second of those.
 - `name` — the Worker's name, and therefore its address:
   `https://<name>.<your-subdomain>.workers.dev`. This is the host that has to match the
   Strava callback domain from section b.
@@ -483,11 +485,17 @@ pnpm dev
 | `pnpm db:migrate` / `db:migrate:local` | apply migrations remotely / locally |
 | `pnpm cf-typegen` | regenerate `worker-configuration.d.ts` after editing `wrangler.jsonc` |
 | `pnpm deploy` | build, then deploy the generated config |
+| `pnpm exercises:prune` | re-vendor the exercise catalogue from RepDB (section g) — rare |
+| `pnpm exercises:populate` / `:populate:local` | mirror that catalogue's illustrations into R2, remotely / into `.wrangler/state` |
 
 The local D1 is a different database from the remote one. It starts empty: run
 `db:migrate:local`, then author a plan into it (the MCP server, section f,
 against `localhost`). It will have no activities unless you connect Strava against
 localhost, which the callback domain in section b decides.
+
+The local R2 starts empty too, so the exercise illustrations are grey tiles until you run
+`pnpm exercises:populate:local` once (section g). Everything else about the strength
+screens works without it — the text is the content and the picture is decoration.
 
 **Do not remove `--persist-to` from the `preview` script.** Wrangler resolves local
 storage relative to the config file, and `preview` points at `dist/server/wrangler.json`
@@ -599,3 +607,79 @@ A good agent will call `get_block` first, then `list_weeks` and `get_training_su
 write the weeks with `upsert_week`, and write the sessions in one `create_sessions` call
 with stable ids so running the same request twice rewrites the plan instead of
 duplicating it. The server says so itself, in its `instructions`.
+
+---
+
+## g. The exercise catalogue and its illustrations
+
+The strength templates are built on **RepDB's free-tier exercise dataset** — 571
+illustrated moves, in Spanish, with the facets a runner's knee protocol actually wants
+(`knee_safe` is on 300 of them, `no_axial_load` on 268). Two things ship it, and they are
+separate on purpose: the *text* is committed to this repository, and the *pictures* are
+not.
+
+### What is already in your clone
+
+`src/lib/exercises/catalog.json` — generated, committed, ~650 KB, and read straight out of
+the Worker bundle. No table, no migration, nothing to seed: it is a frozen third-party
+record, the same category as last season's CSVs behind `baseline.ts`.
+`src/lib/exercise-meta.ts` is generated beside it and carries the one thing the browser
+needs, the generation stamp that keys every image URL.
+
+So a fresh fork already has the catalogue. Searching works, prescribing works, an agent's
+`search_exercises` works — the only thing missing is the pictures.
+
+### One command, once: mirror the illustrations
+
+```bash
+pnpm exercises:populate          # → your R2 bucket, ~1,020 objects, ~16 MB
+pnpm exercises:populate:local    # → .wrangler/state, what `pnpm dev` and `pnpm preview` read
+```
+
+It downloads RepDB's repository tarball once, checks that its `exercises.json` hashes to
+the snapshot `catalog.json` was built from, and uploads each illustration under
+`exercises/<catalogVersion>/<id>/<pose>.webp` — **bytes unchanged**. Budget 15–40 minutes
+against the real bucket and about twenty minutes locally (local storage only tolerates one
+wrangler process at a time). It is resumable: completed keys are recorded under
+`.wrangler/`, so a re-run picks up where it stopped, and `--force` ignores that.
+
+Useful flags: `--dir <path>` or `--tarball <path>` for a snapshot you already have,
+`--dry-run` to see the count, `--bucket <name>` to override, `--delete <version>` to drop a
+superseded generation.
+
+Until this runs, `/api/exercises/img/…` answers 404 and the app renders the exercise name
+with no tile — which is what it does for a failed image load anyway. Nothing breaks.
+
+### Refreshing the catalogue
+
+RepDB moves a few times a year at most.
+
+```bash
+pnpm exercises:prune       # re-vendor catalog.json + src/lib/exercise-meta.ts
+git diff                   # review it — this is a third-party record changing
+pnpm test                  # label completeness, catalogue integrity, the Worker-only boundary
+pnpm exercises:populate    # mirror the NEW generation's images
+git commit && pnpm deploy
+```
+
+**Populate before you deploy.** The new build compiles the new generation into every image
+URL, and those URLs 404 until the objects are in the bucket. It self-heals the moment
+populate finishes, but the order is free and the wrong one is visible.
+
+Two things will stop the prune script rather than let it guess: a `schema_version` past 3,
+and a release where `is_bodyweight` stops meaning "has no equipment" (the app derives one
+from the other). Either means reading the new schema before regenerating. A new facet slug
+does not stop the script — it fails `pnpm test` instead, because
+`src/lib/exercise-labels.ts` has no Spanish label for it yet and a blank chip is not
+something to discover on a phone.
+
+### The licence, in one paragraph
+
+RepDB Free Tier v1.0 — free for commercial in-app use, **attribution required and visible
+to users**, and no redistribution of the dataset *as a dataset*. The full terms and how
+this project meets each of them are in `src/lib/exercises/LICENSE.md`. If you fork this,
+three things travel with it and must not be removed: the credit in `README.md`, the credit
+at the foot of `/plantillas` and of the exercise picker, and the shape of
+`GET /api/exercises` — signed in, a query or a facet required, at most fifty trimmed rows,
+no cursor. One further term binds anything you build on top: the images may not be fed to
+a generative model, in any form, for any purpose.

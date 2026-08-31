@@ -89,7 +89,8 @@ parse an object rather than a multipart body of strings.
 | `strava_accounts` | One row per athlete who connected Strava: encrypted refresh token, athlete id, last sync time. |
 | `activities` | Runs and rides inside an athlete's block, owned by `user_id`. Strava units, one row per activity. |
 | `plan_weeks` | One row per athlete per week of their block: phase, volume target, down-week flag. |
-| `plan_sessions` | The prescribed plan, one row per athlete per session, each with its workout as structured steps. |
+| `plan_sessions` | The prescribed plan, one row per athlete per session, each with what it prescribes in the `steps` column — a bare array of running steps, or a tagged payload for a kind that is not running. |
+| `workout_templates` | Reusable strength/mobility prescriptions, one row per athlete per template: name, notes, exercises as JSON, target duration. Keyed `(user_id, id)`. |
 
 **An avatar is one optimized object, not a second photo library** (`src/lib/avatar.ts`,
 `PUT /api/avatar`). The browser respects the source orientation, centre-crops it once to a
@@ -132,7 +133,8 @@ Identity is separate from `RACE_NAME` because they are different nouns — the e
 home screen — and a fork that could only override the race would end up with a tab reading
 `Plan · Treximo` above a plan for Berlin, which is *correct*: the app's name is the one
 name every athlete on a deployment shares, so it can never be any one of their races.
-Between them the three reach every user-visible name in one hop: all eight `<title>`s,
+Between them the three reach every user-visible name in one hop: every `<title>` (the
+app's own come from `documentTitle` in `nav.ts`, so a new route gets one for free),
 `Boot.astro`'s wordmark, `/login`'s eyebrow and hero, `404`'s eyebrow, the meta
 description, the Open Graph card, and the manifest. `/login`'s hero is `APP_NAME` set as
 the wordmark, so the app's first impression is the last place a fork is greeted by
@@ -221,8 +223,179 @@ something the app knows rather than something the eye reads. `notes` is for coac
 only: terrain, cadence, what to abort on. Steps are JSON on the session rather than a
 `plan_steps` table because a step has no identity of its own — it is never queried, sorted
 or joined, only read back whole with the session that owns it. Distances and estimated
-durations are derived from the steps, never stored twice; editing a session's numbers by
-hand drops its steps rather than leaving a stale breakdown behind.
+durations are derived from the steps, never stored twice; editing a *run's* numbers by hand
+drops its steps rather than leaving a stale breakdown behind. That drop is gated on
+`runSteps` now and only reaches running steps — a list of exercises does not derive the
+duration, so typing one in must not silently delete the session's whole prescription.
+
+**A prescription is a tagged union, and a bare array is the run arm**
+(`src/lib/prescription.ts`, `src/lib/strength.ts`). That column held exactly one shape for
+as long as every session was a run. A Fuerza day prescribes too, and what it prescribes is
+not repetitions at a pace but moves — each with its series, its load, its cue and its
+illustration. Both obvious fixes are worse than the problem: a column per kind is a
+migration per kind and a `case` in every reader, and a bare union of untagged shapes is
+every reader guessing. What is here instead is a *tagged payload in the one column* plus
+one **strategy per kind** holding everything that differs, so the readers dispatch on the
+tag and know nothing else about it. The column keeps the name `steps` everywhere — wire,
+MCP argument, drizzle column — because renaming it would rewrite every row for a word.
+
+The discriminant rule is the only part worth memorising: **a bare JSON array IS the run
+encoding.** Every row that exists is `Step[]` or NULL and `Array.isArray` classifies all of
+them, which is why this shipped with no migration of `plan_sessions`, no backfill and no
+dual-read window — and why a phone still holding last week's bundle meets a tagged payload,
+reads `steps?.length` as `undefined` and renders no breakdown. It degrades; it never
+breaks. New run sessions keep storing the bare array: the `run` tag exists in memory only,
+which is what keeps both of those sentences true from here on. There are exactly two
+readers of the column — `prescriptionOf`, which canonicalises it, and `runSteps`, which
+narrows to running steps for the code that genuinely only means running — and **nothing
+else may test the shape by hand.** `sessionEffort` reads through `runSteps`, so a tagged
+payload falls back to the session's own columns, which is what a duration-only session has
+always done.
+
+Then three registries over the same key union, each a mapped `Record` so a missing entry is
+a build error naming the file: `STRATEGIES` in `prescription.ts` (family, `expands`,
+`lines`, `deriveTargets`, and the English JSON-Schema arm and brief fragment the MCP server
+assembles itself from), `PRESCRIPTION_VIEWS` in `src/components/prescription-views.tsx`
+(`Line`, `Breakdown`, `Detail`, and the per-kind `Empty` card), and the zod arm in
+`plan-input.ts`. The authoring schema rides on the strategy rather than sitting in
+`tools.ts` where it was written, because otherwise adding a kind means editing the MCP
+server — and not editing it is the entire claim.
+
+What a third kind costs was measured rather than asserted. A nutrition day was added for
+real and `pnpm typecheck:ci` came back green with `tools.ts`, every HTTP route, the three
+session components, `public/sw.js` and `migrations/` untouched. The recipe: one literal
+each in `SESSION_TYPES`, `PRESCRIPTION_KINDS` and `SportFamily` (which is why all three
+live in the zero-import leaf `session-types.ts`); a new pure module with the payload and
+its strategy; one entry each in `Prescriptions`, `STRATEGIES`, `SESSION_META`,
+`PRESCRIPTION_VIEWS`, `ACCENT` and the zod discriminated union; its own test. No file in
+`migrations/` — `type` carries no CHECK constraint and `steps` is untyped JSON text, so
+`pnpm db:generate` emits nothing. Every one of those entries is *demanded* by a `Record`
+the moment the first literal lands, which is the difference between a build error listing
+what is missing and a runtime hole. The zod one is demanded only because
+`_PrescriptionMatch` in `plan-input.ts` runs in **both** directions, and it did not until
+this was checked: read forwards it merely says the validator never accepts a shape the
+column cannot hold, which a forgotten arm satisfies trivially — by accepting less. A kind
+missing from the union type-checked clean and 400'd at runtime on a payload the rest of the
+app considered valid.
+
+Two strings were the last places that recipe leaked, and both were prose in an `else`
+branch that a third kind would have inherited while compiling cleanly — which is exactly
+the failure a registry exists to prevent, wearing an editorial disguise. `STEPS_SCHEMA`'s
+top-level sentence in `tools.ts` said "a strength or mobility session is the tagged object
+beside it" under an `oneOf` that assembles itself; it names no kind now and points at
+`get_block.prescriptions` instead. And the empty-state card on `/sesion` — the one shown
+when a session's type prescribes a kind and the column is empty — is a fourth slot on the
+view registry, `PRESCRIPTION_VIEWS[k].Empty`, because the absence means something different
+per kind and the way out is a different screen: a run written as a distance and nothing
+else is not wrong and is fixed in `/plan`, while a Fuerza day with no exercises is a
+session nobody can do and is fixed from `/plantillas`.
+
+And **do not tighten the payload against the session type** on the way past. A bare `Step[]`
+parked on a `strength` session stays storable-and-inert exactly as it always was —
+`RUN_STRATEGY` derives nothing for a type that does not count as volume, which `mcp.test.ts`
+pins. Tightening that is a deliberate `superRefine` with its own reasoning, not a drive-by
+on the way through.
+
+**A template is a library entry, and applying one copies it** (`workout_templates`,
+`src/lib/starters.ts`, `/plantillas`). A strength day is the one session nobody wants to
+type twice — nine moves, each with series, repetitions or seconds, rest, a load and a cue —
+so the moves live in an undated table of their own and a session is *stamped* from one:
+title, notes, target duration and `steps: {kind:'strength', exercises}` copied onto the row.
+
+Copied, not referenced, and that is the whole design. A `template_id` on `plan_sessions`
+resolved at read time means revising a template in November rewrites the Monday that was
+already trained in September. Training is a record as much as a plan, and a record that
+changes under you is not one. So there is deliberately **no back-reference** — it would be
+a column with no consumer and a standing invitation to "sync" what was copied — and the
+freeze is said out loud where it is felt: in `attach_template`'s description and in the
+session editor's caption («Se copia en la sesión. Editar la plantilla después no cambia
+esta sesión.»). One consequence to keep: there is no `/apply` endpoint either. The UI
+composes the session client-side and posts it through the same session routes as any other
+edit, so there stays one write path and one definition of what a session is.
+
+The key is `(user_id, id)`, for the reason at the top of this file. A template id is a
+hand-chosen slug over MCP (`fuerza-lunes`) exactly as a session id is, two athletes pick
+the same one independently, and an id alone is therefore not a key. Every statement behind
+`/api/templates` and the five template tools names `userId` inline — carried on the insert,
+in the `where` of every read, update and delete — and `mcp.test.ts`'s tenancy scan reads
+them exactly as it reads the session ones.
+
+The two built-ins ship **as code** (`BUILTIN_TEMPLATES`, ids prefixed `treximo-`) and are
+never seeded. «Every plan is authored, there is no seed» above is a ruling about *dated*
+plan rows: a week and a session belong to one athlete's block, so seeding those is the app
+inventing training nobody asked for. An undated, reusable library entry is `baseline.ts`'s
+category instead — frozen content read out of code, identical for everybody, with no
+per-user copy to drift and no idempotent-seed machinery to keep honest. They reach D1 only
+as copies an athlete asked for: applied onto a session, duplicated from the editor, or
+written back under a new id. The prefix is what makes that enforceable rather than
+conventional — `create_template`, `update_template` and `delete_template` all refuse an id
+in that namespace, so nobody can mint a row that shadows a built-in for one athlete and not
+the others.
+
+`exercises` is JSON on the row for the reason `steps` is: an entry has no identity of its
+own, is never queried, sorted or joined, only read back whole. Every entry carries its own
+Spanish `name`, so a row still renders in full if a re-vendored catalogue ever drops the id
+it names — the catalogue enriches on read (the illustration, the instructions) and is not
+load-bearing.
+
+**The exercise catalogue is vendored, not tabled** (`src/lib/exercises/`, `catalog.json` at
+651,528 bytes). 571 of RepDB's 601 free-tier exercises — `cardio` and `olympic` dropped,
+because treadmill rows are noise in a strength picker and olympic lifts are an injury
+vector on a knee rebuild — Spanish prose with the English name kept as a search index,
+committed one record per line. It is `docs/personal/data/*.csv`'s category: a frozen
+third-party record the app only ever *reads*. A table would be a second copy of somebody
+else's dataset with a sync problem attached, a migration every time RepDB moves, and 571
+rows of prose in D1 that no query would ever filter on — for a set that changes a few times
+a year and that **nothing in this app writes**. `pnpm exercises:prune` regenerates it and
+`src/lib/exercise-meta.ts` beside it; never hand-edit either. The runbook is in
+`docs/setup.md`, and populate comes *before* deploy or the new Worker 404s its own images
+until it lands.
+
+`src/lib/exercises/` is **Worker-only**, and that is deliberately a plain directory rule
+with zero exceptions, so that it can be checked. ~650 KB riding into a client bundle that
+is otherwise a few tens would be invisible to tsc, to the build and to every runtime. So
+the browser-safe half of the catalogue is a *generated* module outside the directory
+(`exercise-meta.ts`: the generation stamp and the image-URL shape, nothing else), the
+Spanish facet labels are hand-written in `exercise-labels.ts`, and
+`test/unit/exercises.test.ts` reads every file under `src/components/` plus a named list of
+browser-shipped `src/lib/*` modules and fails on any non-type import of the directory — the
+`nav.test.ts` shape, for a boundary the type checker cannot see. `templates.ts` exists
+partly to hold that line: the write boundaries call `unknownExerciseIds` themselves and
+pass it the answer, so no module a route *and* a component could both import is ever the
+bridge that carries the catalogue across. It owns the *sentence*, not the lookup.
+
+**The illustrations are mirrored into the `AVATARS` bucket under `exercises/<version>/`.**
+A second bucket was considered and rejected: it is one more thing every fork and the live
+deployment must create and bind before the feature works at all, for no isolation gain —
+both stores are reachable only through this Worker's own routes — and the two key
+namespaces cannot collide. Hotlinking RepDB's CDN was rejected harder: a third-party origin
+sits outside the service worker's reach, in an app whose whole claim is a plan that opens
+at a trailhead with no signal. `pnpm exercises:populate` copies ~1,020 objects, ~16 MB,
+once. `GET /api/exercises/img/[version]/[id]/[pose]` validates the version against the
+compiled-in `CATALOG_VERSION`, the id against the catalogue and the pose against that
+exercise's own poses **before** touching R2 — exactly as the avatar route validates against
+`locals.user` — and the content type comes from the validated path, never from R2's
+metadata, under `nosniff`. The version segment is the avatar lesson generalised: bytes under
+a successful URL never change, so a re-vendored catalogue mints a whole new prefix instead
+of replacing anything. The one divergence from the avatar route is **no `vary: Cookie`**,
+commented in place: these bytes are the same illustration for every athlete, the Cache API
+honours `Vary`, and declaring it would empty `lm-media` on every re-login for nothing.
+`private` alone already keeps shared caches out. Do not "fix" it back.
+
+**Three RepDB Free Tier terms are load-bearing on the code**, not just on
+`src/lib/exercises/LICENSE.md`. *Term 2 — attribution, visible to users*: `RepdbAttribution`
+(«Datos de ejercicios por RepDB (repdb.co)», linking repdb.co) is rendered wherever the
+catalogue is visible — the foot of `/plantillas`, the exercise picker, the template editor
+— and the English line is in `README.md`. A code comment does not satisfy this term, so
+those footers are not decoration and do not get tidied away.
+*Term 3 — no redistribution as a dataset*: `GET /api/exercises` sits behind the
+default-closed `/api` gate, **requires a query of two characters or at least one facet**
+(«Afina la búsqueda»), returns at most 50 trimmed rows carrying no prose, and has no
+cursor, no offset and no "all" — there is no request that walks the set, which is precisely
+why the required query exists. It is a search box, not a dump. *Term 5 — images verbatim*:
+the populate script copies bytes and verifies the WebP magic, and that is deliberately all
+it can do — no resize, no recompression, and categorically no generative derivation in any
+form, which binds future work on this repository as much as the pipeline that exists today.
 
 **Plan-to-actual matching happens on read, not on sync** (`src/lib/plan.ts`). A session is
 done when it was ticked off by hand *or* when an activity on the same day matches it: same
@@ -281,13 +454,20 @@ here: those are configured per zone, and `workers.dev` is not a zone you own.
 
 **The plan is also an MCP server** (`src/lib/mcp/`, `POST /api/mcp`). Typing twenty-three
 weeks of sessions into a form is the one thing this app is bad at and the one thing an
-agent is good at, so the same data the UI reads is offered as ten tools: five reads —
-the block brief, the weeks, the sessions, the activities, the derived summary — and five
-writes, of which `create_sessions` exists so that "write me a 16-week plan" is one round
-trip rather than ninety. A session written with `steps` gets its `targetDistanceM` derived
+agent is good at, so the same data the UI reads is offered as seventeen tools: eight reads
+— the block brief, the weeks, the sessions, the activities, the derived summary, plus
+`search_exercises`, `get_exercise` and `list_templates` over the catalogue and the library
+— and nine writes, of which `create_sessions` exists so that "write me a 16-week plan" is
+one round trip rather than ninety, and `attach_template` so that stamping a Fuerza day is
+one rather than a read, a compose and a write. The other three writes are
+`create_template` / `update_template` / `delete_template`. `SERVER_VERSION` went `2.1.0`
+→ `'2.2.0'` with them, which is the only thing a client holding a cached registry has to
+notice by. A session written with `steps` gets its `targetDistanceM` derived
 at the boundary (`withDerivedDistance`, in the athlete's own bands) — that column is what
 every screen sums and what the activity matcher measures against, and the write is the
-only honest moment to compute it.
+only honest moment to compute it. That function now asks the prescription's own strategy
+what to derive, so a kind that derives nothing derives nothing and the boundary needs no
+`case`.
 
 **Bearer, and the token is *looked up*, not compared.** An MCP client has no cookie jar
 and no login form to post to, so it presents `Authorization: Bearer <token>` — an
@@ -404,7 +584,7 @@ cache-first shells in the worker, `drop-trailing-slash`, the module-scope store,
 prefetch) and none of them could reach it: the thing being animated between was a shell,
 and one of them was always empty.
 
-So the seven screens are components of one tree. What follows from that:
+So the nine screens are components of one tree. What follows from that:
 
 - **The transition is real.** `document.startViewTransition`'s callback is a `flushSync`,
   so React has rendered the next screen — with the block, on its first render — before the
@@ -414,8 +594,8 @@ So the seven screens are components of one tree. What follows from that:
 - **The four tabs stay mounted.** `<Activity>` (React 19.2) keeps a hidden tab's state and
   DOM while unmounting its effects — `/plan` keeps the week you had open, `/registro` its
   filter — and hidden children are not server-rendered and render at a lower priority, so
-  it costs the cold start nothing. `/sesion`, `/actividad` and `/ajustes` mount only while
-  open: they are addressed by a query string or carry a form.
+  it costs the cold start nothing. `/sesion`, `/actividad`, `/ajustes`, `/plantillas` and
+  `/plantilla` mount only while open: they are addressed by a query string or carry a form.
 - **Scroll is the router's job.** The page scrolls the document, not a box, so `Activity`
   cannot hold an offset. `router.tsx` remembers one per route and the *order* is
   load-bearing: a route with no remembered offset is zeroed **before** the render, so a
@@ -432,7 +612,7 @@ So the seven screens are components of one tree. What follows from that:
   with no page is a deep link that 404s; a page naming a path that is not a key hydrates
   as `/` (the fallback in `make`), so `/progreso` would quietly open on Hoy. Both are
   clean under `tsc`. `test/unit/nav.test.ts` reads `src/pages/*.astro` and fails on either.
-- **Astro is still the framework and still prerenders seven documents**, one per route,
+- **Astro is still the framework and still prerenders one document per route** — nine of them,
   each opening on its own screen with real HTML in the first paint. They are entry points
   — a cold start, a deep link, a reload — not a single-page app that has to boot before it
   can route. What was deleted is `<ClientRouter />`, not Astro.
@@ -460,7 +640,7 @@ on iOS.
 **Prefetching is off** (`astro.config.mjs`), and that is a consequence rather than a
 tuning. It was `prefetchAll` at `tap`, with the four dock links opting up to `viewport`, so
 the tab shells were in hand before a thumb moved. No screen fetches a document any more, so
-warming those shells would download six copies of markup this session will never ask for.
+warming those shells would download eight copies of markup this session will never ask for.
 
 Naming the page column is the one change to resist here. A `view-transition-name` lifts an
 element into its own `::view-transition-group`, and a group animates the element's *box* —
@@ -528,13 +708,26 @@ network-first put a round trip in front of every one. The tabs are one document 
 tab tap fetches nothing and the split — along with the two functions that told the callers
 apart — is gone.
 
-Four caches, and the split is the design. `lm-core` is precached at install: fonts, mark,
+Five caches, and the split is the design. `lm-core` is precached at install: fonts, mark,
 manifest — stable URLs, so **bump `VERSION` when one of them is edited**. `lm-pages` holds
 the shells keyed by *pathname with the query dropped*, because `/actividad?id=1` and
 `?id=2` are one prerendered document and per-URL keys would store it once per run in the
 log. `lm-assets` is deliberately **not** versioned and is LRU-trimmed to 60 entries: a
 hashed filename cannot go stale, only become surplus, and purging it on an update would
-throw away a good copy of a file that is still current. `lm-data` holds one entry.
+throw away a good copy of a file that is still current. `lm-media` is the exercise
+illustrations, unversioned for the same reason — the catalogue generation is in the URL —
+and LRU-trimmed to 150 (≈2.5 MB at the measured 16.5 KB average). Its own cache rather
+than a corner of `lm-assets` because one browse through the exercise picker is fifty
+thumbnails and would evict every chunk of the running build from an LRU of sixty: two
+working sets, two caches. `lm-data` holds one entry.
+
+**`VERSION` stayed `'v5'` when `lm-media` arrived**, and that is the rule rather than an
+oversight. The bump is what *throws away* what is already stored — `activate` deletes
+every `lm-` cache not in `KEEP` — so it is owed when the precache list changes or when a
+rule changes what one of the *versioned* caches may hold. Adding an unversioned cache with
+rules of its own is neither: bumping for it would have cost every phone its offline copy
+of the block to gain nothing. The browser byte-compares this file, so the edit ships a new
+worker either way.
 
 One consequence of the collapse is worth knowing, because it is an improvement rather
 than a compromise. A device that has only ever launched `/` now has only `/` in `lm-pages`
@@ -791,16 +984,27 @@ Tailwind classes so a chart is styled like everything else on the page.
 - **Dates are INTEGER epoch milliseconds**, stored as the athlete's local wall clock, so
   "which day was this run" does not depend on the viewing device.
 - **Pure logic stays out of I/O modules.** `src/lib/config.ts`, `src/lib/activity.ts`, `src/lib/block.ts`,
-  `src/lib/plan.ts`, `src/lib/workout.ts`, `src/lib/paces.ts`, `src/lib/format.ts`,
+  `src/lib/session-types.ts`, `src/lib/plan.ts`, `src/lib/workout.ts`,
+  `src/lib/prescription.ts`, `src/lib/strength.ts`, `src/lib/starters.ts`,
+  `src/lib/paces.ts`, `src/lib/format.ts`,
   `src/lib/generator.ts`, `src/lib/metrics.ts`, `src/lib/analytics.ts`,
-  `src/lib/thresholds.ts` and `src/lib/baseline.ts` import nothing from `cloudflare:workers`,
+  `src/lib/thresholds.ts`, `src/lib/exercise-labels.ts`, `src/lib/exercise-meta.ts` and
+  `src/lib/baseline.ts` import nothing from `cloudflare:workers`,
   take `now` explicitly, and are unit-tested in plain Node; `src/lib/sync.ts` and
   `src/lib/strava.ts` own the side effects. `src/lib/mcp/*` belongs to the first group by
-  taking its `Database` and its credential as arguments rather than reading either.
-- **`plan.ts` and `workout.ts` ship to the browser, so they pull in neither drizzle nor
-  zod.** They own `SESSION_TYPES` and `Step`, and `db/schema.ts` imports them, not the other
-  way round; the zod mirror of `Step` lives in `plan-input.ts`, which only the Worker ever
-  loads, and a type-level assignment there fails the build if the two drift apart.
+  taking its `Database` and its credential as arguments rather than reading either, and so
+  do `src/lib/exercises/*` (a frozen data module and the functions that read it) and
+  `src/lib/templates.ts` (which takes the answer to "are these ids real" as an argument
+  rather than importing the catalogue to find out — see the Worker-only directory rule in
+  **The exercise catalogue is vendored, not tabled** above).
+- **`plan.ts`, `workout.ts`, `prescription.ts`, `strength.ts` and `starters.ts` ship to the
+  browser, so they pull in neither drizzle nor zod.** Between them they own `Step` and
+  `StrengthExercise`, and `db/schema.ts` imports them, not the other way round — as
+  **type-only** imports, which are erased, so drizzle-kit's CommonJS transform never has to
+  load them (only `SESSION_TYPES` crosses as a value, out of the zero-import leaf
+  `session-types.ts`, which is the whole reason that leaf exists). The zod mirror of both
+  shapes lives in `plan-input.ts`, which only the Worker ever loads, and the type-level
+  assignments there fail the build if either pair drifts apart.
 - **The ground is painted on `html`, and the atmosphere above it is a fixed pseudo-element**
   (`body::before`, `--app-atmosphere` in `global.css`; `Boot.astro` paints the same token so
   the splash and the screen it uncovers are one surface). It was `background-attachment:

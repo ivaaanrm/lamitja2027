@@ -1,33 +1,18 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { formatDuration, formatKm, formatPace, formatPaceRange, isRun, paceSKm } from '@/lib/activity'
 import { goalPaceSKm, totalWeeks, type BlockConfig } from '@/lib/block'
-import { cn } from '@/lib/cn'
 import type { Activity, PlanSession } from '@/lib/db/schema'
 import { decimal } from '@/lib/format'
-import { DEFAULT_HR_MAX, PACE_ZONE_NUMBER, hrZone, paceBands, zoneTag } from '@/lib/paces'
+import { DEFAULT_HR_MAX, hrZone, paceBands, zoneTag } from '@/lib/paces'
 import { setDone } from '@/lib/plan-client'
-import { SESSION_META, sessionEffort, type MatchedSession, type SessionType, type WeekPlan } from '@/lib/plan'
-import {
-  BY_FEEL,
-  STEP_ROLE,
-  formatDistance,
-  formatRecovery,
-  hardDistanceM,
-  isEffort,
-  paceBandLabel,
-  stepAmount,
-  stepHeadline,
-  workoutDistanceM,
-  workoutDurationS,
-  zoneLabel,
-  type Bands,
-  type Step,
-} from '@/lib/workout'
+import { SESSION_META, sessionEffort, type MatchedSession, type WeekPlan } from '@/lib/plan'
+import { prescriptionOf } from '@/lib/prescription'
+import { BY_FEEL, zoneLabel, type Bands } from '@/lib/workout'
+import { PrescriptionDetail, PrescriptionEmpty } from './prescription-views'
 import { NoBlockCard, useBlock } from './useBlock'
 import { island } from './Island'
 import { useRouteParams, type Route } from './router'
 import {
-  ACCENT,
   ARROW_OUT,
   CHECK,
   CHEVRON_LEFT,
@@ -46,7 +31,6 @@ import {
   StatStrip,
   TextLink,
   TypeChip,
-  ZoneChip,
 } from './ui'
 
 /**
@@ -123,7 +107,9 @@ function SessionDetailScreen({ route }: { route: Route }) {
 
   const { match, week } = found
   const { session, activity, done } = match
-  const steps = session.steps?.length ? session.steps : null
+  const prescription = prescriptionOf(session.steps)
+  /** Whether this *kind* of session is supposed to carry one — a rest day never is. */
+  const prescribes = SESSION_META[session.type].prescribes
   // Only the sessions Strava will never report are ticked by hand; a matched activity has
   // already settled the question, and a rest day was never owed.
   const toggle =
@@ -146,29 +132,24 @@ function SessionDetailScreen({ route }: { route: Route }) {
     <>
       <Overview block={block} match={match} week={week} back={back} bands={bands} />
 
-      {SESSION_META[session.type].family === 'run' ? (
-        steps ? (
-          <Workout steps={steps} type={session.type} bands={bands} />
-        ) : (
-          <Card className="fade-up">
-            <CardTitle>El entrenamiento</CardTitle>
-            <EmptyState
-              action={
-                <TextLink href="/plan" tone="primary">
-                  Desglosarla en el plan
-                </TextLink>
-              }
-            >
-              Esta sesión está escrita como una distancia y nada más — sin calentamiento,
-              series ni vuelta a la calma —, así que no hay nada que desglosar paso a paso.
-            </EmptyState>
-          </Card>
-        )
+      {/* The prescription draws itself, whatever kind it is — a timeline of steps for a
+          run, a checklist of moves for a Fuerza day — and so does its *absence*, which is
+          worded per kind because the fix is different for each and the copy lives with the
+          kind rather than in an `else` here. A `rest` day prescribes nothing and gets
+          neither. */}
+      {prescription ? (
+        <PrescriptionDetail p={prescription} type={session.type} bands={bands} />
+      ) : prescribes ? (
+        <PrescriptionEmpty kind={prescribes} />
       ) : null}
 
       {session.notes ? (
         <Card className="fade-up">
-          <CardTitle>Cómo correrla</CardTitle>
+          {/* A Fuerza day is not run, and a card telling you how to run it is the app
+              still assuming every session has a pace. */}
+          <CardTitle>
+            {SESSION_META[session.type].family === 'run' ? 'Cómo correrla' : 'Cómo hacerla'}
+          </CardTitle>
           <p className="whitespace-pre-line text-footnote leading-relaxed text-label-2">
             {session.notes}
           </p>
@@ -308,129 +289,6 @@ function Overview({
         <HeroMetric className="mt-3" value={minutes} unit="min previstos" />
       ) : null}
     </Card>
-  )
-}
-
-/**
- * The workout as a timeline: one node per step, down one rail, in the order it is run.
- *
- * A session is a sequence in time before it is a list of prescriptions, and boxing each
- * step made it read as a form — five framed panels stacked, each with its own internal
- * rules, which is three levels of enclosure inside a card that is already one. The rail
- * says the same thing with a hairline: these happen in this order, and there is nothing
- * between them.
- *
- * Two lines per node and no more. The amount is the figure the eye comes back to mid-rep,
- * so it is set at `subhead` and carries the repetition beside it as a badge in the
- * session's hue — `2 km ×4`, the way a set is written on a whiteboard, rather than folded
- * into the sentence. Under it, quietly, the role and the band. The recovery hangs off the
- * set it belongs to as a third line, because a jog is not a step of its own: it is part of
- * how the set is run, and giving it a node of its own doubles the length of every interval
- * session on the screen.
- *
- * The footer is the three totals the steps already answer. `workoutDistanceM` counts the
- * recovery jogs, which is why it is larger than the reps add up to, and `hardDistanceM`
- * counts only what is run at threshold or faster — the honest measure of the session and
- * the one docs/03 §3 budgets the week in.
- */
-function Workout({ steps, type, bands }: { steps: Step[]; type: SessionType; bands: Bands }) {
-  const hard = hardDistanceM(steps, bands)
-  const totals = [
-    formatDistance(workoutDistanceM(steps, bands)),
-    `≈ ${formatDuration(workoutDurationS(steps, bands))}`,
-    hard > 0 ? `${formatDistance(hard)} a umbral o más` : null,
-  ]
-    .filter(Boolean)
-    .join(' · ')
-
-  return (
-    <Card className="fade-up">
-      <CardTitle>El entrenamiento</CardTitle>
-      <ol>
-        {steps.map((step, i) => (
-          <TimelineStep
-            key={i}
-            step={step}
-            type={type}
-            bands={bands}
-            last={i === steps.length - 1}
-          />
-        ))}
-      </ol>
-      <p className="mt-1 border-t border-line pt-2 text-caption tabular-nums text-label-3">
-        <span className="text-label-2">Total</span> {totals}
-      </p>
-    </Card>
-  )
-}
-
-function TimelineStep({
-  step,
-  type,
-  bands,
-  last,
-}: {
-  step: Step
-  type: SessionType
-  bands: Bands
-  /** The last node draws no connector — a rail past the final step is a step that is missing. */
-  last: boolean
-}) {
-  const accent = ACCENT[type]
-  const zone = step.zone ? PACE_ZONE_NUMBER[step.zone] : null
-  const effort = isEffort(step)
-  const sub = [STEP_ROLE[step.kind], paceBandLabel(step.zone, bands)].filter(Boolean).join(' · ')
-
-  return (
-    <li className="flex gap-2.5 pb-3.5 last:pb-0">
-      {/* The marker column stretches with the row, so the connector is `flex-1` rather
-          than a height anyone has to compute from the content above it. */}
-      <span aria-hidden className="flex w-2 shrink-0 flex-col items-center">
-        <span
-          className={cn(
-            'mt-1.5 size-2 shrink-0 rounded-full',
-            // Filled in the session's hue for the running that *is* the workout, hollow
-            // for the running that brackets it: the shape says which is which before the
-            // colour does, and a warm-up in full accent reads as another rep.
-            effort && step.zone ? accent.dot : 'border border-line-strong',
-          )}
-        />
-        {last ? null : <span className="mt-1 w-px flex-1 bg-line" />}
-      </span>
-
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline justify-between gap-2">
-          <span className="flex min-w-0 items-baseline gap-1.5">
-            <span className="data-number text-subhead font-semibold text-label">
-              {stepAmount(step) || stepHeadline(step)}
-            </span>
-            {step.reps > 1 ? (
-              <span
-                className={cn(
-                  'data-number shrink-0 rounded-md px-1 py-px text-caption2 font-semibold ring-1 ring-inset',
-                  accent.chip,
-                )}
-              >
-                ×{step.reps}
-              </span>
-            ) : null}
-          </span>
-          {zone ? <ZoneChip zone={zone} /> : null}
-        </div>
-
-        {sub ? <p className="mt-0.5 text-caption tabular-nums text-label-3">{sub}</p> : null}
-
-        {step.recovery && step.reps > 1 ? (
-          <p className="mt-1 text-caption tabular-nums text-label-2">
-            {formatRecovery(step.recovery)} entre series
-          </p>
-        ) : null}
-
-        {step.note ? (
-          <p className="mt-1 text-caption leading-relaxed text-label-3">{step.note}</p>
-        ) : null}
-      </div>
-    </li>
   )
 }
 

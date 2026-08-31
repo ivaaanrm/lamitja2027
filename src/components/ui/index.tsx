@@ -113,6 +113,11 @@ export const CHECK = 'm5 13 4.5 4.5L19 7'
 // CHECK and the chevrons do, and at 14px beside one of them it reads a size larger.
 export const PENCIL = 'M16.4 4.1a2.5 2.5 0 1 1 3.5 3.5L8 19.5l-4.8 1.3 1.3-4.8z'
 export const UNDO = 'M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5'
+// Four plates and a bar, symmetrical about the centre of the box: the one glyph that reads
+// as "strength" at 14px without becoming a drawing. It is what stands in for an exercise
+// illustration that has not been mirrored yet — the tile's own fallback, the way two
+// initials sit under an avatar.
+export const DUMBBELL = 'M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10'
 // The same arc as UNDO, twice and clockwise: two half-circles chasing each other, which is
 // the one shape a refresh cannot be mistaken for anything else. Four subpaths in one `d`
 // rather than four `<path>`s, because `Icon` renders exactly one and a stroked `d` may hold

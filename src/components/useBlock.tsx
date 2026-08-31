@@ -6,7 +6,13 @@ import { blockProgress, type BlockProgress } from '@/lib/metrics'
 import { setOffline } from '@/lib/net'
 import { cn } from '@/lib/cn'
 import { buildBlock, type WeekPlan } from '@/lib/plan'
-import type { Activity, PlanSession, PlanWeek, StravaAthlete } from '@/lib/db/schema'
+import type {
+  Activity,
+  PlanSession,
+  PlanWeek,
+  StravaAthlete,
+  WorkoutTemplate,
+} from '@/lib/db/schema'
 import { Card, CardTitle, EmptyState, TextLink } from './ui'
 
 interface BlockData {
@@ -28,6 +34,14 @@ interface BlockData {
   activities: Activity[]
   weeks: PlanWeek[]
   sessions: PlanSession[]
+  /**
+   * The athlete's *own* strength templates, ordered by name. The two that ship with the
+   * app are not in here: they are compiled into the bundle (`src/lib/starters.ts`) and
+   * merged at render, so putting them in the payload would be a second copy per request of
+   * something the browser already has — and this payload is what the service worker keeps
+   * on the phone, where a copy that can go stale is the expensive kind.
+   */
+  templates: WorkoutTemplate[]
 }
 
 export interface Block {

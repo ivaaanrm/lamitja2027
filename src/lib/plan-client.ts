@@ -1,5 +1,12 @@
-import type { PlanSession, PlanWeek } from './db/schema'
-import type { CreateSessionInput, UpdateSessionInput, UpdateWeekInput } from './plan-input'
+import type { PlanSession, PlanWeek, WorkoutTemplate } from './db/schema'
+import type { CatalogExercise } from './exercises/catalog'
+import type {
+  CreateSessionInput,
+  CreateTemplateInput,
+  UpdateSessionInput,
+  UpdateTemplateInput,
+  UpdateWeekInput,
+} from './plan-input'
 
 /**
  * Browser-side calls into the plan API. Thin on purpose: the editor holds no optimistic
@@ -54,3 +61,55 @@ export const updateWeek = (weekIndex: number, patch: UpdateWeekInput) =>
 /** Ticking a session off by hand — the path strength and cross sessions take, since they never reach Strava. */
 export const setDone = (id: string, done: boolean) =>
   updateSession(id, { doneAt: done ? Date.now() : null })
+
+export const createTemplate = (input: CreateTemplateInput) =>
+  send<WorkoutTemplate>('/api/templates', 'POST', input)
+
+export const updateTemplate = (id: string, patch: UpdateTemplateInput) =>
+  send<WorkoutTemplate>(`/api/templates/${encodeURIComponent(id)}`, 'PATCH', patch)
+
+export const deleteTemplate = (id: string) =>
+  send<void>(`/api/templates/${encodeURIComponent(id)}`, 'DELETE')
+
+/**
+ * The catalogue, read across the wire rather than bundled.
+ *
+ * `src/lib/exercises/` is ~630 KB of Spanish prose and never leaves the Worker; the picker
+ * asks it a question and gets back at most fifty trimmed rows. The `import type` above is
+ * erased at build, so naming the catalogue's own record type here costs the bundle nothing
+ * and stops these two shapes drifting from the ones the endpoint actually returns.
+ */
+export type ExerciseHit = Pick<
+  CatalogExercise,
+  'id' | 'name' | 'category' | 'equipment' | 'bodyPart' | 'difficulty' | 'isUnilateral'
+>
+
+export interface ExerciseQuery {
+  q?: string
+  muscle?: string
+  equipment?: string
+  tag?: string
+  bodyPart?: string
+  category?: string
+  /** Only moves that need nothing — the catalogue's `equipment === null`. */
+  bodyweight?: boolean
+  limit?: number
+}
+
+/**
+ * The endpoint refuses a query with no text and no facet — it is a search box, not a
+ * dataset dump — so a picker opening on nothing must not call this until something is
+ * typed or a chip is tapped.
+ */
+export const searchExercises = (query: ExerciseQuery) => {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === '' || value === false) continue
+    params.set(key, value === true ? '1' : String(value))
+  }
+  return send<{ results: ExerciseHit[] }>(`/api/exercises?${params}`, 'GET')
+}
+
+/** The full record for one exercise: description, instructions, tips, muscles, poses. */
+export const getExercise = (id: string) =>
+  send<CatalogExercise>(`/api/exercises/${encodeURIComponent(id)}`, 'GET')

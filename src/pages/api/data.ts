@@ -7,7 +7,7 @@ import { baselineFor } from '@/lib/baseline'
 import type { BlockConfig } from '@/lib/block'
 import { avatarUrl } from '@/lib/avatar'
 import { createDb } from '@/lib/db/client'
-import { activities, type Block, blocks, planSessions, planWeeks } from '@/lib/db/schema'
+import { activities, type Block, blocks, planSessions, planWeeks, workoutTemplates } from '@/lib/db/schema'
 
 export const prerender = false
 
@@ -35,7 +35,7 @@ export const GET: APIRoute = async ({ locals }) => {
   const user = locals.user!
   const db = createDb(env.DB)
 
-  const [block, acts, weeks, sessions, account] = await Promise.all([
+  const [block, acts, weeks, sessions, templates, account] = await Promise.all([
     db.query.blocks.findFirst({ where: eq(blocks.userId, user.id) }),
     db.select().from(activities).where(eq(activities.userId, user.id)),
     db.select().from(planWeeks).where(eq(planWeeks.userId, user.id)).orderBy(planWeeks.weekIndex),
@@ -44,6 +44,15 @@ export const GET: APIRoute = async ({ locals }) => {
       .from(planSessions)
       .where(eq(planSessions.userId, user.id))
       .orderBy(planSessions.scheduledOn, planSessions.dayOrder),
+    // The athlete's own templates only. The two built-ins are compiled into both sides and
+    // are merged at render, so shipping them here would be a second copy per request of
+    // something the bundle already carries — and the payload is what the service worker
+    // keeps on the phone, where a copy that can go stale is the expensive kind.
+    db
+      .select()
+      .from(workoutTemplates)
+      .where(eq(workoutTemplates.userId, user.id))
+      .orderBy(workoutTemplates.name),
     getAccount(db, user.id),
   ])
 
@@ -74,5 +83,6 @@ export const GET: APIRoute = async ({ locals }) => {
     activities: block ? acts.filter((a) => a.startedOn >= block.startsOn) : [],
     weeks,
     sessions,
+    templates,
   })
 }

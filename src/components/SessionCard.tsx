@@ -1,17 +1,15 @@
-import { Fragment, useState, type ReactNode } from 'react'
+import { Fragment, type ReactNode, useState } from 'react'
 import { formatDuration, formatKm, formatPace, isRun, paceSKm } from '@/lib/activity'
 import { cn } from '@/lib/cn'
-import { PACE_ZONE_NUMBER, hrZone, zoneTag } from '@/lib/paces'
-import { SESSION_META, effortLabel, sessionEffort, type MatchedSession, type SessionType } from '@/lib/plan'
+import { hrZone, zoneTag } from '@/lib/paces'
+import { SESSION_META, effortLabel, sessionEffort, type MatchedSession } from '@/lib/plan'
+import { prescriptionOf } from '@/lib/prescription'
+import type { Bands } from '@/lib/workout'
 import {
-  formatRecovery,
-  formatWorkout,
-  isEffort,
-  paceBandLabel,
-  stepHeadline,
-  type Bands,
-  type Step,
-} from '@/lib/workout'
+  PrescriptionBreakdown,
+  PrescriptionLine,
+  expandsPrescription,
+} from './prescription-views'
 import { ACCENT, Button, Chevron, DoneToggle, TypeChip } from './ui'
 
 /**
@@ -80,7 +78,9 @@ export function SessionCard({
   const { session, activity, done } = match
   const accent = ACCENT[session.type]
 
-  const steps = session.steps ?? null
+  // The one reader of the column's shape, here as everywhere: a bare array is a run
+  // workout, a tagged object is whatever it says it is, and `[]` is no prescription.
+  const prescription = prescriptionOf(session.steps)
   const effort = sessionEffort(session, bands)
   // Strength and cycling are prescribed in minutes; everything that runs, in kilometres.
   const target =
@@ -98,9 +98,12 @@ export function SessionCard({
           .join(' · ')
       : null
 
-  // A single step says nothing the header has not already said — "4 km @ 5:00–5:30/km"
-  // under a card that reads "4,0 km · 5:00–5:30/km" is the same sentence twice.
-  const detailed = steps != null && steps.length > 1
+  // Whether there is a breakdown worth unfolding, asked of the payload's own kind. For a
+  // run that is still "more than one step" — a single step says nothing the header has not
+  // already said, since "4 km @ 5:00–5:30/km" under a card reading "4,0 km · 5:00–5:30/km"
+  // is the same sentence twice. For a strength day any list at all is worth opening: the
+  // header can only ever say how long it takes.
+  const detailed = prescription != null && expandsPrescription(prescription)
   // A rest day has no workout to open, and so no detail view to open it in.
   const href =
     session.type === 'rest' ? null : `/sesion?id=${encodeURIComponent(session.id)}&desde=${from}`
@@ -160,7 +163,9 @@ export function SessionCard({
                 <span className="mt-1 block text-caption tabular-nums text-label-3">{meta}</span>
               ) : null}
 
-              {detailed && !open ? <WorkoutLine steps={steps} bands={bands} /> : null}
+              {detailed && !open && prescription ? (
+                <PrescriptionLine p={prescription} type={session.type} bands={bands} />
+              ) : null}
             </span>
 
             <span className="flex shrink-0 items-center gap-1.5">
@@ -188,7 +193,9 @@ export function SessionCard({
         // hairline above already says this is a different part of the cell, and a second
         // rule inside it was a frame around one paragraph.
         <div className="fade-up space-y-2.5 border-t border-line px-3.5 pb-2.5 pt-2.5">
-          {detailed ? <StepList steps={steps} type={session.type} bands={bands} /> : null}
+          {detailed && prescription ? (
+            <PrescriptionBreakdown p={prescription} type={session.type} bands={bands} />
+          ) : null}
           {session.notes ? (
             // Coaching prose, so it gets the one thing prose needs and data does not: a
             // step up in size and open leading.
@@ -213,97 +220,6 @@ export function SessionCard({
 
       {activity ? <Result activity={activity} session={session} hrMax={hrMax} /> : null}
     </article>
-  )
-}
-
-/**
- * The workout at scanning resolution: the efforts, and nothing around them.
- *
- * Only the steps that *are* the workout. A warm-up and a cool-down are the same 2–3 km
- * every time and the header already carries the total they are part of, so spelling them
- * out on a collapsed card spends two lines saying what the reader knew. `5 × 1 km` is the
- * whole question a planner row has to answer.
- *
- * No zone tags on it any more: the line above now states the session's band outright, so
- * a `Z5` after every effort was the same fact printed twice on consecutive lines. The
- * per-step bands live in the breakdown, where there is room for them to differ.
- */
-function WorkoutLine({ steps, bands }: { steps: Step[]; bands: Bands }) {
-  const efforts = steps.filter(isEffort)
-
-  return (
-    <span className="mt-0.5 block text-caption tabular-nums leading-relaxed text-label-2">
-      {efforts.length === 0
-        ? // Warm-up and cool-down only — nothing to promote, so say the whole thing.
-          formatWorkout(steps, bands)
-        : efforts.map((step) => stepHeadline(step)).join(' · ')}
-    </span>
-  )
-}
-
-/**
- * The workout, one step per line, with the recovery hanging off the set it belongs to.
- *
- * The right column grades with the step: an effort carries its zone *and* its exact band
- * (`Z5 · 3:30–3:40/km`), the running that brackets it carries only the zone. That is how
- * the session is actually coached — the reps are run to the watch, the warm-up is run to
- * feel — and it is also what keeps the line inside 320px, where a full band on every row
- * would collide with `2 km de vuelta a la calma`.
- *
- * Recoveries and step notes hang under their step with the dot column left empty. Position
- * is what marks them as part of the set; the hairline they used to carry was a frame
- * around a single line of text. They hang at `pl-3.5` — the dot's 6px plus the 8px gap
- * beside it — so the second line of a set starts under the first, not under its marker.
- */
-function StepList({ steps, type, bands }: { steps: Step[]; type: SessionType; bands: Bands }) {
-  const accent = ACCENT[type]
-
-  return (
-    <ol className="space-y-2">
-      {steps.map((step, i) => {
-        const effort = isEffort(step)
-        const zone = step.zone ? zoneTag(PACE_ZONE_NUMBER[step.zone]) : null
-        const detail = effort
-          ? [zone, paceBandLabel(step.zone, bands)].filter(Boolean).join(' · ')
-          : zone
-
-        return (
-          <li key={i}>
-            <div className="flex items-baseline justify-between gap-3">
-              <span className="flex min-w-0 items-baseline gap-2">
-                <span
-                  aria-hidden
-                  className={cn(
-                    'size-1.5 shrink-0 -translate-y-px rounded-full',
-                    effort && step.zone ? accent.dot : 'bg-fill-strong',
-                  )}
-                />
-                <span
-                  className={cn(
-                    'text-footnote tabular-nums',
-                    effort ? 'text-label' : 'text-label-3',
-                  )}
-                >
-                  {stepHeadline(step)}
-                </span>
-              </span>
-              {detail ? (
-                <span className="shrink-0 text-caption tabular-nums text-label-3">{detail}</span>
-              ) : null}
-            </div>
-
-            {step.recovery && step.reps > 1 ? (
-              <p className="mt-1 pl-3.5 text-caption tabular-nums text-label-3">
-                {formatRecovery(step.recovery)} entre series
-              </p>
-            ) : null}
-            {step.note ? (
-              <p className="mt-1 pl-3.5 text-caption leading-relaxed text-label-3">{step.note}</p>
-            ) : null}
-          </li>
-        )
-      })}
-    </ol>
   )
 }
 

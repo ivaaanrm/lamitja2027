@@ -68,6 +68,19 @@ export const ROUTES: Record<string, RouteMeta> = {
   // A session belongs to the plan wherever it was tapped from, and a run to the log.
   '/sesion': { tab: 'plan', title: 'Sesión', heading: 'Sesión' },
   '/actividad': { tab: 'log', title: 'Actividad', heading: 'Actividad' },
+  // The strength library. Under the plan tab rather than under a fifth dock entry: a
+  // template is not a place you go, it is something you stamp onto a Monday — reached from
+  // `/ajustes` and from the session sheet's own Plantilla field, both of which are inside
+  // the plan already.
+  '/plantillas': {
+    tab: 'plan',
+    title: 'Plantillas',
+    heading: 'Plantillas',
+    sub: 'Fuerza y movilidad, listas para aplicar al plan',
+  },
+  // One editor for every template, addressed by `?id=` — and by no id at all for a new
+  // one, the same way `/sesion` is one shell for every session.
+  '/plantilla': { tab: 'plan', title: 'Plantilla', heading: 'Plantilla' },
   // Reached from the initials in the header on every tab, never from the dock — so no tab
   // lights, the bar goes, and the way out is a chevron of its own.
   '/ajustes': {

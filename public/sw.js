@@ -9,7 +9,7 @@
  * first time they are asked for, and the last `/api/data` payload is kept so the block
  * itself survives a dead connection.
  *
- * **Three caches, and the split between them is the whole design.**
+ * **Five caches, and the split between them is the whole design.**
  *
  *   `lm-core`   Precached at install: the two fonts, the mark, the manifest. Stable URLs
  *               whose bytes only change when the design does, so they are safe to serve
@@ -23,6 +23,12 @@
  *               a content hash, so an entry can never be stale — it can only be surplus,
  *               which is what the trim below is for. Purging it on a service-worker update
  *               would throw away a perfectly good copy of a file that is still current.
+ *   `lm-media`  The exercise illustrations from `/api/exercises/img/…`. Unversioned for the
+ *               same reason as `lm-assets` — the catalogue generation is in the URL, so an
+ *               entry can only be surplus — and a cache of its *own* rather than a corner
+ *               of `lm-assets`, because one browse through the exercise picker is fifty
+ *               thumbnails and would evict every chunk of the running build from an LRU of
+ *               sixty. Two working sets, two caches.
  *   `lm-data`   One entry: the last block payload that came back 200.
  *
  * **Network-first for anything that can change, cache-first for anything that cannot.**
@@ -58,9 +64,16 @@
  *
  * There is no build step behind this file and it is not generated: shells are cached as
  * they are visited rather than precached, so a deploy can never leave a stale shell
- * pointing at a hashed chunk that no longer exists. Bump `VERSION` when the precache list
- * or the caching rules change; the browser byte-compares this file, so any edit ships a
- * new worker.
+ * pointing at a hashed chunk that no longer exists.
+ *
+ * **Bump `VERSION` when something already stored has to be thrown away** — the precache
+ * list changed, or a rule changed what one of the versioned caches is allowed to hold.
+ * That is what the bump *does*: `activate` deletes every `lm-` cache not in `KEEP`, which
+ * is the shells, the core files and the block payload on every device. Adding an
+ * unversioned cache with rules of its own is not that — `lm-media` joined this file with
+ * `VERSION` untouched, because purging three good caches to introduce a fourth one would
+ * cost every phone its offline copy of the block to gain nothing. The browser
+ * byte-compares this file, so any edit ships a new worker either way.
  */
 
 const VERSION = 'v5'
@@ -70,8 +83,15 @@ const PAGES = `lm-pages-${VERSION}`
 const DATA = `lm-data-${VERSION}`
 /** Unversioned on purpose: content-hashed filenames cannot go stale. */
 const ASSETS = 'lm-assets'
+/**
+ * The exercise illustrations. Unversioned for the same reason — the catalogue generation
+ * is a segment of the URL, so a stored entry is either current or surplus, never stale.
+ * Not private data either: every athlete on the deployment gets the same pictures, so this
+ * one is not dropped on a 401 the way `lm-data` is.
+ */
+const MEDIA = 'lm-media'
 
-const KEEP = new Set([CORE, PAGES, DATA, ASSETS])
+const KEEP = new Set([CORE, PAGES, DATA, ASSETS, MEDIA])
 
 /**
  * The handful of files with stable URLs and no hash in them. Everything else the app
@@ -90,8 +110,28 @@ const PRECACHE = [
 /** Roughly two deploys' worth of chunks, plus room. Oldest entry out first. */
 const MAX_ASSETS = 60
 
+/**
+ * Several templates' worth of exercises, at the measured 16.5 KB average — about 2.5 MB.
+ * Enough that the moves an athlete actually trains stay on the phone, small enough that
+ * browsing the picker cannot turn into a 16 MB download of somebody else's catalogue.
+ */
+const MAX_MEDIA = 150
+
 /** The one payload worth keeping, under one key. */
 const DATA_KEY = '/api/data'
+
+/**
+ * The mirrored exercise illustrations, and the one `/api/` path with an offline answer
+ * besides the block itself.
+ *
+ * They are safe to serve cache-first forever: the catalogue generation is in the path, so
+ * a re-vendored catalogue asks for different URLs rather than for different bytes under
+ * the same ones — the avatar rule, generalised. `/api/exercises` (the *search*) is not in
+ * here and is left to the network like every other read: a picker with no signal has
+ * nothing useful to answer with, and a template renders offline from the Spanish name it
+ * was prescribed under rather than from the catalogue.
+ */
+const MEDIA_PREFIX = '/api/exercises/img/'
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -135,6 +175,13 @@ self.addEventListener('fetch', (event) => {
 
   if (url.pathname === DATA_KEY) {
     event.respondWith(blockData(event))
+    return
+  }
+  // Before the blanket `/api/` pass-through below, for the same reason `/api/data` is:
+  // these are the two endpoints under `/api/` that have an offline answer, and the
+  // general rule would otherwise swallow this one.
+  if (url.pathname.startsWith(MEDIA_PREFIX)) {
+    event.respondWith(media(event, request))
     return
   }
   // Every other endpoint is a mutation, an OAuth hop or a one-shot read of Strava's
@@ -230,6 +277,33 @@ async function asset(event, request) {
 }
 
 /**
+ * One exercise illustration, cache-first.
+ *
+ * Same shape as `asset()` and for the same reason: the URL carries the catalogue
+ * generation, so the bytes under it cannot change, and the route that serves it says so
+ * with `immutable`. What is different is the cache it lands in — see `MEDIA` above — and
+ * that nothing precached ever stands in front of it.
+ *
+ * Cached best-effort and only what this device has actually shown: 16 MB of illustrations
+ * is not something to push onto anyone's phone at install. So a template screen has to
+ * render text-first with the picture as an enhancement, which is the avatar rule again —
+ * the name is the content and the tile is decoration.
+ */
+async function media(event, request) {
+  const cache = await caches.open(MEDIA)
+  const hit = await cache.match(request)
+  if (hit) return hit
+
+  const response = await fetch(request)
+  // `redirected` for the same reason everywhere else in this file: a portal's 200 is not
+  // an illustration, and storing it under an immutable URL would pin it there.
+  if (response.ok && !response.redirected) {
+    event.waitUntil(cache.put(request, response.clone()).then(() => trim(cache, MAX_MEDIA)))
+  }
+  return response
+}
+
+/**
  * Is this the block, or something standing in front of it?
  *
  * `response.ok` is not the question. A captive portal — hotel, airport, the station this
@@ -299,10 +373,10 @@ async function blockData(event) {
 }
 
 /** Oldest first — `cache.keys()` answers in insertion order. */
-async function trim(cache) {
+async function trim(cache, max = MAX_ASSETS) {
   const keys = await cache.keys()
-  if (keys.length <= MAX_ASSETS) return
-  await Promise.all(keys.slice(0, keys.length - MAX_ASSETS).map((key) => cache.delete(key)))
+  if (keys.length <= max) return
+  await Promise.all(keys.slice(0, keys.length - max).map((key) => cache.delete(key)))
 }
 
 /**

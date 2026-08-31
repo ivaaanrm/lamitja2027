@@ -5,6 +5,8 @@ import { invalid, json, readJson } from '@/lib/api'
 import { createDb } from '@/lib/db/client'
 import { activities, blocks, planSessions } from '@/lib/db/schema'
 import { sessionInputs } from '@/lib/plan-input'
+import { unknownExerciseIds } from '@/lib/exercises/catalog'
+import { strengthEntriesOf, unknownExercisesResponse } from '@/lib/templates'
 
 export const prerender = false
 
@@ -24,6 +26,14 @@ export const PATCH: APIRoute = async ({ params, request, locals }) => {
   const { updateSessionInput } = sessionInputs(block)
   const parsed = updateSessionInput.safeParse(await readJson(request))
   if (!parsed.success) return invalid(parsed.error)
+
+  // Only the catalogue knows whether a strength payload's ids are real; a run's steps
+  // carry none, so this changes nothing for the sessions that existed before templates.
+  const exercises = strengthEntriesOf(parsed.data.steps)
+  if (exercises) {
+    const refused = unknownExercisesResponse(unknownExerciseIds(exercises), 'steps.exercises')
+    if (refused) return refused
+  }
 
   // `plan_sessions.activity_id` references `activities(id)` alone — Strava ids are global,
   // so the foreign key by itself would happily accept another athlete's activity. Ownership
