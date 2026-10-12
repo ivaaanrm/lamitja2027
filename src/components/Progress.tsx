@@ -520,7 +520,9 @@ function ProjectionCard({ block, view }: { block: BlockConfig; view: View }) {
             <span className="w-14 shrink-0 pb-1.5 text-right">Bloque</span>
             {hasBaseline ? (
               <>
-                <span className="w-12 shrink-0 pb-1.5 text-right">2025-26</span>
+                {/* «Pasada», as every hint on this screen says it: «2025-26» is a
+                    character wider than the 48px column and broke at its hyphen. */}
+                <span className="w-12 shrink-0 pb-1.5 text-right">Pasada</span>
                 <span className="w-11 shrink-0" />
               </>
             ) : null}
@@ -645,7 +647,10 @@ function FormCard({ view }: { view: View }) {
             ...(hasBaseline
               ? [{ values: view.lastFitnessLine, className: 'stroke-line-strong', dashed: true }]
               : []),
-            { values: view.fatigueLine, className: 'stroke-coral', strokeWidth: 1.5 },
+            // Blue against the accent, not coral: coral sits one step from the brand
+            // orange, so the two lines and their two legend keys read as one colour.
+            // Orange/blue is also the pair that survives every common colour-vision type.
+            { values: view.fatigueLine, className: 'stroke-blue', strokeWidth: 1.5 },
             {
               values: view.fitnessLine,
               className: 'stroke-accent',
@@ -661,7 +666,7 @@ function FormCard({ view }: { view: View }) {
             dense
             items={[
               { label: 'Forma', className: 'bg-accent' },
-              { label: 'Fatiga', className: 'bg-coral' },
+              { label: 'Fatiga', className: 'bg-blue' },
             ]}
           />
         </ChartScale>
@@ -1170,7 +1175,9 @@ function ConsistencyCard({ view }: { view: View }) {
           hint={view.tooEarly ? 'objetivo 5–6' : `${decimal(then!.runsPerWeek)} la pasada`}
         />
         <Stat
-          label="Parón mayor"
+          // «Parón mayor» is the one label in the strip that wrapped, which dropped this
+          // column's number a line below its neighbours'.
+          label="Parón máx."
           value={now.longestGapDays}
           hint={view.tooEarly ? 'días sin correr' : `${then!.longestGapDays} la pasada`}
         />
