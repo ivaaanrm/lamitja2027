@@ -1,0 +1,35 @@
+---
+import { Consent } from '../components/Consent'
+import { APP_NAME } from '../lib/config'
+import Base from '../layouts/Base.astro'
+export const prerender = true
+
+/**
+ * Where an application asking to connect lands — Claude, when this app is added to it as a
+ * custom connector, or any other MCP client running OAuth against `/oauth/authorize`.
+ *
+ * `Base` rather than `App`, for the reason `/login` and `/alta` give: the dock is for
+ * someone already inside the app, and this screen is a door out of it — the browser leaves
+ * for the client's redirect URI the moment the athlete answers. It borrows `/login`'s
+ * composition (the mark, an eyebrow, a heading, the card) so that it reads as this app
+ * asking, which is the whole point of a consent screen: the athlete has to recognise whose
+ * page they are on before they press anything on it.
+ *
+ * Everything below the mark is the island's, because the heading is the client's host and
+ * nothing is known about the client until the sealed request has been read.
+ */
+---
+
+<Base title={`Conectar una aplicación · ${APP_NAME}`}>
+  <main
+    class="mx-auto flex min-h-full max-w-sm flex-col justify-center px-gutter py-10 pb-[calc(2.5rem+env(safe-area-inset-bottom))]"
+  >
+    <span
+      class="performance-shadow grid size-16 place-items-center rounded-2xl border border-line bg-surface-raised"
+    >
+      <img src="/mark.svg" alt="" width="40" height="40" class="size-10" />
+    </span>
+
+    <Consent client:load appName={APP_NAME} />
+  </main>
+</Base>

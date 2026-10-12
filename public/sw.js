@@ -187,6 +187,11 @@ self.addEventListener('fetch', (event) => {
   // Every other endpoint is a mutation, an OAuth hop or a one-shot read of Strava's
   // record. None of them have a useful offline answer, so they are left alone.
   if (url.pathname.startsWith('/api/')) return
+  // The authorization server's own paths, for the same reason and one more: the browser
+  // reaches `/oauth/authorize` by a navigation, and the shell rule below would otherwise
+  // answer it offline with the app's home screen — a page that says nothing about the
+  // connection that just failed.
+  if (url.pathname.startsWith('/oauth/') || url.pathname.startsWith('/.well-known/')) return
 
   if (isDocument(request)) {
     event.respondWith(page(event, url))

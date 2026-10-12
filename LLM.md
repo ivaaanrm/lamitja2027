@@ -33,7 +33,7 @@ say so rather than picking silently.
 | **Storage** | One D1 database for athlete-owned rows, one KV namespace holding one OAuth state token, and one private R2 bucket for optimized profile avatars. |
 | **Auth** | One password (`APP_PASSWORD`) exchanged for a year-long signed cookie. No accounts, no multi-tenancy. |
 | **Data in** | Strava, via OAuth + webhook + a nightly cron. Nothing before the block's start date is ever fetched. |
-| **Agent surface** | The same data as an MCP server on `POST /api/mcp`, bearer-authenticated with that same password. Eleven tools. |
+| **Agent surface** | The same data as an MCP server on `POST /api/mcp`, seventeen tools. Claude adds it as a custom connector over OAuth — the Worker is its own authorization server (`/oauth/*`, consent on `/autorizar`); a client that only takes a header uses a per-athlete static token from `/ajustes`. |
 | **The name** | *Treximo*. The app's own identity, distinct from whatever race it is pointed at — `PUBLIC_APP_NAME` and its two siblings carry it to every title, the launch screen, `/login`, `404`, the Open Graph card and the manifest. |
 | **Ships configured as** | *La Mitja 2027* — La Mitja de Granollers, 24 Jan 2027, sub-1:20, a 23-week block from Mon 17 Aug 2026. That is the reference instance; eleven `PUBLIC_*` values move it to another race. |
 
@@ -218,7 +218,10 @@ dependency cache — see [troubleshooting](#troubleshooting).
 
 An empty database renders an empty app. There is no built-in plan to seed: every athlete
 authors their own block through the MCP server (or by hand in `/plan`). Mint a token in
-`/ajustes`, then drive `POST /api/mcp` — `get_block` first, `upsert_week` for the weeks,
+`/ajustes` → *Claude y otros agentes* → *Token manual* (or connect Claude Code with
+`claude mcp add --transport http treximo http://localhost:4321/api/mcp` and sign in from
+`/mcp` — its OAuth flow works against localhost), then drive `POST /api/mcp` —
+`get_block` first, `upsert_week` for the weeks,
 `create_sessions` for the sessions, stable ids (`w03-tue-1`) so re-running rewrites
 instead of duplicating. Works over plain `http` on localhost:
 
@@ -454,8 +457,8 @@ transient network errors, not on your schema.
    the private-activities box ticked**. The callback stores the encrypted refresh token and
    runs a first sync. Nothing before `PUBLIC_BLOCK_START` is fetched, ever.
 3. Author the plan, exactly as in [1.6](#16-put-a-plan-in-the-database) but against
-   `$HOST` — mint the MCP token in `/ajustes` and write the block through
-   `POST $HOST/api/mcp`.
+   `$HOST` — add `$HOST/api/mcp` to Claude as a custom connector (or mint a static token
+   in `/ajustes`) and write the block through it.
 4. Mirror the exercise illustrations into the deployment's bucket, once:
 
    ```bash
@@ -517,7 +520,9 @@ HOST=https://<name>.<subdomain>.workers.dev
 | `curl -s -o /dev/null -w '%{http_code}\n' $HOST/api/data` | `401` — the gate is closed, as designed |
 | `curl -s -o /dev/null -w '%{http_code}\n' $HOST/plan` | `200`, **not** `307` (trailing-slash handling) |
 | `curl -s -o /dev/null -w '%{http_code}\n' -X GET $HOST/api/mcp` | `405` with `Allow: POST` |
-| `curl -s $HOST/api/mcp -H "Authorization: Bearer $APP_PASSWORD" -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'` | ten tool names |
+| `curl -s $HOST/.well-known/oauth-protected-resource/api/mcp` | JSON naming `$HOST/api/mcp` as `resource` and `$HOST` as its authorization server |
+| `curl -si $HOST/api/mcp -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \| grep -i www-authenticate` | `401` with `Bearer resource_metadata="…"` — where Claude's sign-in starts |
+| `curl -s $HOST/api/mcp -H "Authorization: Bearer $MCP_TOKEN" -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'` | seventeen tool names, with a static token from `/ajustes` |
 | `pnpm exec wrangler d1 execute DB --remote --command "select count(*) from plan_sessions"` | the number of authored sessions |
 | `pnpm exec wrangler d1 execute DB --remote --command "select count(*) from activities"` | > 0 once Strava has synced |
 | `curl -s $HOST/manifest.webmanifest` | JSON carrying the user's `PUBLIC_APP_NAME` |
@@ -540,15 +545,17 @@ Tell the user, in one message:
   be rotated casually — the stored Strava token stops decrypting and has to be reconnected.
 
 And offer the agent surface, which is the point of the MCP server — writing twenty-three
-weeks of sessions is the one thing this app is bad at:
+weeks of sessions is the one thing this app is bad at. In Claude: **Customize → Connectors
+→ Add custom connector**, URL `$HOST/api/mcp`, then sign in and press **Permitir** on
+`/autorizar`. In Claude Code:
 
 ```bash
-claude mcp add --transport http lamitja $HOST/api/mcp \
-  --header "Authorization: Bearer $APP_PASSWORD"
+claude mcp add --transport http treximo $HOST/api/mcp
 ```
 
-That bearer token is the app password: full read/write over the training log and the power
-to overwrite the whole plan. Say so when you hand it over. Tools and example prompts:
+then `/mcp` → **Authenticate**. Each athlete connects their own; a connection is full
+read/write over that athlete's training log and is cut off from `/ajustes` → *Claude y
+otros agentes* → **Desconectar**. Say so when you hand it over. Tools and example prompts:
 [`docs/setup.md` §f](docs/setup.md#f-the-mcp-server).
 
 ---
@@ -561,7 +568,9 @@ to overwrite the whole plan. Say so when you hand it over. Tools and example pro
 | Dev server 500s: *"The file does not exist at …/node_modules/.vite/deps_ssr/… optimize deps directory"* | Stale Vite dependency cache in a long-running dev server | Restart `pnpm dev`; if it persists, `rm -rf node_modules/.vite` first |
 | `403 Cross-site POST form submissions are forbidden` | Astro's CSRF check: a POST with no form content-type and no matching `Origin` | Add `-H "Origin: $HOST"` |
 | `401 {"error":"Sin iniciar sesión"}` | No session cookie | Sign in first, or use `/api/mcp` with the bearer header |
-| `500 APP_PASSWORD is not configured` from `/api/mcp` | Secret never set on the deployment | `wrangler secret put APP_PASSWORD`, then redeploy is not needed — secrets take effect immediately |
+| Claude: *Couldn't reach the MCP server* | Discovery failed — the deployed host does not answer `/.well-known/oauth-protected-resource/api/mcp`, or it was given a `localhost` URL Anthropic's servers cannot reach | Check the discovery row in [4](#4-verify-the-deployment); tunnel a local build |
+| `/autorizar` says *No se puede conectar* | The client could not be identified, or asked to return somewhere not its own | The Worker log has the exact reason: `wrangler tail`, lines starting `[oauth] authorize refused` |
+| Pressing **Permitir** fails with a server error | Migration `0009_oauth_grants` not applied on that database | `pnpm db:migrate` (or `:local`) |
 | `no such table: plan_weeks` | Migrations applied to a different local store than the server is reading | `pnpm db:migrate:local`; for `pnpm preview` keep `--persist-to .wrangler/state` in the script |
 | Deploy fails on `virtual:astro:app` / `astro:assets` | A bare `wrangler deploy` | `pnpm deploy` |
 | Strava `400` before the consent screen renders | Callback domain ≠ the host you are on | Fix the bare host at strava.com/settings/api ([3.4](#34-the-strava-application-the-user-in-a-browser)) |

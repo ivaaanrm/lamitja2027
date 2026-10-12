@@ -78,7 +78,7 @@ parse an object rather than a multipart body of strings.
 
 ## Shape
 
-**Eight tables** (`src/lib/db/schema.ts`, the source of truth — never hand-edit
+**Ten tables** (`src/lib/db/schema.ts`, the source of truth — never hand-edit
 `migrations/`):
 
 | Table | Holds |
@@ -91,6 +91,8 @@ parse an object rather than a multipart body of strings.
 | `plan_weeks` | One row per athlete per week of their block: phase, volume target, down-week flag. |
 | `plan_sessions` | The prescribed plan, one row per athlete per session, each with what it prescribes in the `steps` column — a bare array of running steps, or a tagged payload for a kind that is not running. |
 | `workout_templates` | Reusable strength/mobility prescriptions, one row per athlete per template: name, notes, exercises as JSON, target duration. Keyed `(user_id, id)`. |
+| `oauth_grants` | One row per application an athlete connected over OAuth (Claude, as a custom connector): client, redirect URI, the resource it is bound to, and the single-use authorization code — as a hash. Keyed `(user_id, id)`. |
+| `oauth_tokens` | The access and refresh tokens of those connections, as hashes — several live per connection at once, refresh tokens retired rather than deleted when used. Keyed `(user_id, hash)`. |
 
 **An avatar is one optimized object, not a second photo library** (`src/lib/avatar.ts`,
 `PUT /api/avatar`). The browser respects the source orientation, centre-crops it once to a
@@ -426,11 +428,18 @@ the reference goal pace, and a test pins it equal to the original literals so it
 silently drift. `hrZone` takes an `hrMax` argument now too; `HR_MAX` is renamed
 `DEFAULT_HR_MAX` and is only the fallback for an athlete with no `hr_max` set.
 
-A password behind a public URL is a password behind a *known* URL, so the two endpoints
+A password behind a public URL is a password behind a *known* URL, so the endpoints
 that take a credential sit behind Cloudflare's `ratelimit` binding
-(`src/lib/ratelimit.ts`, declared in `wrangler.jsonc`): `/api/login` at 8 a minute, and
+(`src/lib/ratelimit.ts`, declared in `wrangler.jsonc`): `/api/login` at 8 a minute,
 `/api/mcp` at 60 — higher because a legitimate caller there is an agent writing a whole
-block in a burst, not a person signing in. Three things about it are load-bearing.
+block in a burst, not a person signing in — and the OAuth endpoints (`/oauth/*`) at 30.
+`/api/mcp` is the one keyed on something other than the IP: on a fingerprint of the bearer
+token presented, because Claude's connector calls from Anthropic's servers and by address
+every athlete using it would be one caller. That is safe there and nowhere else — those
+tokens are 256 random bits, so a fresh bucket per guess buys a guesser nothing, which is
+not true of a password. What it would buy is *volume*, so a per-IP ceiling ten times
+higher (`MCP_IP_RATE_LIMIT`, 600 a minute) is asked first. Three things about it are
+load-bearing.
 
 *It is consulted before the credential, never after.* Counting only failures reads like
 the kinder design and protects nothing: if a correct guess skips the limiter, every guess
@@ -461,8 +470,8 @@ agent is good at, so the same data the UI reads is offered as seventeen tools: e
 one round trip rather than ninety, and `attach_template` so that stamping a Fuerza day is
 one rather than a read, a compose and a write. The other three writes are
 `create_template` / `update_template` / `delete_template`. `SERVER_VERSION` went `2.1.0`
-→ `'2.2.0'` with them, which is the only thing a client holding a cached registry has to
-notice by. A session written with `steps` gets its `targetDistanceM` derived
+→ `'2.2.0'` with them, and `'2.3.0'` when every tool gained MCP `annotations`, which is the
+only thing a client holding a cached registry has to notice by. A session written with `steps` gets its `targetDistanceM` derived
 at the boundary (`withDerivedDistance`, in the athlete's own bands) — that column is what
 every screen sums and what the activity matcher measures against, and the write is the
 only honest moment to compute it. That function now asks the prescription's own strategy
@@ -470,12 +479,14 @@ what to derive, so a kind that derives nothing derives nothing and the boundary 
 `case`.
 
 **Bearer, and the token is *looked up*, not compared.** An MCP client has no cookie jar
-and no login form to post to, so it presents `Authorization: Bearer <token>` — an
-athlete's own token, minted on `/ajustes` and stored only as `sha256` in
+and no login form to post to, so it presents `Authorization: Bearer <token>` — either an
+OAuth access token Claude obtained on the athlete's behalf (see the next section) or a
+static token of the athlete's own, minted on `/ajustes` and stored only as `sha256` in
 `users.mcp_token_hash`, unique. `resolveMcpToken` hashes what was presented, finds the one
-athlete it belongs to, loads their block, and returns a registry with their id closed over
-every query behind it. A token belonging to nobody resolves to `null` and the request is
-refused before its body is read.
+athlete it belongs to in either table, loads their block, and returns a registry with
+their id closed over every query behind it. A token belonging to nobody resolves to `null`
+and the request is refused before its body is read — with a `401` whose
+`WWW-Authenticate` header is where OAuth discovery starts.
 
 That shape is deliberate and it is the fix for the class of bug described at the top of
 this file: there is no way to *obtain* a registry without having established whose it is,
@@ -488,6 +499,120 @@ one response body and nowhere else. `/api/mcp` sits in
 `SELF_AUTHENTICATED_PATHS` in the middleware — its **own named set**, not another line in
 `PUBLIC_PATHS`, because the difference between "checks its own auth" and "has no check at
 all" is invisible at a glance and the cost of confusing them is the whole training log.
+
+**Claude connects as a custom connector, over OAuth, and the app is its own authorization
+server** (`src/lib/oauth/`, `/oauth/*`, `/autorizar`). The static token was the whole story
+while the only client was Claude Code with a header in its config. Claude on the web,
+desktop and phone cannot carry one — a custom connector authenticates with OAuth or not at
+all — so the deployment answers the MCP authorization spec end to end: the `401` from
+`/api/mcp` carries `WWW-Authenticate: Bearer resource_metadata="…", scope="mcp"`, RFC 9728
+metadata names this origin as the authorization server, RFC 8414 metadata lists its
+endpoints, and an athlete pastes `https://<host>/api/mcp` into Claude, signs in here if
+they are not already, presses «Permitir», and is done. Claude Code runs the same flow from
+`/mcp`. The static token stays, folded away on `/ajustes`, for clients that take a header
+and nothing else; `resolveMcpToken` accepts either.
+
+Hand-rolled like the transport, and for a reason specific to this stack rather than taste:
+Cloudflare's own library for this wraps the Worker's whole `fetch`, keeps its grants in KV
+and wants the request before Astro does — a second store and a second router for four
+endpoints and one table. What is here is the narrow profile the spec requires and nothing
+past it: authorization code with PKCE `S256` only, refresh tokens, RFC 8707 audience
+binding, RFC 9207 `iss` on every authorization response, RFC 7009 revocation. No implicit
+grant, no `plain`, no client credentials, no OpenID Connect. Six decisions are
+load-bearing:
+
+- *The OAuth paths are answered in `src/worker.ts`, before Astro.* Astro's CSRF check
+  (gotcha 18) refuses a form-encoded POST whose `Origin` is not this site, and a token
+  request is exactly that — form-encoded by RFC 6749, from the client's *server*, with no
+  `Origin` at all — so behind Astro every code exchange would be a `403`. Turning the check
+  off app-wide to let one endpoint through would trade every other route's protection for
+  it. That is also why they live under `/oauth/` and not `/api/`: they never reach the
+  cookie gate in `middleware.ts`, and a different prefix says so in the URL. The two
+  endpoints that *do* need the athlete — `/api/oauth/consent` (describe, decide) and
+  `/api/oauth/grants` (list, disconnect) — are ordinary gated routes.
+- *Claude identifies itself by metadata document, and nothing about a client is stored.*
+  Claude uses a Client ID Metadata Document only when the server metadata advertises
+  *both* `client_id_metadata_document_supported: true` *and* `none` among the token endpoint
+  auth methods; with either missing it falls back to Dynamic Client Registration. The
+  document is fetched at authorization time and never again (no redirects followed, 16 KB
+  and 5 s caps, never an IP literal or `localhost`), and the consent screen leads with its
+  *host*, never with the `client_name` it declares about itself. DCR is still offered, for
+  other clients, and is **stateless**: the `client_id` handed back *is* the registration —
+  redirect URIs, name, auth method — under a MAC, and a confidential client's secret is a
+  MAC over its id. DCR's known failure is an unauthenticated endpoint that grows a table by
+  a row per connection; this one writes nothing.
+- *The authorization request crosses the consent screen sealed, in the URL.*
+  `/oauth/authorize` does every check that needs no athlete — the client is real, the
+  redirect URI is its own (exact match, except that a loopback redirect matches on any port,
+  for `127.0.0.1` *and* `localhost`, because Claude Code's document declares both and binds
+  a fresh port each session), PKCE is `S256`, the resource is this server — and redirects to
+  `/autorizar?req=<payload>.<mac>`: ten minutes to sign in and answer, with no row written
+  for a click on «Conectar» that goes nowhere. Until client *and* redirect URI are verified,
+  a failure lands on `/autorizar` and never on the redirect URI — an error delivered to an
+  unverified URI is an open redirector.
+- *Two tables, and every credential in them is a hash.* A grant (`oauth_grants`) is born
+  at «Permitir» holding a code hash and the PKCE challenge, and the code is claimed with
+  `UPDATE … WHERE code_used_at IS NULL` — the `invites` lock. A second presentation of a
+  code, including the loser of two exchanges racing, revokes the grant, as OAuth 2.1 asks.
+  Tokens (`oauth_tokens`) have a table of their own because a connection legitimately
+  holds several at once: Claude refreshes ahead of expiry *and* on a `401`, so parallel tool
+  calls can present one refresh token twice, and with one pair per row the second answer
+  overwrote the first and locked out a client that kept it. So every refresh *adds* a pair
+  (an hour's access token, a refresh token good for sixty days), and a used refresh token
+  is **retired**, not deleted. Presented again within ten minutes (`REFRESH_GRACE_MS`) it
+  is a lost answer or a race and gets a pair of its own; presented later — or, however
+  soon, after the client already used its successor — it is a copy somebody else holds,
+  which is OAuth 2.1's whole reason for rotation, and the connection is revoked, both
+  holders' tokens with it, because there is no telling which one is the athlete's. The used
+  successor is the strong signal and the clock the weak one, which is why the window is
+  ten minutes rather than the one most providers allow: Claude waits thirty seconds on a
+  refresh and refreshes five minutes early, so an honest retry can come late, and revoking
+  an honest connection sends the athlete back to `/autorizar`. Both checks are made again
+  where a race could slip between them — a lost claim on a token is re-read and judged
+  as retired, and the used-successor check runs once more after a grace pair is stored. Using a token retires its siblings, so the
+  twin a client did not keep stops being a credential the moment it moves on. Retired
+  tokens are kept a week for that detection, then pruned with the expired ones on the next
+  refresh. A refresh does not withdraw access tokens already issued; they expire on their
+  own, and die with the grant.
+- *A token is bound to the URL it was issued for.* The resource is the request's own origin
+  plus `/api/mcp`, recorded on the grant and compared on every MCP call (RFC 8707), so the
+  same Worker on `workers.dev` and on a custom domain issues two sets of tokens that do not
+  cross, and a deployment that moves host has every connection re-authorize rather than
+  accept tokens minted for its old name.
+- *Every MAC is made with a key derived from `SESSION_SECRET` under HKDF*
+  (`treximo/oauth/v1`), never with the secret itself: a MAC handed to a stranger over a
+  payload they partly chose must not be one the cookie check would also accept — and no
+  fifth secret for a forker to generate. Rotating `SESSION_SECRET` therefore voids every DCR
+  `client_id` and every consent in flight, but **not** a connection already made: those are
+  rows. A dynamically registered client then fails its next refresh with `invalid_client`
+  and has to register and connect again; Claude identifies itself by metadata document and
+  is untouched. The panic button for agents is each athlete's «Desconectar», or
+  `DELETE FROM oauth_tokens; DELETE FROM oauth_grants`, beside revoking the static tokens.
+
+The consent screen is clickjacking's textbook target — one tap hands over a training log —
+so `public/_headers` forbids framing `/autorizar` and `Consent.tsx` refuses to render in a
+frame as well; `/login` honours a same-origin `?next=` for the round trip through it, and
+hands `location` the *whole* resolved URL — `next=/.//evil.example` resolves on this origin
+to the path `//evil.example`, which on its own is a protocol-relative link elsewhere. A
+redirect URI may use an app's own scheme but never one that carries a URL inside it
+(`microsoft-edge:https://…` opens a website the screen could not name). And
+`…/api/mcp/`, slash included, works as well: Claude insists the metadata's `resource` match
+the address as typed, so that address has a document of its own, and the middleware reads
+its lists against the path with trailing slashes stripped — which also closed
+`/api/invites/` walking past the admin check. The
+tools carry MCP `annotations` — every read `readOnlyHint`, every write `destructiveHint`
+because each one upserts on an id it may not have been told about, the creates *not*
+idempotent because without an id they mint one — which is what lets Claude run the reads
+unasked and stop at the writes. `test/unit/oauth.test.ts` runs the whole flow in plain Node
+against an in-memory `GrantStore` carrying the D1 store's two atomic conditions, and scans
+`grants.ts` for a write that does not name `userId`.
+
+One limit to know: CIMD means this Worker fetches the client's document — on `claude.ai` —
+at authorization time. If that fetch is ever refused, `/autorizar` says *No se puede
+conectar* and the Worker's log says why (`[oauth] authorize refused`), and there is nothing
+here to configure around it: Claude chose CIMD because the metadata said it could. The page
+prints a fixed sentence per failure and never text from its own query string — that would
+let anybody put words on this domain under this app's mark.
 
 **The transport is hand-rolled and stateless**, for the reason the charts are: an SDK is a
 dependency and a build surface for what is, here, one `POST` handler. Streamable HTTP,
@@ -945,7 +1070,10 @@ Tailwind classes so a chart is styled like everything else on the page.
     slash-less form canonical; the adapter carries the key through to the generated config.
 18. **Astro's CSRF check is on**, so a `POST /api/login` without a matching `Origin` header
     comes back `403 Cross-site POST form submissions are forbidden` rather than 401. A
-    browser sends it; `curl` has to be told to.
+    browser sends it; `curl` has to be told to. It also refuses a `DELETE` or a body-less
+    `POST` with no `Origin` at all, whatever the content type. It is why the OAuth token
+    endpoint is answered in `src/worker.ts` before Astro runs: an OAuth client's server
+    posts a form and sends no `Origin`.
 19. **`pnpm preview` needs `--persist-to`.** Wrangler resolves local storage relative to the
     config file, and `preview` points at `dist/server/wrangler.json` — so without it the
     preview gets a *second, empty* D1 under `dist/server/.wrangler/`, and every query fails
@@ -993,7 +1121,8 @@ Tailwind classes so a chart is styled like everything else on the page.
   take `now` explicitly, and are unit-tested in plain Node; `src/lib/sync.ts` and
   `src/lib/strava.ts` own the side effects. `src/lib/mcp/*` belongs to the first group by
   taking its `Database` and its credential as arguments rather than reading either, and so
-  do `src/lib/exercises/*` (a frozen data module and the functions that read it) and
+  does `src/lib/oauth/*` (its store, its secret, `fetch` and `now` are all handed in by
+  `src/worker.ts` or the route), and so do `src/lib/exercises/*` (a frozen data module and the functions that read it) and
   `src/lib/templates.ts` (which takes the answer to "are these ids real" as an argument
   rather than importing the catalogue to find out — see the Worker-only directory rule in
   **The exercise catalogue is vendored, not tabled** above).

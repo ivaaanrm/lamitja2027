@@ -15,7 +15,7 @@ connection, race and plan — no teams, feeds, billing or noise.
 - Shape a personal training block around the race, date and finish time you are chasing.
 - Sync Strava and see planned versus actual training without duplicating your history.
 - Install it as a PWA and take the plan offline when the signal disappears.
-- Connect an AI agent through the private MCP server to review or rewrite the plan.
+- Add it to Claude as a custom connector — paste one URL, sign in, approve — and let it review or rewrite the plan through the MCP server.
 
 The included reference block is **La Mitja 2027**: a sub-1:20 attempt at La Mitja de
 Granollers on 24 January 2027. Fork it, point it at your race and make the next challenge

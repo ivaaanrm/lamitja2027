@@ -1,0 +1,9 @@
+# Workers Static Assets reads this file at deploy and applies it to the prerendered pages
+# it serves; it is never itself served. One rule, for the one page a single tap on which
+# hands a third party an athlete's training log: the OAuth consent screen may not be framed
+# by anybody, so no other site can lay it under a decoy and borrow the athlete's click.
+# `Consent.tsx` makes the same check in script, for whatever serves the page without this.
+/autorizar
+  X-Frame-Options: DENY
+  Content-Security-Policy: frame-ancestors 'none'
+  Referrer-Policy: no-referrer

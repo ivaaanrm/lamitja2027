@@ -87,12 +87,37 @@ export interface ToolResult {
   isError?: boolean
 }
 
+/**
+ * What a tool does to the world, as MCP's `ToolAnnotations` describe it. These are hints,
+ * not guarantees — the spec says a client must not trust them from an untrusted server —
+ * but Claude reads them from a server the athlete chose to add: `readOnlyHint` is what lets
+ * the read tools be allowed once and the writes still ask.
+ */
+export interface ToolAnnotations {
+  title?: string
+  readOnlyHint?: boolean
+  /** Meaningful only when not read-only: may it overwrite or delete what is there? */
+  destructiveHint?: boolean
+  /** Meaningful only when not read-only: is calling it twice the same as calling it once? */
+  idempotentHint?: boolean
+  /** Does it reach beyond this server's own data? Never, here. */
+  openWorldHint?: boolean
+}
+
 export interface ToolDefinition {
   name: string
   title?: string
   description: string
   /** Hand-written JSON Schema — see the comment on `tools.ts` for why it is not generated. */
   inputSchema: Record<string, unknown>
+  annotations?: ToolAnnotations
+}
+
+/** MCP's `Icon`: what a client may draw next to this server's name. */
+export interface Icon {
+  src: string
+  mimeType?: string
+  sizes?: string[]
 }
 
 /** One athlete's tools, built after their token has been resolved. */
@@ -116,10 +141,23 @@ export interface ToolRegistry {
  * proved whose it is.
  */
 export interface McpServer {
-  serverInfo: { name: string; version: string }
+  /** MCP's `Implementation`. `title` and `icons` are what a client shows; `name` is an id. */
+  serverInfo: { name: string; version: string; title?: string; websiteUrl?: string; icons?: Icon[] }
   /** How an agent should approach this server. Returned by `initialize` and `server/discover`. */
   instructions: string
   resolve(token: string): Promise<ToolRegistry | null>
+  /**
+   * The `WWW-Authenticate` value for a `401` — `invalid_token` when a token was presented
+   * and refused. This is how a client discovers the authorization server: Claude starts
+   * sign-in only on a `401` carrying a `resource_metadata` pointer in this header. Omitted
+   * (a test) means a bare `Bearer` challenge.
+   */
+  challenge?: (error?: 'invalid_token') => string
+  /**
+   * Origins besides this deployment's own that may call the endpoint from a browser
+   * context. See `checkOrigin`.
+   */
+  allowedOrigins?: readonly string[]
   /**
    * `false` when this caller has asked too often and should be turned away unread. Omitted
    * — by a test, or by a fork with no limiter configured — means no limiting.
@@ -177,17 +215,18 @@ const statusFor = (code: number, modern: boolean): number => {
  * A page on `evil.example` can make the browser resolve its own hostname to `127.0.0.1`
  * and then POST to whatever is listening there; the `Origin` header is the one thing that
  * still says where the code came from. An absent `Origin` is normal and allowed — a CLI
- * client sends none at all, and that is the common case here — so this only rejects a
- * request that names an origin and names the wrong one.
+ * client sends none at all, and nor does Claude's connector, which calls from Anthropic's
+ * servers — so this only rejects a request that names an origin and names one that is
+ * neither this deployment nor one the route deliberately lets in.
  */
-function checkOrigin(request: Request): Response | null {
+function checkOrigin(request: Request, allowed: readonly string[]): Response | null {
   const origin = request.headers.get('origin')
-  if (origin === null || origin === new URL(request.url).origin) return null
+  if (origin === null || origin === new URL(request.url).origin || allowed.includes(origin)) return null
   return fail(null, RPC.INVALID_REQUEST, 'Origin not allowed', 403)
 }
 
 /** The bearer token as presented, or `''` when the header is missing or not a bearer. */
-function bearerToken(request: Request): string {
+export function bearerToken(request: Request): string {
   const header = request.headers.get('authorization') ?? ''
   const space = header.indexOf(' ')
   const scheme = space < 0 ? header : header.slice(0, space)
@@ -195,15 +234,22 @@ function bearerToken(request: Request): string {
   return space < 0 ? '' : header.slice(space + 1).trim()
 }
 
-/** One sentence for every way a token can fail, so none of them is an oracle. */
-function unauthorized(): Response {
+/**
+ * One sentence for every way a token can fail, so none of them is an oracle — whether it
+ * was malformed, unknown, expired, revoked or issued for another server, the caller learns
+ * only that it did not work. The header is what matters: its `resource_metadata` is the
+ * start of OAuth discovery, and `invalid_token` tells a client holding an expired access
+ * token to refresh it instead of starting over.
+ */
+function unauthorized(server: McpServer, presented: boolean): Response {
   const response = fail(
     null,
     RPC.UNAUTHORIZED,
-    'Send `Authorization: Bearer <token>` with the MCP token from /ajustes.',
+    'Sign in through OAuth (see this server’s /.well-known/oauth-protected-resource), or send `Authorization: Bearer <token>` with an MCP token from /ajustes.',
     401,
   )
-  response.headers.set('www-authenticate', 'Bearer')
+  const error = presented ? 'invalid_token' : undefined
+  response.headers.set('www-authenticate', server.challenge?.(error) ?? 'Bearer')
   return response
 }
 
@@ -234,7 +280,7 @@ export async function handleMcp(request: Request, server: McpServer): Promise<Re
     return response
   }
 
-  const foreign = checkOrigin(request)
+  const foreign = checkOrigin(request, server.allowedOrigins ?? [])
   if (foreign) return foreign
 
   // Ahead of the bearer check, never behind it. A limiter a correct token can skip is a
@@ -255,7 +301,7 @@ export async function handleMcp(request: Request, server: McpServer): Promise<Re
   // A token belonging to nobody is refused here, before the body is even read.
   const token = bearerToken(request)
   const tools = token === '' ? null : await server.resolve(token)
-  if (!tools) return unauthorized()
+  if (!tools) return unauthorized(server, token !== '')
 
   let body: unknown
   try {

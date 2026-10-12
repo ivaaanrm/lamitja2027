@@ -10,7 +10,7 @@
  * that filter is a bug of the same class as a missing auth check.
  */
 import { sql } from 'drizzle-orm'
-import { index, integer, primaryKey, real, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { foreignKey, index, integer, primaryKey, real, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 // A leaf module with no imports, so loading this schema never drags `block.ts` and its
 // `import.meta.env` into drizzle-kit's CommonJS transform. See `session-types.ts`.
 import { SESSION_TYPES } from '../session-types'
@@ -316,6 +316,108 @@ export const workoutTemplates = sqliteTable(
   // is `WHERE user_id = ?` with an optional `AND id = ?`.
   (t) => [primaryKey({ columns: [t.userId, t.id] })],
 )
+
+/**
+ * What an athlete has let an OAuth client do — one row per «Permitir» on `/autorizar`.
+ *
+ * This is the table behind adding the app to Claude as a custom connector (`src/lib/oauth/`).
+ * A row is born holding a single-use authorization code; the code exchange makes it a live
+ * connection, whose tokens live in `oauth_tokens` below. There is deliberately no table of
+ * *clients*: a client is either a URL that describes itself (Claude's metadata document) or
+ * a signed registration whose `client_id` carries its own redirect URIs, so registering one
+ * writes nothing — see `oauth/clients.ts`.
+ *
+ * `codeHash` survives its exchange on purpose. OAuth 2.1 says a code presented twice means
+ * someone else has a copy, and that the tokens issued from it should die with it — which
+ * is only possible if the second presentation still finds the row. `codeUsedAt` is the
+ * lock, claimed with `UPDATE … WHERE code_used_at IS NULL` exactly as `invites.used_at` is.
+ *
+ * Keyed `(userId, id)` like everything an athlete owns. The lookup by code hash is how a
+ * request *establishes* whose row it is — the same shape as the MCP token lookup — and
+ * every write after that names `userId`.
+ */
+export const oauthGrants = sqliteTable(
+  'oauth_grants',
+  {
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    id: text('id').notNull(),
+    /** A metadata-document URL, or a signed `dcr.…` registration. Long, and opaque here. */
+    clientId: text('client_id').notNull(),
+    /** What the athlete was shown at consent, kept for the list on `/ajustes`. */
+    clientName: text('client_name').notNull(),
+    /** The host that vouched for the client — its document's host, or its redirect's. */
+    clientHost: text('client_host').notNull(),
+    redirectUri: text('redirect_uri').notNull(),
+    scope: text('scope').notNull(),
+    /** The MCP endpoint the tokens were issued for (RFC 8707). Checked on every call. */
+    resource: text('resource').notNull(),
+    codeHash: text('code_hash').notNull().unique(),
+    /** PKCE `S256` challenge: base64url(sha256(code_verifier)). */
+    codeChallenge: text('code_challenge').notNull(),
+    codeExpiresAt: integer('code_expires_at').notNull(),
+    codeUsedAt: integer('code_used_at'),
+    createdAt: integer('created_at').notNull().default(now),
+    /** The last code exchange or refresh — an access token's hour of use writes nothing. */
+    lastUsedAt: integer('last_used_at'),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.id] })],
+)
+
+export type OAuthGrant = typeof oauthGrants.$inferSelect
+export type NewOAuthGrant = typeof oauthGrants.$inferInsert
+
+/**
+ * The access and refresh tokens of a connection — a table of their own because a
+ * connection legitimately holds more than one pair at a time.
+ *
+ * Claude refreshes ahead of expiry *and* on a `401`, and parallel tool calls can do both at
+ * once: two refreshes presenting the same refresh token, both succeeding. With one pair per
+ * grant the second would overwrite the first, and a client that kept the first answer
+ * would be locked out. So every refresh *adds* a pair, and a refresh token is never
+ * deleted when it is used — it is **retired**:
+ *
+ *  - a retired token presented again within a short grace window is a retry or a
+ *    concurrent twin, and gets a fresh pair of its own;
+ *  - presented after it, it is a copy somebody else is holding — OAuth 2.1's reason for
+ *    rotating at all — and the whole connection is revoked, the thief's tokens with it;
+ *  - using a token retires its *siblings* (the other children of the same parent), so the
+ *    pair a client did not keep stops being a live credential the moment it moves on.
+ *
+ * Retired tokens are kept for a week to make that detection possible, then pruned with
+ * the expired ones. Every token is stored as `sha256` hex, never as itself: a dump hands
+ * over fingerprints. Access tokens are never retired; they last an hour and die with the
+ * grant.
+ */
+export const oauthTokens = sqliteTable(
+  'oauth_tokens',
+  {
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    grantId: text('grant_id').notNull(),
+    hash: text('hash').notNull().unique(),
+    kind: text('kind', { enum: ['access', 'refresh'] }).notNull(),
+    /** For a refresh token: the refresh token it was issued in exchange for. Null for the first. */
+    parentHash: text('parent_hash'),
+    expiresAt: integer('expires_at').notNull(),
+    /** For a refresh token: when it (or a sibling) was used. Null while it is live. */
+    retiredAt: integer('retired_at'),
+    createdAt: integer('created_at').notNull().default(now),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.hash] }),
+    foreignKey({
+      columns: [t.userId, t.grantId],
+      foreignColumns: [oauthGrants.userId, oauthGrants.id],
+    }).onDelete('cascade'),
+    index('oauth_tokens_grant_idx').on(t.userId, t.grantId),
+  ],
+)
+
+export type OAuthToken = typeof oauthTokens.$inferSelect
+export type NewOAuthToken = typeof oauthTokens.$inferInsert
 
 export type PlanSession = typeof planSessions.$inferSelect
 export type NewPlanSession = typeof planSessions.$inferInsert

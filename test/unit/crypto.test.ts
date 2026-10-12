@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { decrypt, encrypt, randomToken, timingSafeEqual } from '@/lib/crypto'
+import {
+  base64UrlToBytes,
+  bytesToBase64Url,
+  decrypt,
+  derivedMacKey,
+  encrypt,
+  macBase64Url,
+  randomToken,
+  sha256Base64Url,
+  timingSafeEqual,
+} from '@/lib/crypto'
 
 /** A valid 256-bit key, base64 — the shape `openssl rand -base64 32` produces. */
 const KEY = Buffer.alloc(32, 7).toString('base64')
@@ -58,5 +68,32 @@ describe('randomToken', () => {
     const tokens = new Set(Array.from({ length: 100 }, () => randomToken(16)))
     expect(tokens.size).toBe(100)
     for (const token of tokens) expect(token).toMatch(/^[A-Za-z0-9_-]+$/)
+  })
+})
+
+describe('base64url', () => {
+  it('round-trips every byte value, unpadded', () => {
+    const bytes = new Uint8Array(new ArrayBuffer(256)).map((_, i) => i)
+    const encoded = bytesToBase64Url(bytes)
+    expect(encoded).toMatch(/^[A-Za-z0-9_-]+$/)
+    expect([...base64UrlToBytes(encoded)]).toEqual([...bytes])
+  })
+})
+
+describe('sha256Base64Url', () => {
+  it('produces the S256 challenge RFC 7636 Appendix B gives for its verifier', async () => {
+    expect(await sha256Base64Url('dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk')).toBe(
+      'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
+    )
+  })
+})
+
+describe('derivedMacKey', () => {
+  it('gives each purpose an unrelated key, so a MAC made for one is no good for another', async () => {
+    const oauth = await derivedMacKey('one-secret', 'treximo/oauth/v1')
+    const other = await derivedMacKey('one-secret', 'something-else')
+    const again = await derivedMacKey('one-secret', 'treximo/oauth/v1')
+    expect(await macBase64Url(oauth, 'payload')).toBe(await macBase64Url(again, 'payload'))
+    expect(await macBase64Url(oauth, 'payload')).not.toBe(await macBase64Url(other, 'payload'))
   })
 })

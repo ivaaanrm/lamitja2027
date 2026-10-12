@@ -28,9 +28,14 @@ const PUBLIC_PATHS = new Set([
  * 401 the caller could not act on.
  *
  * `/api/mcp` is the MCP server. An agent has no cookie jar and no login form to post to,
- * so it presents `Authorization: Bearer <token>` — an athlete's own MCP token, minted on
- * `/ajustes` — and `src/lib/mcp/protocol.ts` resolves it to a user and compares it in
- * constant time before it will parse so much as the JSON-RPC method. It is a separate set
+ * so it presents `Authorization: Bearer <token>` — an OAuth access token Claude obtained
+ * through `/autorizar`, or an athlete's own static MCP token from `/ajustes` — and
+ * `src/lib/mcp/resolve.ts` looks it up by hash before `protocol.ts` will parse so much as
+ * the JSON-RPC method. Its `401` is not this middleware's: it carries the
+ * `WWW-Authenticate` challenge that starts OAuth discovery, which a cookie 401 never could.
+ *
+ * The OAuth endpoints themselves (`/oauth/*`, `/.well-known/oauth-*`) are on neither list
+ * because they never get here: `src/worker.ts` answers them before Astro runs. It is a separate set
  * from `PUBLIC_PATHS` rather than another line in it because the difference is invisible
  * at a glance and the cost of getting it wrong is every athlete's training log: a path
  * dropped into the public list is a path with *no* check on it at all, and the only thing
@@ -46,7 +51,11 @@ export const onRequest = defineMiddleware(async (context, next) => {
   // First, and before anything touches a binding: this also runs during the prerender
   // pass, where there is no request and no D1.
   if (!pathname.startsWith('/api/')) return next()
-  if (PUBLIC_PATHS.has(pathname) || SELF_AUTHENTICATED_PATHS.has(pathname)) return next()
+  // Astro routes `/api/mcp/` to the same file as `/api/mcp`, so the lists must read them as
+  // one path too — or the slash variant would meet the cookie gate's 401, which carries no
+  // OAuth challenge, and a connector entered with a trailing slash could never sign in.
+  const path = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname
+  if (PUBLIC_PATHS.has(path) || SELF_AUTHENTICATED_PATHS.has(path)) return next()
 
   const userId = await sessionUserId(context.request)
   // One read per request resolves the id to the athlete every route then scopes to. A
@@ -62,7 +71,8 @@ export const onRequest = defineMiddleware(async (context, next) => {
 
   context.locals.user = toSessionUser(user)
 
-  if (ADMIN_PATHS.has(pathname) && !user.isAdmin) {
+  // `path`, not `pathname`: `/api/invites/` reaches the same route, and must meet the same check.
+  if (ADMIN_PATHS.has(path) && !user.isAdmin) {
     return new Response(JSON.stringify({ error: 'No autorizado' }), {
       status: 403,
       headers: { 'content-type': 'application/json' },

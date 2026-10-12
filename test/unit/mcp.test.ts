@@ -23,6 +23,7 @@ import { PRESCRIPTION_KINDS, SESSION_TYPES } from '@/lib/plan'
 import { STRATEGIES } from '@/lib/prescription'
 import { BUILTIN_TEMPLATES, sessionFromTemplate } from '@/lib/starters'
 import type { Database } from '@/lib/db/client'
+import { bearerChallenge } from '@/lib/oauth/metadata'
 
 /**
  * The transport is tested against a stub registry and fabricated `Request` objects, in
@@ -151,6 +152,13 @@ describe('DNS-rebinding protection', () => {
   it('allows an absent Origin, which is what every CLI client sends', async () => {
     expect((await send(request('ping'))).status).toBe(200)
   })
+
+  it('allows the origins the route deliberately lets in, and no others', async () => {
+    const server = { ...stubRegistry(), allowedOrigins: ['https://claude.ai'] }
+    const from = (origin: string) => handleMcp(post(request('ping'), { headers: { origin } }), server)
+    expect((await from('https://claude.ai')).status).toBe(200)
+    expect((await from('https://claude.ai.evil.example')).status).toBe(403)
+  })
 })
 
 describe('bearer auth', () => {
@@ -192,6 +200,24 @@ describe('bearer auth', () => {
       resolve: async () => null,
     })
     expect(response.status).toBe(401)
+  })
+
+  it('points a client with no token at OAuth discovery, without an error code', async () => {
+    // Claude starts sign-in only on a 401 whose header carries `resource_metadata`, and
+    // RFC 6750 §3.1 keeps `error=` for a request that actually presented a token.
+    const server = { ...stubRegistry(), challenge: bearerChallenge.bind(null, 'https://lamitja.example') }
+    const response = await handleMcp(post(request('initialize'), { auth: null }), server)
+    expect(response.status).toBe(401)
+    expect(response.headers.get('www-authenticate')).toBe(
+      'Bearer resource_metadata="https://lamitja.example/.well-known/oauth-protected-resource/api/mcp", scope="mcp"',
+    )
+  })
+
+  it('tells a client whose token failed that it is invalid, so it refreshes instead of starting over', async () => {
+    const server = { ...stubRegistry(), challenge: bearerChallenge.bind(null, 'https://lamitja.example') }
+    const response = await handleMcp(post(request('tools/list'), { auth: 'expired-access-token' }), server)
+    expect(response.status).toBe(401)
+    expect(response.headers.get('www-authenticate')).toMatch(/^Bearer error="invalid_token", resource_metadata="/)
   })
 
   it('never hands out a registry it could not attribute', async () => {
@@ -572,6 +598,39 @@ describe('the registry', () => {
       // The description is the interface here: a model picks a tool by reading it.
       expect(tool.description.length).toBeGreaterThan(80)
       expect((tool.inputSchema as { type: string }).type).toBe('object')
+    }
+  })
+
+  it('annotates every tool, so a client can let the reads run and stop at the writes', () => {
+    const READ_ONLY = new Set([
+      'get_block',
+      'list_weeks',
+      'list_sessions',
+      'list_activities',
+      'get_training_summary',
+      'search_exercises',
+      'get_exercise',
+      'list_templates',
+    ])
+    for (const tool of registry().list()) {
+      const hints = tool.annotations
+      expect(hints, tool.name).toBeDefined()
+      expect(hints!.readOnlyHint, tool.name).toBe(READ_ONLY.has(tool.name))
+      // Every tool touches only this athlete's rows.
+      expect(hints!.openWorldHint, tool.name).toBe(false)
+      // Every write upserts on an id it may not have been told about, so every write can
+      // overwrite: a write that claimed otherwise would let a client skip the question.
+      if (!hints!.readOnlyHint) expect(hints!.destructiveHint, tool.name).toBe(true)
+    }
+  })
+
+  it('only calls a create idempotent when it is: without an id, twice is two rows', () => {
+    const hints = Object.fromEntries(registry().list().map((tool) => [tool.name, tool.annotations]))
+    for (const name of ['create_session', 'create_sessions', 'create_template', 'attach_template']) {
+      expect(hints[name]!.idempotentHint, name).toBe(false)
+    }
+    for (const name of ['upsert_week', 'update_session', 'delete_session', 'update_template', 'delete_template']) {
+      expect(hints[name]!.idempotentHint, name).toBe(true)
     }
   })
 

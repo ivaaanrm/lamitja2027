@@ -96,6 +96,15 @@ export const inviteInput = z.object({
 })
 
 /**
+ * The answer on `/autorizar`: the sealed request the athlete was shown, and yes or no.
+ * The seal is opaque here — `oauth/request.ts` is what decides whether it is genuine.
+ */
+export const consentInput = z.object({
+  req: z.string().min(1, 'Falta la solicitud').max(8192),
+  approve: z.boolean(),
+})
+
+/**
  * The wizard's answers. Shape and ranges only — whether the long run falls on a run day,
  * or two quality days sit back to back, is `validatePlanInput`'s to say, because those
  * are the answers the wizard renders in prose next to the field that caused them.

@@ -71,8 +71,19 @@
     // fat-fingered and ruinous for a script.
     { "name": "LOGIN_RATE_LIMIT", "namespace_id": "1001", "simple": { "limit": 8, "period": 60 } },
     // Higher, because a legitimate caller here is an agent: writing a block through
-    // `create_sessions` and reading it back is tens of calls in a burst, not one.
-    { "name": "MCP_RATE_LIMIT", "namespace_id": "1002", "simple": { "limit": 60, "period": 60 } }
+    // `create_sessions` and reading it back is tens of calls in a burst, not one. Counted
+    // per *token*, not per IP — see `src/pages/api/mcp.ts` — because Claude's connector
+    // brings every athlete in from Anthropic's addresses.
+    { "name": "MCP_RATE_LIMIT", "namespace_id": "1002", "simple": { "limit": 60, "period": 60 } },
+    // …and this is the per-IP ceiling over it, so that a flood of made-up tokens, each of
+    // which would otherwise get a fresh bucket of its own, still meets a wall. Ten times the
+    // per-token figure: every athlete on Claude shares it.
+    { "name": "MCP_IP_RATE_LIMIT", "namespace_id": "1004", "simple": { "limit": 600, "period": 60 } },
+    // The OAuth endpoints (`/oauth/*`, see `src/lib/oauth/server.ts`). Connecting is a
+    // handful of calls once, and a connection refreshes once an hour — but a token request
+    // from Claude comes from Anthropic's servers, so every athlete connecting through it
+    // shares this budget, which is why it is not as tight as the login's.
+    { "name": "OAUTH_RATE_LIMIT", "namespace_id": "1003", "simple": { "limit": 30, "period": 60 } }
   ],
 
   "triggers": {

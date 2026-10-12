@@ -192,6 +192,29 @@ export const prerender = true
   // Typing is the fix, so it is also what dismisses the message.
   for (const field of fields) field.addEventListener('input', clearError)
 
+  /**
+   * Where to go once signed in: `?next=` when it is a path on this site, `/` otherwise.
+   *
+   * `/autorizar` is the one sender — an application asking to connect, interrupted because
+   * the athlete was signed out — and it needs its sealed request back intact. Resolved
+   * against this origin and kept only if it stays on it, so `next=//evil.example` or
+   * `next=https://…` cannot turn the login form into a redirector.
+   *
+   * The answer is the *whole* resolved URL, never its path. `next=/.//evil.example`
+   * resolves on this origin to the path `//evil.example` — which, handed back to
+   * `location.href` on its own, is a protocol-relative link to somebody else's site.
+   */
+  function destination(): string {
+    const next = new URLSearchParams(location.search).get('next')
+    if (!next) return '/'
+    try {
+      const url = new URL(next, location.origin)
+      return url.origin === location.origin ? url.href : '/'
+    } catch {
+      return '/'
+    }
+  }
+
   form.addEventListener('submit', async (event) => {
     event.preventDefault()
     clearError()
@@ -225,7 +248,7 @@ export const prerender = true
         // just been set, and every island behind `/` reads it on mount. The button is
         // deliberately left saying `Entrando…` — the page is already on its way out, and
         // flicking it back to its idle label first would read as the attempt failing.
-        location.href = '/'
+        location.href = destination()
         return
       }
       // The server says which half was wrong to nobody, so neither does this: both fields

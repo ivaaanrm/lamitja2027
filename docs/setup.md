@@ -238,7 +238,7 @@ openssl rand -base64 24 | pnpm exec wrangler secret put APP_PASSWORD
 ```
 
 **The rate limits are already there, and they are only a speed bump.** `/api/login` is
-capped at 8 requests a minute per IP and `/api/mcp` at 60, through Cloudflare's
+capped at 8 requests a minute per IP, `/api/mcp` at 60 per token (600 per IP) and the OAuth endpoints at 30, through Cloudflare's
 `ratelimit` binding declared in `wrangler.jsonc`. They are per-Cloudflare-location and
 eventually consistent, so a distributed attacker gets a multiple of those figures — which
 is why the password above matters more than the limits do. Delete the `ratelimits` block
@@ -252,10 +252,13 @@ Optional, and a genuine step up: put [Cloudflare Access](https://developers.clou
 in front of the Worker (**Workers & Pages** → your Worker → **Access**). Sign-in then
 happens at the edge against your identity provider, with MFA, before the Worker runs. Two
 caveats if you do: `/api/strava/webhook` needs a **Bypass** policy, because Strava's
-servers cannot authenticate; and `/api/mcp` needs a **Service Auth** policy plus a
+servers cannot authenticate; and so do `/api/mcp`, `/oauth/*` and `/.well-known/*` if you
+want Claude to connect, because its connector calls from Anthropic's servers and cannot
+carry an Access credential — those paths check their own OAuth tokens. (A client you
+configure yourself can instead go through a **Service Auth** policy with a
 [service token](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/),
 whose `CF-Access-Client-Id` and `CF-Access-Client-Secret` go alongside the bearer header
-in `claude mcp add`. Access is a deployment choice, not something this app depends on — a
+in `claude mcp add`.) Access is a deployment choice, not something this app depends on — a
 fork with no Zero Trust configured is still protected by the password.
 
 ### 4. Migrate, then deploy
@@ -521,33 +524,108 @@ vocabulary, reads what you have actually been running, and writes the weeks back
 **Endpoint** — one address, `POST` only:
 
 ```
-POST https://<your-worker-host>/api/mcp
+https://<your-worker-host>/api/mcp
 ```
 
-**Authentication** — `Authorization: Bearer <token>`, where the token is **your own**,
-minted on `/ajustes` → *Agente (MCP)* → **Crear token**. It is shown once and stored only
-as a hash, so if you lose it you mint another. It is deliberately not your password.
+**Authentication** — OAuth 2.1, which is what lets Claude add it as a *custom connector*
+with nothing but that address: Claude discovers the authorization server from the
+endpoint's `401`, sends you to `/autorizar` on your own deployment to sign in and press
+**Permitir**, and refreshes its token by itself from then on. For a client that cannot run
+OAuth and only takes a fixed header, there is also a static token of your own (below).
 
-Every athlete on the deployment has their own token and their own endpoint behaviour: the
-same URL, but what an agent sees and writes is scoped to whoever the token belongs to. Your
-agent cannot read or touch anybody else's block.
+Every athlete on the deployment connects their own Claude, to the same address, and what an
+agent sees and writes is scoped to whoever approved it. It cannot read or touch anybody
+else's block.
 
-> The token is full read/write on **your** training data: the whole log, and the power to
-> overwrite or delete your entire plan. It is not full access to the deployment and it is
-> not your login. Treat it as you would an API key — and if it leaks, **Generar uno nuevo**
-> invalidates the old one immediately, or **Revocar** turns MCP off for your account.
+> A connection is full read/write on **your** training data: the whole log, and the power
+> to overwrite or delete your entire plan. It is not access to the deployment and it is not
+> your login — the agent never sees your password. Disconnect any of them from `/ajustes` →
+> *Claude y otros agentes* → **Desconectar**.
+
+### Connect it to Claude (web, desktop, mobile)
+
+1. In Claude, open **Customize → Connectors** and choose **Add custom connector**.
+2. Give it a name and paste `https://<your-worker-host>/api/mcp`. Leave the advanced OAuth
+   client ID and secret empty — Claude identifies itself.
+3. **Connect**. A window opens on your deployment's `/autorizar`: sign in if it asks, check
+   that it names **claude.ai**, and press **Permitir**.
+
+Three prerequisites, each of which fails in its own recognisable way:
+
+- **It has to be deployed.** Claude connects from Anthropic's servers, not from your
+  browser, so `localhost` is unreachable; to try a local build, expose `pnpm preview`
+  through a tunnel (`cloudflared tunnel --url http://localhost:8787`) and use that URL.
+- **Migration `0009_oauth_grants` has to be applied** (`pnpm db:migrate` — section c.4).
+  Without it, pressing **Permitir** fails with a server error.
+- **Your block has to exist.** Every tool counts weeks from it, so `/autorizar` refuses to
+  connect an athlete who has not finished `/bienvenida`, and says so.
+
+Every tool is annotated read-only or not, so Claude lets you allow the reads once and keep
+being asked before anything is written.
 
 ### Connect it to Claude Code
 
 ```bash
-claude mcp add --transport http lamitja https://<your-worker-host>/api/mcp \
+claude mcp add --transport http treximo https://<your-worker-host>/api/mcp
+```
+
+Then `/mcp` → *treximo* → **Authenticate**: the browser opens `/autorizar`, exactly as
+above, and Claude Code listens for the answer on a local port. Add `--scope user` to have it
+in every project; `claude mcp list` shows whether it connected; `claude mcp remove treximo`
+undoes it.
+
+### Any other client
+
+An MCP client that implements the MCP authorization spec connects the same way, from the
+URL alone. Nothing has to be registered in advance: the server accepts a client that
+identifies itself with a metadata document (the way Claude does) or one that registers
+itself dynamically, and stores neither.
+
+A client that only takes a header — a script, or an agent configured with a fixed
+`Authorization` — uses a static token instead: `/ajustes` → *Claude y otros agentes* →
+*Token manual* → **Crear token**. It is shown once, stored only as a hash and never
+expires; **Generar uno nuevo** invalidates the old one immediately, **Revocar** turns it
+off. It is deliberately not your password.
+
+```bash
+claude mcp add --transport http treximo https://<your-worker-host>/api/mcp \
   --header "Authorization: Bearer $MCP_TOKEN"
 ```
 
-Add `--scope user` to have it available in every project rather than only this one.
-`claude mcp list` shows whether it connected; `claude mcp remove lamitja` undoes it.
+### The authorization server, for the curious
+
+There is nothing to configure: no client to pre-register, no new secret (its keys are
+derived from `SESSION_SECRET`) and two tables, created by migration `0009`.
+
+| Path | What it is |
+|---|---|
+| `/.well-known/oauth-protected-resource/api/mcp` | RFC 9728 — names `/api/mcp` as the resource and this host as its authorization server. The endpoint's `401` points here. |
+| `/.well-known/oauth-authorization-server` | RFC 8414 — the endpoints below, PKCE `S256`, client metadata documents supported. |
+| `/oauth/authorize` | Validates the request and sends the browser to `/autorizar`. |
+| `/oauth/token` | Exchanges a code (PKCE required) and refreshes. Access tokens last an hour; refresh tokens rotate on every use and lapse after sixty days unused. A used refresh token presented again after ten minutes — or after its successor was used — is treated as stolen and the connection is revoked. |
+| `/oauth/register` | Dynamic client registration (RFC 7591), for clients that do not use a metadata document. |
+| `/oauth/revoke` | Token revocation (RFC 7009). |
+
+Tokens are bound to the address they were issued on: a connection made through
+`workers.dev` does not work against a custom domain, and moving host means reconnecting.
+Rotating `SESSION_SECRET` signs every browser out but leaves existing connections alone
+(a client that registered dynamically, rather than by metadata document as Claude does,
+has to connect again). To cut every agent off at once, disconnect them from `/ajustes` (or
+`wrangler d1 execute DB --remote --command "DELETE FROM oauth_tokens; DELETE FROM oauth_grants"`)
+and revoke the static tokens.
 
 ### Check it from a terminal first
+
+Discovery, which is all Claude needs to start:
+
+```bash
+curl -sS https://<your-worker-host>/.well-known/oauth-protected-resource/api/mcp
+curl -sSi https://<your-worker-host>/api/mcp -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | grep -i www-authenticate
+```
+
+The second answers `401` with `WWW-Authenticate: Bearer resource_metadata="…"` — the header
+Claude starts sign-in from. With a static token, the tools themselves:
 
 ```bash
 curl -sS https://<your-worker-host>/api/mcp \
@@ -567,12 +645,17 @@ curl -sS https://<your-worker-host>/api/mcp \
 ```
 
 `GET` and `DELETE` answer `405` with `Allow: POST` — there is no server-initiated stream
-and no session to delete. A `401` means the bearer token is wrong; a `500` saying
-`401` with *Send `Authorization: Bearer <token>`* means the token is wrong, revoked, or
-belongs to an athlete who has not finished `/bienvenida` — a block is required before any
-tool will answer.
+and no session to delete. A `401` means the token is wrong, expired, revoked, issued on
+another host, or belongs to an athlete who has not finished `/bienvenida` — a block is
+required before any tool will answer. An OAuth client refreshes and retries on its own;
+`error="invalid_token"` in the header is what tells it to.
 
-### The ten tools
+If Claude says it *couldn't reach the MCP server*, check the first `curl` above answers
+from the deployed host. If `/autorizar` says *No se puede conectar*, the Worker's log has
+the exact reason — `wrangler tail`, or *Observability* in the dashboard, lines starting
+`[oauth] authorize refused`.
+
+### The seventeen tools
 
 | Tool | Does | Key arguments |
 |---|---|---|
@@ -586,6 +669,13 @@ tool will answer.
 | `create_sessions` | A whole week or a whole plan in one call. Every row is validated before any is written; failures are reported by array index. A session with `steps` gets its stored distance derived from them. | `sessions[]` |
 | `update_session` | Patch by id. Does **not** drop `steps` when you change a target — pass `steps: null` yourself. | `id` + any field |
 | `delete_session` | Remove one session. Does not touch the week's target volume. | `id` |
+| `search_exercises` | Search the vendored RepDB catalogue by text and facets — body part, equipment, muscle, tags such as `knee_safe`. A capped page of short rows, no prose. | `q`, `bodyPart`, `equipment`, `muscle`, `tags`, `limit` |
+| `get_exercise` | One exercise in full: Spanish instructions, muscles, poses. | `id` |
+| `list_templates` | Your strength/mobility templates, plus the built-in `treximo-*` ones. | — |
+| `create_template` | Write a template. A stable `id` makes it idempotent; `treximo-*` ids are reserved. | `id`, `name`, `exercises[]`, … |
+| `update_template` | Patch a template. Sessions already stamped from it do not change. | `id` + any field |
+| `delete_template` | Remove one of your templates. | `id` |
+| `attach_template` | Put a template on a day — a new session, or onto an existing one. The session gets a copy. | `templateId`, `scheduledOn` \| `sessionId` |
 
 Boundary types are the ones a person would write: dates `YYYY-MM-DD`, paces `mm:ss` per
 kilometre, distances metres, durations seconds. Tool names and descriptions are English

@@ -82,7 +82,7 @@ import {
   type TemplateContent,
 } from '../starters'
 import { RECOVERY_KINDS, STEP_KINDS, type Bands } from '../workout'
-import type { ToolDefinition, ToolRegistry, ToolResult } from './protocol'
+import type { ToolAnnotations, ToolDefinition, ToolRegistry, ToolResult } from './protocol'
 
 /**
  * The tools an agent gets, and what they do.
@@ -934,6 +934,34 @@ const TEMPLATE_FIELDS = {
 // The registry
 // ---------------------------------------------------------------------------
 
+/**
+ * MCP tool annotations, in the three shapes these tools come in. Claude reads them to
+ * decide what it may run without asking — so the reads can be allowed once and every write
+ * still stops for the athlete — and they are honest rather than reassuring:
+ *
+ *  - every write is `destructiveHint`, the creates included, because each one upserts on a
+ *    caller-chosen id and so can overwrite a session or template that already exists;
+ *  - a create is *not* idempotent, because without an `id` it mints a fresh one and the
+ *    same call twice writes two rows;
+ *  - nothing is open-world: every tool reads or writes this athlete's own rows and nothing
+ *    beyond them — not even Strava, which only the nightly sync talks to.
+ */
+const READS: ToolAnnotations = { readOnlyHint: true, openWorldHint: false }
+/** Keyed on a week index or an id the caller names: the same call twice is the same write. */
+const REWRITES: ToolAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  idempotentHint: true,
+  openWorldHint: false,
+}
+/** Idempotent only when the caller passes a stable `id`, which the hint cannot assume. */
+const CREATES: ToolAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  idempotentHint: false,
+  openWorldHint: false,
+}
+
 interface Tool extends ToolDefinition {
   run(ctx: McpCtx, args: Record<string, unknown>, now: number): Promise<unknown>
 }
@@ -942,6 +970,7 @@ const TOOLS: Tool[] = [
   {
     name: 'get_block',
     title: 'Block brief',
+    annotations: READS,
     description:
       'CALL THIS FIRST. The brief needed to write anything: race name, place and date, block start and end, how many weeks it has, the goal time and goal pace, the six pace bands with their zone numbers and labels, the session types with their meta (which are quality days, which count as running volume), the step and recovery vocabulary, and today\'s date and week index. Reads nothing you have to page through — one call is enough to write a correct plan. Takes no arguments.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
@@ -956,6 +985,7 @@ const TOOLS: Tool[] = [
   {
     name: 'list_weeks',
     title: 'List weeks',
+    annotations: READS,
     description:
       'Every week of the block in order: its Monday and Sunday as ISO dates, its phase, focus, target volume (metres), down-week flag and notes, the volume its sessions actually prescribe, and what was actually run in it. A week with no plan_weeks row yet comes back with null fields rather than being omitted, so this is the whole block whether or not it has been written. `prescribedVolumeM` is what the week\'s sessions add up to and `targetVolumeM` is the figure they were sized from — keep them in agreement. Takes no arguments.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
@@ -969,6 +999,7 @@ const TOOLS: Tool[] = [
   {
     name: 'list_sessions',
     title: 'List sessions',
+    annotations: READS,
     description:
       'The prescribed sessions, newest last. Filter by `weekIndex`, or by an ISO date range with `from` / `to` (both inclusive); with no filter it returns the whole plan, which for a 23-week block is a few hundred rows. Each session carries its structured `steps`, its targets (metres, seconds, mm:ss paces) and whether it is done — either ticked off by hand or satisfied by a matching activity, resolved exactly as the app resolves it. Call list_activities for what was actually run.',
     inputSchema: {
@@ -1005,6 +1036,7 @@ const TOOLS: Tool[] = [
   {
     name: 'list_activities',
     title: 'List activities',
+    annotations: READS,
     description:
       'What was actually run, synced from Strava — the record a plan should be adapted to. Filter by ISO date range with `from` / `to` (both inclusive). Distances are metres, moving time seconds, pace mm:ss per km, cadence steps per minute. Heart rate is reported as its zone (1–5), never as beats: the number drifts with heat, sleep and the strap and nothing in this plan is decided on it. `load` is Strava\'s Relative Effort where the strap recorded one and an estimate otherwise. This tool does not write anything and cannot trigger a sync.',
     inputSchema: {
@@ -1043,6 +1075,7 @@ const TOOLS: Tool[] = [
   {
     name: 'get_training_summary',
     title: 'Training summary',
+    annotations: READS,
     description:
       'The derived picture over a window, for deciding how hard the next weeks can ramp: weekly running volume, the 42-day fitness and 7-day fatigue averages with the form they leave, consistency (runs per week, days run, longest gap, breaks of six days or more), best efforts over 5K/10K/15K/half and the half-marathon time they project to, and where the running time went by heart-rate zone. `weeklyVolume` and `bestEfforts` cover the whole block rather than the window — a week bar and a personal best are facts about the season. Defaults to the last 28 days ending today; pass `from` / `to` for another window. Reuses the app\'s own analytics, so these numbers are the ones on the athlete\'s screens. A few derived labels come back in the app\'s Spanish; every key and number is English.',
     inputSchema: {
@@ -1149,6 +1182,7 @@ const TOOLS: Tool[] = [
   {
     name: 'upsert_week',
     title: 'Write a week',
+    annotations: REWRITES,
     description:
       'Creates or updates one week of the block: phase, focus, target volume (metres), down-week flag, notes. Write the weeks before the sessions — the week is the layer the plan is steered from, and a session scheduled into a week with no phase has nothing to be consistent with. An absent field is left alone; an explicit null clears it. `weekIndex` is 0-based from the block start; see get_block for how many weeks there are.',
     inputSchema: {
@@ -1191,6 +1225,7 @@ const TOOLS: Tool[] = [
   {
     name: 'create_session',
     title: 'Create a session',
+    annotations: CREATES,
     description:
       'Adds one session to the plan. Use create_sessions for a whole week or a whole plan — this is for a single addition. Dates are YYYY-MM-DD and must fall inside the block; distances are metres, durations seconds, paces mm:ss per km. Express the workout as `steps`, not as prose in `notes`. Pass a stable `id` to make the call idempotent. Returns the written row.',
     inputSchema: {
@@ -1234,6 +1269,7 @@ const TOOLS: Tool[] = [
   {
     name: 'create_sessions',
     title: 'Create sessions in bulk',
+    annotations: CREATES,
     description:
       'Writes many sessions in one call — a whole week, or a whole plan. This is the tool that makes "write me a 16-week plan" one round trip instead of ninety. Every row is validated before any of them is written: if one fails, nothing is written and the error names the failing rows by their index in the array. Give each row a stable `id` (e.g. "w03-tue-1") so re-running the call rewrites those sessions instead of duplicating them; ids must be unique within the batch. Same field types as create_session.',
     inputSchema: {
@@ -1335,6 +1371,7 @@ const TOOLS: Tool[] = [
   {
     name: 'update_session',
     title: 'Update a session',
+    annotations: REWRITES,
     description:
       'Patches one session by id. An absent field is left alone; an explicit null clears it — which is how "remove the pace target" differs from "leave the pace target". This does NOT recompute anything: changing targetDistanceM by hand leaves any existing `steps` in place, so if the breakdown no longer matches, pass `steps: null` in the same call or rewrite them. Moving a session to another day is just a new `scheduledOn`; its week follows the date.',
     inputSchema: {
@@ -1378,6 +1415,7 @@ const TOOLS: Tool[] = [
   {
     name: 'delete_session',
     title: 'Delete a session',
+    annotations: REWRITES,
     description:
       'Removes one session by id. Permanent, and it takes the session\'s workout with it. Deleting a session does not touch the week\'s targetVolumeM — call upsert_week if the week total should change with it.',
     inputSchema: {
@@ -1404,6 +1442,7 @@ const TOOLS: Tool[] = [
   {
     name: 'search_exercises',
     title: 'Search exercises',
+    annotations: READS,
     description:
       'Finds moves in the vendored exercise catalogue — the vocabulary a strength or mobility prescription is written from. Query in Spanish or in English: both names are indexed, along with the slug, and accents, case and hyphens are ignored, so "side plank" and "plancha lateral" both find the same row. Leave `q` out and pass a facet to browse instead. Prefer the knee_safe and no_axial_load tags when the athlete has reported knee trouble, and equipment "none" unless they have said what they own. Returns at most 50 ranked rows and has no cursor, so this is a search, not a listing: narrow it rather than paging. Call get_exercise for the instructions and the coaching cues. The Spanish `name` on a row is what a prescription must carry — copy it rather than translating it yourself.',
     inputSchema: {
@@ -1467,6 +1506,7 @@ const TOOLS: Tool[] = [
   {
     name: 'get_exercise',
     title: 'Get one exercise',
+    annotations: READS,
     description:
       'The whole record for one catalogue exercise: what it is, how it is done step by step, the coaching tips, the muscles it works, its tags and which illustrations exist for it. All the prose is Spanish, because it is the athlete\'s. Call this before prescribing a move you are not certain of — an exercise chosen from a name alone is how a rebuild acquires an injury vector.',
     inputSchema: {
@@ -1487,6 +1527,7 @@ const TOOLS: Tool[] = [
   {
     name: 'list_templates',
     title: 'List templates',
+    annotations: READS,
     description:
       'The athlete\'s reusable strength and mobility templates, with their exercises inline, followed by the ones that ship with the app (flagged `builtIn`). A template is a session without a day: applying one copies its content onto a session, so it is the thing to write once and attach eleven times rather than typing the same nine moves into every Monday. This is also the read — there is no get_template. The built-in ones cannot be updated or deleted; copy their exercises into a template of your own instead. Takes no arguments.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
@@ -1513,6 +1554,7 @@ const TOOLS: Tool[] = [
   {
     name: 'create_template',
     title: 'Create a template',
+    annotations: CREATES,
     description:
       'Writes one reusable strength or mobility template. Pass a stable `id` (e.g. "fuerza-lunes") and writing it again rewrites that template instead of leaving a second copy — the same idempotency create_session has, and for the same reason. A template carries no date, which is the whole point: attach_template is what puts it on a day. Everything the athlete reads — the name, every exercise name, the load and every note — is Spanish. Ids beginning "treximo-" are reserved for the templates that ship with the app.',
     inputSchema: {
@@ -1564,6 +1606,7 @@ const TOOLS: Tool[] = [
   {
     name: 'update_template',
     title: 'Update a template',
+    annotations: REWRITES,
     description:
       'Patches one template by id. An absent field is left alone; an explicit null clears it. `exercises` is the exception and replaces the whole list: an entry has no identity of its own, so there is nothing for a partial update to address — send the list you want, in the order you want it. Sessions already stamped from this template are NOT changed: they carry a copy, so a revision here reaches the next attachment and nothing that is already written.',
     inputSchema: {
@@ -1605,6 +1648,7 @@ const TOOLS: Tool[] = [
   {
     name: 'delete_template',
     title: 'Delete a template',
+    annotations: REWRITES,
     description:
       'Removes one template from the library. Permanent, and it takes its exercises with it. Sessions already stamped from it are untouched — they carry a copy, so deleting the library entry cannot blank a Monday that has already been trained. The templates that ship with the app cannot be deleted.',
     inputSchema: {
@@ -1630,6 +1674,7 @@ const TOOLS: Tool[] = [
   {
     name: 'attach_template',
     title: 'Apply a template to a day',
+    annotations: CREATES,
     description:
       'Puts a template on a day — the one call that turns a library entry into prescribed training. Pass `scheduledOn` to create the session, or `sessionId` to stamp one that already exists; exactly one of the two. The session gets a COPY of the template: its name becomes the title, its notes and duration come across, and its exercises become the session\'s prescription. Editing the template afterwards never rewrites a session already written, which is the point — a Monday that has been trained is a record, not a view. `dayOrder` is 0 for a strength day that stands on its own and 1 for a block that rides on the same day as a run. Built-in templates (ids beginning "treximo-") attach exactly like your own.',
     inputSchema: {
@@ -1801,7 +1846,7 @@ The app speaks Spanish to the athlete. Tool names, arguments and these instructi
  * The MCP surface's own version, bumped when a tool's contract changes. Deliberately not
  * the app's package version, which moves for reasons no client cares about.
  */
-export const SERVER_VERSION = '2.2.0'
+export const SERVER_VERSION = '2.3.0'
 
 /**
  * Binds the tools to a database and a credential.
@@ -1818,7 +1863,14 @@ export function createToolRegistry(ctx: McpCtx): ToolRegistry {
   const byName = new Map(TOOLS.map((tool) => [tool.name, tool]))
 
   return {
-    list: () => TOOLS.map(({ name, title, description, inputSchema }) => ({ name, title, description, inputSchema })),
+    list: () =>
+      TOOLS.map(({ name, title, description, inputSchema, annotations }) => ({
+        name,
+        title,
+        description,
+        inputSchema,
+        annotations,
+      })),
 
     async call(name, args): Promise<ToolResult> {
       const tool = byName.get(name)

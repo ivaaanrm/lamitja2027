@@ -1,7 +1,8 @@
 import { env } from 'cloudflare:workers'
 
 /**
- * A speed bump in front of the two endpoints that take a credential.
+ * A speed bump in front of the endpoints that take a credential: the login, the MCP
+ * endpoint and the OAuth authorization server's own (`src/lib/oauth/server.ts`).
  *
  * The app is one password and one bearer token, and until now either could be guessed at
  * as fast as the network allowed. That was survivable while the address was known to one
@@ -56,13 +57,17 @@ const callerKey = (request: Request): string =>
  * every guess is still checked and the guesser is throttled in nothing but the status code
  * they get back. The cost of checking first is that a legitimate sign-in also counts, and
  * at these limits a person never notices.
+ *
+ * `key` overrides the IP for a caller that has a better identity than its address — see
+ * `/api/mcp`, whose callers mostly arrive from Anthropic's servers and would otherwise all
+ * share one bucket.
  */
-export async function withinLimit(name: LimiterName, request: Request): Promise<boolean> {
+export async function withinLimit(name: LimiterName, request: Request, key?: string): Promise<boolean> {
   const limiter = env[name] as RateLimit | undefined
   if (typeof limiter?.limit !== 'function') return true
 
   try {
-    const { success } = await limiter.limit({ key: `${name}:${callerKey(request)}` })
+    const { success } = await limiter.limit({ key: `${name}:${key ?? callerKey(request)}` })
     return success
   } catch (error) {
     console.error(`[ratelimit] ${name} unavailable`, error)

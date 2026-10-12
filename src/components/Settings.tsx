@@ -8,6 +8,7 @@ import {
   Button,
   Card,
   CardTitle,
+  Chevron,
   Chip,
   EmptyState,
   ErrorCard,
@@ -360,8 +361,8 @@ function InvitesCard() {
 const TOKEN_PLACEHOLDER = 'TU_TOKEN'
 
 /**
- * The message the athlete pastes into an agent, which is the only artefact here that is
- * any use on its own.
+ * The message the athlete pastes into an agent that takes a header rather than running
+ * OAuth, which is the only artefact of the manual token that is any use on its own.
  *
  * A token is half of a connection and the half nobody can guess is the other half — the
  * address, the transport and the header it goes in. Leaving those in `docs/` means the
@@ -385,8 +386,146 @@ function agentPrompt(origin: string, token: string): string {
   ].join('\n')
 }
 
+/** One connected application, as `GET /api/oauth/grants` projects it. */
+interface GrantRow {
+  id: string
+  clientName: string
+  clientHost: string
+  createdAt: number
+  lastUsedAt: number | null
+}
+
 /**
- * The athlete's MCP credential, and the message that puts it to work.
+ * The athlete's agents: Claude first, and everything else after it.
+ *
+ * Adding the app to Claude as a custom connector is the path this card leads with, because
+ * it is the one that asks nothing of the athlete but an address. Claude discovers the
+ * authorization server from that address, sends the athlete to `/autorizar`, and from then
+ * on holds a token it refreshes by itself — no secret is ever shown here, copied or pasted.
+ * So the card's job is three things: the address, ready to copy; what is connected now,
+ * with a way to cut each one off; and, folded away, the manual token for the agents that
+ * cannot run OAuth and take a header instead.
+ *
+ * The address is read after mount: `location` does not exist in the prerender pass this
+ * island also runs through (AGENTS gotcha 15), so it renders blank for one frame.
+ */
+function McpCard({ hasToken, onChanged }: { hasToken: boolean; onChanged: () => void }) {
+  const [origin, setOrigin] = useState('')
+  useEffect(() => setOrigin(window.location.origin), [])
+  const [copied, setCopied] = useState(false)
+
+  const address = origin ? `${origin}/api/mcp` : ''
+
+  function copy() {
+    void navigator.clipboard?.writeText(address).then(
+      () => setCopied(true),
+      () => setCopied(false),
+    )
+  }
+
+  return (
+    <Card className="fade-up">
+      <CardTitle>Claude y otros agentes</CardTitle>
+      <p className="text-footnote leading-relaxed text-label-2">
+        Añade tu bloque a Claude para que lea tu plan y lo escriba por ti. En Claude, abre
+        Conectores, elige «Añadir conector personalizado», pega esta dirección y acepta aquí
+        cuando te lo pida.
+      </p>
+
+      <div className="mt-3 flex items-center justify-between gap-2 rounded-xl bg-fill px-3 py-1">
+        <p className="min-w-0 break-all py-1.5 text-caption text-label">{address || '…'}</p>
+        <TextLink inset disabled={!address} onClick={copy}>
+          {copied ? 'Copiada' : 'Copiar'}
+        </TextLink>
+      </div>
+
+      <ConnectedApps />
+      <ManualToken origin={origin} hasToken={hasToken} onChanged={onChanged} />
+    </Card>
+  )
+}
+
+/**
+ * What is connected right now, newest first, each with its own off switch.
+ *
+ * «Último uso» is the last refresh, not the last tool call — an access token's hour of
+ * use writes nothing — so it is accurate to the hour, which is all the question "is this
+ * thing still talking to my plan" needs.
+ */
+function ConnectedApps() {
+  const [grants, setGrants] = useState<GrantRow[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+
+  async function load() {
+    try {
+      const response = await fetch('/api/oauth/grants')
+      if (!response.ok) throw new Error(await errorMessage(response, 'No se pudieron cargar las conexiones'))
+      setGrants(((await response.json()) as { grants: GrantRow[] }).grants)
+      setError(null)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'No se pudieron cargar las conexiones')
+    }
+  }
+
+  useEffect(() => {
+    void load()
+  }, [])
+
+  async function disconnect(id: string) {
+    setBusy(id)
+    try {
+      const response = await fetch(`/api/oauth/grants/${encodeURIComponent(id)}`, { method: 'DELETE' })
+      if (!response.ok) throw new Error(await errorMessage(response, 'No se pudo desconectar'))
+      await load()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'No se pudo desconectar')
+    }
+    setBusy(null)
+  }
+
+  return (
+    <div className="mt-3 border-t border-line pt-2.5">
+      <p className="text-caption2 font-semibold uppercase tracking-[0.12em] text-label-3">Conectadas</p>
+      {error ? (
+        <p role="alert" className="mt-1.5 text-caption leading-relaxed text-red">
+          {error}
+        </p>
+      ) : grants == null ? (
+        <p className="mt-1.5 text-caption text-label-3">Cargando…</p>
+      ) : grants.length === 0 ? (
+        <p className="mt-1.5 text-caption text-label-3">Ninguna aplicación conectada todavía.</p>
+      ) : (
+        <ul className="mt-0.5">
+          {grants.map((grant) => (
+            <li key={grant.id} className="flex items-center justify-between gap-2">
+              <div className="min-w-0 py-1.5">
+                <p className="truncate text-footnote text-label">
+                  {grant.clientName}
+                  {grant.clientName !== grant.clientHost ? (
+                    <span className="text-label-3"> · {grant.clientHost}</span>
+                  ) : null}
+                </p>
+                <p className="text-caption text-label-3">
+                  Desde el {stampFmt.format(new Date(grant.createdAt))}
+                  {grant.lastUsedAt ? ` · último uso el ${stampFmt.format(new Date(grant.lastUsedAt))}` : ''}
+                </p>
+              </div>
+              <TextLink inset disabled={busy !== null} onClick={() => void disconnect(grant.id)}>
+                {busy === grant.id ? 'Desconectando…' : 'Desconectar'}
+              </TextLink>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The static MCP token, for an agent that cannot run OAuth — a script, or a client
+ * configured with a fixed `Authorization` header — folded away because Claude never needs
+ * it and the card should not lead with a secret.
  *
  * The token is shown exactly once, at mint time, and never again: the server keeps only
  * `sha256(token)`, so there is nothing to re-display and losing it means minting another.
@@ -395,19 +534,24 @@ function agentPrompt(origin: string, token: string): string {
  *
  * The warning under it is not decoration. This token is full read/write on one athlete's
  * training data, in plain text, inside an agent's config file — the athlete should know
- * that before they paste it somewhere shared.
+ * that before they paste it somewhere shared. It opens itself while a token exists, so a
+ * live credential is never hidden behind a closed row.
  */
-function McpCard({ hasToken, onChanged }: { hasToken: boolean; onChanged: () => void }) {
+function ManualToken({
+  origin,
+  hasToken,
+  onChanged,
+}: {
+  origin: string
+  hasToken: boolean
+  onChanged: () => void
+}) {
+  const [open, setOpen] = useState(false)
   const [token, setToken] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState<'token' | 'prompt' | null>(null)
-
-  // The address the agent has to be told is this deployment's own, and `location` does not
-  // exist in the prerender pass this island also runs through (AGENTS gotcha 15) — so it
-  // is read after mount, and the message renders with the origin blank for one frame.
-  const [origin, setOrigin] = useState('')
-  useEffect(() => setOrigin(window.location.origin), [])
+  const expanded = open || token !== null
 
   function copy(what: 'token' | 'prompt', text: string) {
     void navigator.clipboard?.writeText(text).then(
@@ -447,85 +591,101 @@ function McpCard({ hasToken, onChanged }: { hasToken: boolean; onChanged: () => 
   }
 
   return (
-    <Card className="fade-up">
-      <CardTitle>Agente (MCP)</CardTitle>
-      <p className="text-footnote leading-relaxed text-label-2">
-        Conecta un agente a tu bloque para que escriba el plan por ti. Necesita un token
-        propio, distinto de tu contraseña.
-      </p>
+    <div className="mt-3 border-t border-line pt-1">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={expanded}
+        aria-controls="mcp-token-manual"
+        className="tappable flex min-h-11 w-full items-center gap-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+      >
+        <span className="flex-1 truncate text-caption2 font-medium text-label-3">
+          Token manual, para agentes sin OAuth
+          {hasToken ? <span className="text-label-2"> · activo</span> : null}
+        </span>
+        <Chevron open={expanded} />
+      </button>
 
-      {token ? (
-        <>
-          <code className="mt-3 block break-all rounded-xl bg-fill px-3 py-2.5 text-caption text-label">
-            {token}
-          </code>
-          <p role="status" className="mt-2 text-caption leading-relaxed text-amber">
-            Cópialo ahora: no vuelve a mostrarse. Da acceso completo a tu entrenamiento.
+      {expanded ? (
+        <div id="mcp-token-manual" className="pb-1">
+          <p className="text-caption leading-relaxed text-label-2">
+            Para un agente que no sabe iniciar sesión y va con una cabecera fija. Es distinto de
+            tu contraseña y no caduca: se cambia o se revoca aquí.
           </p>
-          <Button className="mt-2.5 w-full" onClick={() => copy('token', token)}>
-            {copied === 'token' ? 'Copiado' : 'Copiar token'}
-          </Button>
-        </>
-      ) : hasToken ? (
-        // Resting state: a token exists but its plaintext is gone. The database keeps only
-        // `sha256(token)`, so there is nothing to re-display — the honest thing is to say so
-        // and point at the only way to hold one again, rather than leave the card looking
-        // like it forgot to render the token.
-        <p className="mt-3 text-caption leading-relaxed text-label-2">
-          Ya tienes un token activo. Por seguridad solo se muestra una vez, así que no puede
-          volver a verse. Si lo has perdido, genera uno nuevo para copiarlo — el anterior
-          dejará de funcionar.
-        </p>
-      ) : null}
 
-      {/* The message survives the token's one showing: with a live token it is ready to
-          paste as it stands, and afterwards it is still the only place the address and the
-          header are written down, with `TU_TOKEN` where the athlete's own goes. */}
-      {token || hasToken ? (
-        <div className="mt-3">
-          <div className="mb-1.5 flex items-center justify-between gap-2">
-            <p className="text-caption2 font-semibold uppercase tracking-[0.12em] text-label-3">
-              Mensaje para el agente
+          {token ? (
+            <>
+              <code className="mt-2.5 block break-all rounded-xl bg-fill px-3 py-2.5 text-caption text-label">
+                {token}
+              </code>
+              <p role="status" className="mt-2 text-caption leading-relaxed text-amber">
+                Cópialo ahora: no vuelve a mostrarse. Da acceso completo a tu entrenamiento.
+              </p>
+              <Button className="mt-2.5 w-full" onClick={() => copy('token', token)}>
+                {copied === 'token' ? 'Copiado' : 'Copiar token'}
+              </Button>
+            </>
+          ) : hasToken ? (
+            // Resting state: a token exists but its plaintext is gone. The database keeps
+            // only `sha256(token)`, so there is nothing to re-display — the honest thing is
+            // to say so and point at the only way to hold one again.
+            <p className="mt-2.5 text-caption leading-relaxed text-label-2">
+              Ya tienes un token activo. Por seguridad solo se muestra una vez, así que no puede
+              volver a verse. Si lo has perdido, genera uno nuevo — el anterior dejará de
+              funcionar.
             </p>
-            <TextLink
-              inset
-              disabled={!origin}
-              onClick={() => copy('prompt', agentPrompt(origin, token ?? TOKEN_PLACEHOLDER))}
+          ) : null}
+
+          {/* The message survives the token's one showing: with a live token it is ready to
+              paste as it stands, and afterwards it is still the only place the address and
+              the header are written down, with `TU_TOKEN` where the athlete's own goes. */}
+          {token || hasToken ? (
+            <div className="mt-3">
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <p className="text-caption2 font-semibold uppercase tracking-[0.12em] text-label-3">
+                  Mensaje para el agente
+                </p>
+                <TextLink
+                  inset
+                  disabled={!origin}
+                  onClick={() => copy('prompt', agentPrompt(origin, token ?? TOKEN_PLACEHOLDER))}
+                >
+                  {copied === 'prompt' ? 'Copiado' : 'Copiar'}
+                </TextLink>
+              </div>
+              {/* `font-sans` because a `<pre>` defaults to the browser's monospace and this
+                  app is set in Inter, and wrapped rather than scrolled: a horizontal
+                  scrollbar in a card hides the end of a URL the athlete is meant to copy. */}
+              <pre className="whitespace-pre-wrap break-words rounded-xl bg-fill px-3 py-2.5 font-sans text-caption leading-relaxed text-label-2">
+                {agentPrompt(origin, token ?? TOKEN_PLACEHOLDER)}
+              </pre>
+            </div>
+          ) : null}
+
+          {error ? (
+            <p role="alert" className="mt-2 text-footnote leading-relaxed text-red">
+              {error}
+            </p>
+          ) : null}
+
+          <div className="mt-3 flex gap-2">
+            <Button
+              variant={hasToken ? 'ghost' : 'primary'}
+              className="flex-1"
+              disabled={busy}
+              onClick={() => void mint()}
             >
-              {copied === 'prompt' ? 'Copiado' : 'Copiar'}
-            </TextLink>
+              {busy ? 'Un momento…' : hasToken ? 'Generar uno nuevo' : 'Crear token'}
+            </Button>
+            {hasToken ? (
+              <Button variant="ghost" className="flex-1" disabled={busy} onClick={() => void revoke()}>
+                Revocar
+              </Button>
+            ) : null}
           </div>
-          {/* `font-sans` because a `<pre>` defaults to the browser's monospace and this app
-              is set in Inter, and wrapped rather than scrolled: a horizontal scrollbar in a
-              card hides the end of a URL the athlete is meant to copy whole. */}
-          <pre className="whitespace-pre-wrap break-words rounded-xl bg-fill px-3 py-2.5 font-sans text-caption leading-relaxed text-label-2">
-            {agentPrompt(origin, token ?? TOKEN_PLACEHOLDER)}
-          </pre>
         </div>
       ) : null}
-
-      {error ? (
-        <p role="alert" className="mt-2 text-footnote leading-relaxed text-red">
-          {error}
-        </p>
-      ) : null}
-
-      <div className="mt-3 flex gap-2">
-        <Button
-          variant={hasToken ? 'ghost' : 'primary'}
-          className="flex-1"
-          disabled={busy}
-          onClick={() => void mint()}
-        >
-          {busy ? 'Un momento…' : hasToken ? 'Generar uno nuevo' : 'Crear token'}
-        </Button>
-        {hasToken ? (
-          <Button variant="ghost" className="flex-1" disabled={busy} onClick={() => void revoke()}>
-            Revocar
-          </Button>
-        ) : null}
-      </div>
-    </Card>
+    </div>
   )
 }
 

@@ -66,12 +66,20 @@ export function timingSafeEqual(a: string, b: string): boolean {
   return mismatch === 0
 }
 
-/** URL-safe random token, for OAuth `state` and webhook verify tokens. */
+/** base64url with no padding (RFC 4648 §5) — the alphabet a URL, a header and a form carry unescaped. */
+export function bytesToBase64Url(bytes: Uint8Array<ArrayBuffer>): string {
+  return bytesToBase64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+/** The inverse of `bytesToBase64Url`. Throws on anything outside the alphabet, as `atob` does. */
+export function base64UrlToBytes(value: string): Uint8Array<ArrayBuffer> {
+  const padded = value.replace(/-/g, '+').replace(/_/g, '/')
+  return base64ToBytes(padded + '='.repeat((4 - (padded.length % 4)) % 4))
+}
+
+/** URL-safe random token, for OAuth `state`, webhook verify tokens and every OAuth credential. */
 export function randomToken(bytes = 32): string {
-  return bytesToBase64(crypto.getRandomValues(new Uint8Array(new ArrayBuffer(bytes))))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '')
+  return bytesToBase64Url(crypto.getRandomValues(new Uint8Array(new ArrayBuffer(bytes))))
 }
 
 /**
@@ -84,4 +92,39 @@ export function randomToken(bytes = 32): string {
 export async function sha256Hex(value: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+/** SHA-256 as base64url — the encoding PKCE's `S256` compares a `code_challenge` in. */
+export async function sha256Base64Url(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
+  return bytesToBase64Url(new Uint8Array(digest))
+}
+
+/**
+ * An HMAC key of its own for one purpose, derived from a secret that already exists.
+ *
+ * HKDF rather than reusing the secret as the MAC key directly: `SESSION_SECRET` already
+ * signs every session cookie, and a MAC the OAuth layer hands out — over a payload a
+ * stranger partly chose — must never be one the cookie check would also accept. Deriving
+ * under a distinct `info` makes the two keys unrelated without asking a forker to generate
+ * and store a fifth secret.
+ */
+export async function derivedMacKey(secret: string, purpose: string): Promise<CryptoKey> {
+  const encoder = new TextEncoder()
+  const base = await crypto.subtle.importKey('raw', encoder.encode(secret), 'HKDF', false, [
+    'deriveKey',
+  ])
+  return crypto.subtle.deriveKey(
+    { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(new ArrayBuffer(0)), info: encoder.encode(purpose) },
+    base,
+    { name: 'HMAC', hash: 'SHA-256', length: 256 },
+    false,
+    ['sign'],
+  )
+}
+
+/** HMAC-SHA256 of `value` as base64url. Compare two of these with `timingSafeEqual`. */
+export async function macBase64Url(key: CryptoKey, value: string): Promise<string> {
+  const mac = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value))
+  return bytesToBase64Url(new Uint8Array(mac))
 }
