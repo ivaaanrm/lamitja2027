@@ -14,10 +14,15 @@ export const prerender = true
  *
  * No back link, unlike `/ajustes`: an athlete lands here straight from
  * registration or bootstrap, with nothing behind it to go back to.
+ *
+ * The title is the eyebrow rather than «Bienvenido»: Spanish genders the greeting, and
+ * the athletes on a deployment are not all one gender. The lede promises only what the
+ * next screen does — `/plan` opens empty and is written by hand or by an agent; there is
+ * no generator behind it.
  */
 ---
 
-<Base title={`Bienvenido · ${APP_NAME}`}>
+<Base title={`Antes de empezar · ${APP_NAME}`}>
   <main class="mx-auto flex min-h-full max-w-lg flex-col gap-2 px-gutter pt-10 pb-[calc(2rem+env(safe-area-inset-bottom))]">
     <header class="px-0.5 pb-2">
       <p class="text-caption2 font-semibold uppercase tracking-[0.16em] text-label-3">
@@ -27,8 +32,8 @@ export const prerender = true
         Tu carrera y tu bloque
       </h1>
       <p class="mt-3 text-footnote leading-relaxed text-label-2">
-        Con esto calculamos tus ritmos y sabemos cuántas semanas quedan. Luego eliges los
-        días que entrenas y el plan se genera solo.
+        Con esto calculamos tus ritmos y sabemos cuántas semanas quedan. Después escribes el
+        plan semana a semana, a mano o con un agente conectado por MCP.
       </p>
     </header>
 

@@ -845,8 +845,8 @@ function SettingsScreen() {
                 />
               </Field>
               <p className="mt-2 text-caption leading-relaxed text-label-3">
-                Mover estas fechas no toca las sesiones ya creadas — si dejan de encajar, se
-                arreglan desde «Regenerar plan».
+                Mover estas fechas no toca las sesiones ya creadas: si dejan de encajar, se
+                mueven desde el plan.
               </p>
             </div>
 
