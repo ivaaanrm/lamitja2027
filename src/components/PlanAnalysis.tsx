@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { cn } from '@/lib/cn'
-import { decimal } from '@/lib/format'
+import { decimal, parseDecimal } from '@/lib/format'
 import {
   DEFAULT_PLAN_ANALYSIS_FILTERS,
   filterPlanAnalysis,
@@ -10,6 +10,7 @@ import {
 } from '@/lib/plan-analysis'
 import { SESSION_META, SESSION_TYPES, type SessionType, type WeekPlan } from '@/lib/plan'
 import {
+  ACCENT,
   Card,
   CardTitle,
   EmptyState,
@@ -36,9 +37,8 @@ const SORT_OPTIONS: { value: PlanAnalysisSort; label: string }[] = [
 
 /** `12,5` and `12.5` both become metres; a half-typed value remains unbounded. */
 function parseDistanceM(value: string): number | null {
-  if (!value.trim()) return null
-  const km = Number(value.replace(',', '.'))
-  return Number.isFinite(km) && km >= 0 ? km * 1000 : null
+  const km = parseDecimal(value)
+  return km != null && km >= 0 ? km * 1000 : null
 }
 
 /**
@@ -201,9 +201,16 @@ export function PlanAnalysis({ weeks }: { weeks: WeekPlan[] }) {
 
         {visible.length > 0 ? (
           <div>
-            {/* A semantic table whose rows become a three-column, two-line grid below the
-                desktop breakpoint. The data stays one tree — no duplicated mobile list —
-                while the phone never has to pan sideways to reach the distance. */}
+            {/* A semantic table whose rows become a one-line grid below the desktop
+                breakpoint. The data stays one tree — no duplicated mobile list — while the
+                phone never has to pan sideways to reach the distance.
+
+                On the phone a row speaks Hoy's grammar: the type's tile, the week over its
+                date, the title, the distance. It used to be two full lines — the week and
+                the date on their own row above a chip and the title — which at 85px a row
+                made a 137-session block eleven thousand pixels of scrolling, and printed
+                «RODAJE Rodaje» on most of them. The chip comes back at the desktop width,
+                where the column has room for it. */}
             <table className="block w-full table-fixed sm:table">
               <thead className="hidden sm:table-header-group">
                 <tr>
@@ -220,10 +227,10 @@ export function PlanAnalysis({ weeks }: { weeks: WeekPlan[] }) {
                   return (
                     <tr
                       key={`${session.userId}-${session.id}`}
-                      className="grid min-h-16 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 px-3 py-2.5 sm:table-row sm:min-h-0 sm:px-0 sm:py-0"
+                      className="grid grid-cols-[1.75rem_3rem_minmax(0,1fr)_auto] grid-rows-[auto_auto] items-center gap-x-2.5 px-3 py-1 sm:table-row sm:px-0 sm:py-0"
                     >
-                      <td className="col-start-1 row-start-1 sm:table-cell sm:px-3 sm:py-2.5 sm:align-middle">
-                        <span className="data-number block text-footnote font-semibold text-label">
+                      <td className="col-start-2 row-start-1 self-end sm:table-cell sm:px-3 sm:py-2.5 sm:align-middle">
+                        <span className="data-number block text-caption2 font-semibold text-label-2 sm:text-footnote sm:text-label">
                           S{row.weekIndex + 1}
                         </span>
                         {row.phase ? (
@@ -232,23 +239,28 @@ export function PlanAnalysis({ weeks }: { weeks: WeekPlan[] }) {
                           </span>
                         ) : null}
                       </td>
-                      <td className="col-span-2 col-start-2 row-start-1 text-right sm:table-cell sm:px-3 sm:py-2.5 sm:text-left sm:align-middle">
-                        <span className="data-number text-caption text-label-3">
+                      <td className="col-start-2 row-start-2 self-start sm:table-cell sm:px-3 sm:py-2.5 sm:align-middle">
+                        <span className="data-number whitespace-nowrap text-caption2 uppercase text-label-3 sm:text-caption sm:normal-case">
                           {dateFmt.format(new Date(session.scheduledOn))}
                         </span>
                       </td>
-                      <td className="col-start-1 row-start-2 sm:table-cell sm:px-3 sm:py-2.5 sm:align-middle">
-                        <TypeChip type={session.type} />
+                      <td className="col-start-1 row-span-2 row-start-1 sm:table-cell sm:px-3 sm:py-2.5 sm:align-middle">
+                        <span
+                          role="img"
+                          aria-label={SESSION_META[session.type].label}
+                          className={cn('block size-7 rounded-[0.625rem] sm:hidden', ACCENT[session.type].swatch)}
+                        />
+                        <TypeChip type={session.type} className="hidden sm:inline-flex" />
                       </td>
-                      <td className="col-start-2 row-start-2 min-w-0 sm:table-cell sm:px-3 sm:py-2.5 sm:align-middle">
+                      <td className="col-start-3 row-span-2 row-start-1 min-w-0 sm:table-cell sm:px-3 sm:py-2.5 sm:align-middle">
                         <a
                           href={`/sesion?id=${encodeURIComponent(session.id)}&desde=plan`}
-                          className="tappable -my-2 flex min-h-11 items-center text-footnote font-medium leading-snug text-label active:text-label-2 sm:my-0 sm:min-h-0"
+                          className="tappable flex min-h-11 items-center text-footnote font-medium leading-snug text-label active:text-label-2 sm:min-h-0"
                         >
                           <span className="line-clamp-2">{session.title}</span>
                         </a>
                       </td>
-                      <td className="col-start-3 row-start-2 text-right sm:table-cell sm:px-3 sm:py-2.5 sm:align-middle">
+                      <td className="col-start-4 row-span-2 row-start-1 text-right sm:table-cell sm:px-3 sm:py-2.5 sm:align-middle">
                         <span
                           className={cn(
                             'data-number whitespace-nowrap text-footnote font-semibold',

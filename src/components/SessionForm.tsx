@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { formatPace, parsePace } from '@/lib/activity'
+import { decimalInput, parseDecimal } from '@/lib/format'
 import { goalPaceSKm, weekDays, type BlockConfig } from '@/lib/block'
 import { cn } from '@/lib/cn'
 import { ApiError, createSession, deleteSession, updateSession } from '@/lib/plan-client'
@@ -48,7 +49,7 @@ const fromSession = (session: PlanSession): Draft => ({
   notes: session.notes ?? '',
   // Prescribed distances are exact metres (a rep session lands on 12 364 m); a form is
   // not the place to make someone read that.
-  distanceKm: session.targetDistanceM == null ? '' : String(Math.round(session.targetDistanceM / 10) / 100),
+  distanceKm: session.targetDistanceM == null ? '' : decimalInput(session.targetDistanceM / 1000),
   durationMin: session.targetDurationS == null ? '' : String(Math.round(session.targetDurationS / 60)),
   paceLo: session.targetPaceLoSKm == null ? '' : formatPace(session.targetPaceLoSKm),
   paceHi: session.targetPaceHiSKm == null ? '' : formatPace(session.targetPaceHiSKm),
@@ -133,10 +134,10 @@ export function SessionForm({
   const prescriptionEdited = numbersEdited && runSteps(session?.steps) !== null
 
   const number = (value: string, scale = 1) => {
-    const trimmed = value.trim()
-    if (trimmed === '') return null
-    const parsed = Number(trimmed)
-    return Number.isFinite(parsed) && parsed > 0 ? parsed * scale : null
+    // Both decimal marks: a Spanish keypad types `8,4`, and `Number('8,4')` is `NaN` —
+    // which used to save as "no distance".
+    const parsed = parseDecimal(value)
+    return parsed != null && parsed > 0 ? parsed * scale : null
   }
 
   /**

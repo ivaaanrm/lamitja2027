@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { goalPaceSKm, startOfDay, totalWeeks, type BlockConfig } from '@/lib/block'
 import { cn } from '@/lib/cn'
-import { decimal } from '@/lib/format'
+import { decimal, decimalInput, parseDecimal } from '@/lib/format'
 import type { WeekMetrics } from '@/lib/metrics'
 import { DEFAULT_HR_MAX, paceBands } from '@/lib/paces'
 import { setDone, updateWeek } from '@/lib/plan-client'
@@ -395,7 +395,13 @@ function BlockHeader({
         context={
           planned === 0
             ? 'Esta semana todavía no tiene ninguna sesión escrita.'
-            : [metrics.phase, `${planned} ${planned === 1 ? 'sesión' : 'sesiones'}`]
+            : // Descarga is said here as on Hoy's eyebrow: it is the one qualifier that
+              // explains a target that just fell off a cliff.
+              [
+                metrics.phase,
+                metrics.isDownWeek ? 'descarga' : null,
+                `${planned} ${planned === 1 ? 'sesión' : 'sesiones'}`,
+              ]
                 .filter(Boolean)
                 .join(' · ')
         }
@@ -699,7 +705,7 @@ function WeekFields({
   const [phase, setPhase] = useState(week.week?.phase ?? '')
   const [focus, setFocus] = useState(week.week?.focus ?? '')
   const [targetKm, setTargetKm] = useState(
-    week.week?.targetVolumeM == null ? '' : String(week.week.targetVolumeM / 1000),
+    week.week?.targetVolumeM == null ? '' : decimalInput(week.week.targetVolumeM / 1000),
   )
   const isDownWeek = week.week?.isDownWeek ?? false
 
@@ -713,7 +719,7 @@ function WeekFields({
     }
   }
 
-  const km = targetKm.trim() === '' ? null : Number(targetKm)
+  const km = parseDecimal(targetKm)
 
   return (
     <div className="mt-2.5 space-y-2 border-t border-line pt-2.5">
@@ -741,7 +747,7 @@ function WeekFields({
             onChange={(e) => setTargetKm(e.target.value)}
             onBlur={() =>
               void save({
-                targetVolumeM: km != null && Number.isFinite(km) && km > 0 ? km * 1000 : null,
+                targetVolumeM: km != null && km > 0 ? km * 1000 : null,
               })
             }
           />

@@ -152,8 +152,10 @@ export function SessionCard({
             <span className="min-w-0">
               <span className="flex flex-wrap items-center gap-1.5">
                 {/* The chip is what pairs the rail's hue with a word — colour is never the
-                    only thing saying which kind of session this is. */}
-                <TypeChip type={session.type} />
+                    only thing saying which kind of session this is. Unless the title already
+                    opens on that word: «FUERZA Fuerza de cadera» and «DESCANSO Descanso»
+                    say it twice, and the second time costs a third of the row. */}
+                {titleSaysType(session.title, session.type) ? null : <TypeChip type={session.type} />}
                 <span className={cn('text-footnote font-medium', done ? 'text-label-2' : 'text-label')}>
                   {session.title}
                 </span>
@@ -221,6 +223,17 @@ export function SessionCard({
       {activity ? <Result activity={activity} session={session} hrMax={hrMax} /> : null}
     </article>
   )
+}
+
+/** Accent- and case-blind, so «Fuerza», «fuerza» and «FUERZA» all count. */
+const fold = (text: string) =>
+  text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
+
+/** Whether a title opens on its type's own label, as a whole word. */
+function titleSaysType(title: string, type: MatchedSession['session']['type']): boolean {
+  const label = fold(SESSION_META[type].label)
+  const head = fold(title.trim())
+  return head === label || head.startsWith(`${label} `)
 }
 
 /**
