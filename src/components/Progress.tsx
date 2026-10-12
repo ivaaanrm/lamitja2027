@@ -516,13 +516,18 @@ function ProjectionCard({ block, view }: { block: BlockConfig; view: View }) {
               'mt-3 min-h-0 items-stretch border-b border-line text-caption2 uppercase tracking-wider text-label-3',
             )}
           >
-            <span className="flex-1 truncate pb-1.5">Listón</span>
+            <span className="min-w-9 flex-1 truncate pb-1.5">Listón</span>
             <span className="w-14 shrink-0 pb-1.5 text-right">Bloque</span>
             {hasBaseline ? (
               <>
                 {/* «Pasada», as every hint on this screen says it: «2025-26» is a
-                    character wider than the 48px column and broke at its hyphen. */}
-                <span className="w-12 shrink-0 pb-1.5 text-right">Pasada</span>
+                    character wider than the 48px column and broke at its hyphen.
+
+                    Gone under 360px, with its cells: five fixed columns on a 320px phone
+                    left the row label `flex-1` with nothing, so 5K/10K/Media vanished and
+                    every row was bare numbers. The delta beside it still says how this
+                    season compares; the absolute time is the one cell that can go. */}
+                <span className="w-12 shrink-0 pb-1.5 text-right max-[359px]:hidden">Pasada</span>
                 <span className="w-11 shrink-0" />
               </>
             ) : null}
@@ -540,7 +545,7 @@ function ProjectionCard({ block, view }: { block: BlockConfig; view: View }) {
               const projected = projectEffort(effort, block.raceDistanceM)
               const cells = (
                 <>
-                  <span className="flex-1 truncate text-footnote text-label-2">{effort.label}</span>
+                  <span className="min-w-9 flex-1 truncate text-footnote text-label-2">{effort.label}</span>
                   <span className="data-number w-14 shrink-0 text-right text-footnote">
                     {effort.timeS == null ? (
                       <span className="text-label-3">—</span>
@@ -550,7 +555,7 @@ function ProjectionCard({ block, view }: { block: BlockConfig; view: View }) {
                   </span>
                   {hasBaseline ? (
                     <>
-                      <span className="data-number w-12 shrink-0 text-right text-caption text-label-3">
+                      <span className="data-number w-12 shrink-0 text-right text-caption text-label-3 max-[359px]:hidden">
                         {last?.timeS == null ? '' : formatClock(last.timeS)}
                       </span>
                       <span className="w-11 shrink-0 text-right">
