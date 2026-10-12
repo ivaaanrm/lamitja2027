@@ -48,9 +48,10 @@ export interface RouteMeta {
 }
 
 export const ROUTES: Record<string, RouteMeta> = {
-  // The heading is said inside the island: `RaceCountdown` reads the signed-in athlete's
-  // own block, which a prerendered shell cannot know.
-  '/': { tab: 'today', title: null, heading: '' },
+  // The race is said inside the island — `RaceCountdown` reads the signed-in athlete's own
+  // block, which a prerendered shell cannot know — but the screen still needs its `<h1>`,
+  // and it shares the avatar's row, so it costs no height.
+  '/': { tab: 'today', title: null, heading: 'Hoy' },
   // `Planner`'s own header carries the week count and the Semanas/Análisis switch.
   '/plan': { tab: 'plan', title: 'Plan', heading: '', header: false },
   '/progreso': {

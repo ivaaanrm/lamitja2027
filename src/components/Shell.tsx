@@ -106,7 +106,11 @@ function Header({ meta }: { meta: RouteMeta }) {
   }
 
   return (
-    <header className="flex items-start justify-between gap-2 px-0.5 pb-0.5">
+    // A heading with no line under it centres on the avatar's 44px; one with a sub hangs
+    // from the top so the two lines read down from the same edge as the avatar.
+    <header
+      className={cn('flex justify-between gap-2 px-0.5 pb-0.5', meta.sub ? 'items-start' : 'items-center')}
+    >
       <div className="min-w-0">
         {meta.heading ? (
           <h1 className="font-display text-title2 font-bold tracking-tight text-label">

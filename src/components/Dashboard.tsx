@@ -129,36 +129,8 @@ function DashboardScreen() {
   // this screen is counted from them.
   if (!data.block) return <NoBlockCard />
 
-
-  if (!data.stravaConnected) {
-    return (
-      <Card className="fade-up">
-        <CardTitle>Strava</CardTitle>
-        {stravaNotice ? (
-          <p role="alert" className="mb-2 text-footnote leading-relaxed text-red">
-            {stravaNotice}
-          </p>
-        ) : null}
-        <EmptyState
-          action={
-            // The application accent is Strava's own orange, so this connection action
-            // and every primary state resolve through the same token.
-            <a
-              href="/api/strava/connect"
-              className="tappable inline-flex h-11 items-center justify-center rounded-xl bg-accent px-5 text-footnote font-semibold text-surface"
-            >
-              Conectar con Strava
-            </a>
-          }
-        >
-          El plan ya está aquí, pero faltan los kilómetros. Conecta Strava para traer las
-          salidas de este bloque.
-        </EmptyState>
-      </Card>
-    )
-  }
-
   const block = data.block
+  const connected = data.stravaConnected
   const hrMax = data.user.hrMax ?? DEFAULT_HR_MAX
   // A zone is a share of *this* athlete's goal pace — see the same line in `Planner`.
   const bands = paceBands(goalPaceSKm(block))
@@ -189,15 +161,21 @@ function DashboardScreen() {
       <RaceCountdown block={block} now={now} />
       <WeekHero block={block} metrics={metrics} week={week} today={today} notStarted={now < block.startsOn} />
       <ThisWeek week={week} today={today} hrMax={hrMax} bands={bands} onToggle={toggle} />
-      <RecentRuns runs={recent} hrMax={hrMax} busy={busy} onSync={() => void sync()} />
+      {connected ? (
+        <RecentRuns runs={recent} hrMax={hrMax} busy={busy} onSync={() => void sync()} />
+      ) : (
+        <ConnectStrava />
+      )}
       <RaceCard block={block} progress={progress} now={now} />
 
       <footer className="pt-0.5 text-center">
-        <p className="text-caption text-label-4">
-          {data.lastSyncAt
-            ? `Sincronizado el ${syncFmt.format(new Date(data.lastSyncAt))}`
-            : 'Sin sincronizar todavía'}
-        </p>
+        {connected ? (
+          <p className="text-caption text-label-4">
+            {data.lastSyncAt
+              ? `Sincronizado el ${syncFmt.format(new Date(data.lastSyncAt))}`
+              : 'Sin sincronizar todavía'}
+          </p>
+        ) : null}
         {/* Always rendered, empty or not: a live region has to be in the document *before*
             it changes to be announced, and an empty paragraph draws no line box. */}
         <p role="status" aria-live="polite" className="text-caption text-red">
@@ -484,6 +462,36 @@ function RecentRuns({
 }
 
 /**
+ * Where the last runs go until there is somewhere to read them from.
+ *
+ * This used to be the whole screen: an athlete without Strava saw one card and no plan,
+ * on the tab whose job is "what do I run today" — and the plan does not need Strava to be
+ * read, only to be ticked off by itself. So the screen renders as it always does and this
+ * takes `RecentRuns`' slot, the one card that genuinely has nothing to show without it.
+ */
+function ConnectStrava() {
+  return (
+    <Card className="fade-up">
+      <CardTitle>Últimas salidas</CardTitle>
+      <EmptyState
+        action={
+          // The application accent is one digit from Strava's own orange, so this action
+          // reads as Strava's button and as the app's primary at once.
+          <a
+            href="/api/strava/connect"
+            className="tappable inline-flex h-11 items-center justify-center rounded-xl bg-accent px-5 text-footnote font-semibold text-surface"
+          >
+            Conectar con Strava
+          </a>
+        }
+      >
+        Conecta Strava para traer las salidas de este bloque y marcar las sesiones solas.
+      </EmptyState>
+    </Card>
+  )
+}
+
+/**
  * The long view, and the second ring on the screen: how much of the block is behind you,
  * with the days left to race in the middle of it.
  *
@@ -561,8 +569,20 @@ function RaceCard({
         />
         <Stat
           label="Cadencia"
-          value={progress.block.meanCadenceSpm ? Math.round(progress.block.meanCadenceSpm) : '—'}
-          hint="objetivo 170 pasos/min"
+          value={
+            progress.block.meanCadenceSpm ? (
+              <>
+                {Math.round(progress.block.meanCadenceSpm)}
+                <span className="ml-1 text-caption font-normal text-label-3">pasos/min</span>
+              </>
+            ) : (
+              '—'
+            )
+          }
+          // The unit rides on the value, as `km` and `/km` do beside it: at a third of the
+          // card "objetivo 170 pasos/min" wrapped and left this column a line taller than
+          // its two neighbours.
+          hint="objetivo 170"
         />
       </StatStrip>
     </Card>
