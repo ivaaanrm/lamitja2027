@@ -40,6 +40,8 @@ export interface RouteMeta {
   title: string | null
   /** The `<h1>`. Empty on a screen that says its own name inside the island. */
   heading: string
+  /** Show the app icon in the heading's place; the heading stays, for a screen reader. */
+  brand?: boolean
   sub?: string
   /** `false` where the screen owns the whole top row because its navigation is interactive. */
   header?: boolean
@@ -50,8 +52,10 @@ export interface RouteMeta {
 export const ROUTES: Record<string, RouteMeta> = {
   // The race is said inside the island — `RaceCountdown` reads the signed-in athlete's own
   // block, which a prerendered shell cannot know — but the screen still needs its `<h1>`,
-  // and it shares the avatar's row, so it costs no height.
-  '/': { tab: 'today', title: null, heading: 'Hoy' },
+  // and it shares the avatar's row, so it costs no height. The dock already says *Hoy*
+  // under a lit tab, so the row shows the app's icon instead and the word is kept for
+  // assistive tech only.
+  '/': { tab: 'today', title: null, heading: 'Hoy', brand: true },
   // `Planner`'s own header carries the week count and the Semanas/Análisis switch.
   '/plan': { tab: 'plan', title: 'Plan', heading: '', header: false },
   '/progreso': {

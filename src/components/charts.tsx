@@ -410,7 +410,6 @@ export function BarRow({
    * Spanish, and required for the same reason `LineChart`'s is: the per-bar `title` below
    * is a desktop bonus and nothing else — a phone has no hover, and iOS shows nothing on a
    * long press — so without this the densest chart on the page reads as nothing at all.
-   * One sentence for the row, the way `WeekCalendar` labels a column.
    */
   label: string
   height?: number

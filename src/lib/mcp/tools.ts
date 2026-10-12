@@ -231,8 +231,7 @@ export interface McpCtx {
  * `plan_weeks.targetVolumeM` is the ramp figure the sessions were *sized from*; this is
  * what they prescribe, and where the two disagree the sessions are the truth. `SESSION_META`
  * decides which types count — a strength session is not running volume — which is the same
- * filter `WeekCalendar` draws its week bar from and the same one the app sums a week's
- * target with.
+ * filter the app sums a week's target with.
  */
 const prescribedVolumeM = (matched: MatchedSession[]): number =>
   matched

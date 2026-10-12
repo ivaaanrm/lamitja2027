@@ -112,7 +112,14 @@ function Header({ meta }: { meta: RouteMeta }) {
       className={cn('flex justify-between gap-2 px-0.5 pb-0.5', meta.sub ? 'items-start' : 'items-center')}
     >
       <div className="min-w-0">
-        {meta.heading ? (
+        {meta.brand ? (
+          // `icon-192.png` and not `icon.svg`: the service worker precaches it, so the
+          // header is whole on a launch with no signal. 192px drawn at 44 is retina-sharp.
+          <h1>
+            <img src="/icon-192.png" alt="" width="44" height="44" className="size-11 rounded-[10px]" />
+            <span className="sr-only">{meta.heading}</span>
+          </h1>
+        ) : meta.heading ? (
           <h1 className="font-display text-title2 font-bold tracking-tight text-label">
             {meta.heading}
           </h1>

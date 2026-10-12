@@ -9,7 +9,6 @@ import { DEFAULT_HR_MAX, hrZone, paceBands, zoneTag } from '@/lib/paces'
 import type { MatchedSession, WeekPlan } from '@/lib/plan'
 import { setDone } from '@/lib/plan-client'
 import { ThisWeek } from './ThisWeek'
-import { WeekCalendar } from './WeekCalendar'
 import { NoBlockCard, useBlock } from './useBlock'
 import { island } from './Island'
 import {
@@ -35,8 +34,7 @@ import {
  *
  * The composition is hero-plus-ring over a day list, and it is deliberately a shape no
  * other tab repeats: one display-sized number (the week's kilometres) with its target as
- * an arc beside it, the seven days as a strip under it, and the session still owed one
- * card below in `ThisWeek`. Everything between those two got cut so the second question
+ * an arc beside it, and the session still owed one card below in `ThisWeek`. Everything between those two got cut so the second question
  * lands above the fold — a card of this many parts is what pushed "what do I run today"
  * off the first screen.
  *
@@ -44,7 +42,7 @@ import {
  * carry a twelve-week line of weekly volume *and* a twenty-three-week bar of the same
  * quantity, and `/progreso` draws that bar too, against last season. Three renderings of
  * one number across two tabs is how four screens stop reading as one app: Hoy is *now* —
- * two rings, a week strip and the last runs — and trends belong to the screen named after
+ * two rings, the week's days and the last runs — and trends belong to the screen named after
  * them.
  */
 
@@ -137,7 +135,7 @@ function DashboardScreen() {
   const week = weeks[currentWeek]
   const metrics = progress.weekly[currentWeek]
   // One clock for the whole screen: `useBlock` pins `now` at mount, so "today" cannot
-  // drift between the strip and the day lines while the tab is open.
+  // drift between the day lines while the tab is open.
   const today = startOfDay(now)
 
   // The last four runs are exactly one training week of them, which is what makes this a
@@ -159,7 +157,7 @@ function DashboardScreen() {
         </Card>
       ) : null}
       <RaceCountdown block={block} now={now} />
-      <WeekHero block={block} metrics={metrics} week={week} today={today} notStarted={now < block.startsOn} />
+      <WeekHero block={block} metrics={metrics} notStarted={now < block.startsOn} />
       <ThisWeek week={week} today={today} hrMax={hrMax} bands={bands} onToggle={toggle} />
       {connected ? (
         <RecentRuns runs={recent} hrMax={hrMax} busy={busy} onSync={() => void sync()} />
@@ -299,25 +297,27 @@ function RaceCountdown({ block, now }: { block: BlockConfig; now: number }) {
  * the arc beside it.
  *
  * Volume against a target is always a ring and never a bar — a bar is for a share that is
- * incidental to a row, and here the share *is* the question. The arc clamps at a full ring,
- * so the overshoot is said in words underneath instead.
+ * incidental to a row, and here the share *is* the question. The arc clamps at a full ring
+ * while its label keeps the true percentage, so an overshoot reads as `112%`.
+ *
+ * Compact by having fewer parts, not smaller ones. The target rides on the number's own
+ * line (`12,4 de 47,5 km`), so the sentence that used to say how far short the week was is
+ * kept only for the two cases the number cannot say — a block not yet open, a week with no
+ * target. The seven-day strip is gone too: `ThisWeek`, one card down, is the same week day
+ * by day with the distances printed, and a strip above it was the week drawn twice.
  */
 function WeekHero({
   block,
   metrics,
-  week,
-  today,
   notStarted,
 }: {
   block: BlockConfig
   metrics: WeekMetrics
-  week: WeekPlan | undefined
-  /** UTC midnight of the current local day. */
-  today: number
   notStarted: boolean
 }) {
   const km = metrics.totals.distanceM / 1000
   const targetKm = metrics.targetVolumeM == null ? null : metrics.targetVolumeM / 1000
+  const hasTarget = targetKm != null && targetKm > 0
 
   // One qualifier is all the eyebrow fits, and a down week is the one that explains a
   // target that just fell off a cliff — so it takes the phase's place rather than queuing
@@ -333,59 +333,47 @@ function WeekHero({
             : `Semana ${metrics.weekIndex + 1} de ${totalWeeks(block)}${qualifier ? ` · ${qualifier}` : ''}`
         }
         value={decimal(km)}
-        unit="km"
-        context={weekContext(km, targetKm, notStarted)}
+        unit={hasTarget ? `de ${decimal(targetKm)} km` : 'km'}
+        context={weekContext(hasTarget, notStarted)}
         trailing={
-          targetKm != null && targetKm > 0 ? (
+          hasTarget ? (
             <ProgressRing
               value={km}
               target={targetKm}
-              size={64}
+              size={56}
               label={`${Math.round((km / targetKm) * 100)}%`}
-              sublabel="objetivo"
-              ariaLabel={`${decimal(km)} km de los ${decimal(targetKm, 0)} previstos esta semana`}
+              ariaLabel={`${decimal(km)} km de los ${decimal(targetKm)} previstos esta semana`}
             />
           ) : undefined
         }
       />
 
-      {/* The week's shape, directly under the number it is made of. It prints no figures:
-          the strip says which days are heavy and which are behind you, and the line for
-          each day one card down says how far. */}
-      {week ? <WeekCalendar week={week} today={today} className="mt-3" /> : null}
-
       <StatStrip className="mt-3">
         <Stat
           label="Sesiones"
-          value={metrics.sessionsDone}
-          hint={
-            metrics.sessionsPlanned > 0
-              ? `de ${metrics.sessionsPlanned} previstas`
-              : 'sin sesiones previstas'
+          value={
+            metrics.sessionsPlanned > 0 ? (
+              <>
+                {metrics.sessionsDone}
+                <span className="font-normal text-label-3">/{metrics.sessionsPlanned}</span>
+              </>
+            ) : (
+              metrics.sessionsDone
+            )
           }
         />
-        <Stat label="Tiempo" value={formatDuration(metrics.totals.movingS)} hint="en movimiento" />
-        <Stat
-          label="Desnivel"
-          value={`${decimal(metrics.totals.elevationM, 0)} m`}
-          hint="acumulado"
-        />
+        <Stat label="Tiempo" value={formatDuration(metrics.totals.movingS)} />
+        <Stat label="Desnivel" value={`${decimal(metrics.totals.elevationM, 0)} m`} />
       </StatStrip>
     </Card>
   )
 }
 
-/** The sentence that stops the hero number being trivia: what it is still short of. */
-function weekContext(km: number, targetKm: number | null, notStarted: boolean): string {
+/** The line under the number, only for what `de 47,5 km` and the ring cannot say. */
+function weekContext(hasTarget: boolean, notStarted: boolean): string | undefined {
   if (notStarted) return 'La cuenta empieza el lunes que abre el bloque.'
-  if (targetKm == null || targetKm <= 0) return 'Esta semana no tiene objetivo de volumen en el plan.'
-
-  const left = targetKm - km
-  // A tenth of a kilometre either way is GPS noise, not a verdict.
-  if (left > 0.05) return `Faltan ${decimal(left)} km para los ${decimal(targetKm, 0)} previstos.`
-  if (left < -0.05)
-    return `Objetivo de ${decimal(targetKm, 0)} km cumplido, ${decimal(-left)} km de más.`
-  return `Objetivo de ${decimal(targetKm, 0)} km cumplido.`
+  if (!hasTarget) return 'Esta semana no tiene objetivo de volumen en el plan.'
+  return undefined
 }
 
 /**
@@ -616,21 +604,15 @@ function DashboardSkeleton() {
         <div className="flex items-center gap-3">
           <div className="min-w-0 flex-1">
             <Skeleton className="h-2.5 w-36" />
-            <Skeleton className="mt-2.5 h-8 w-24" />
-            <Skeleton className="mt-2.5 h-3 w-48" />
+            <Skeleton className="mt-2.5 h-8 w-36" />
           </div>
-          <Skeleton className="size-16 shrink-0 rounded-full" />
-        </div>
-        <div className="mt-3 flex gap-1">
-          {Array.from({ length: 7 }, (_, i) => (
-            <Skeleton key={i} className="h-14 flex-1" />
-          ))}
+          <Skeleton className="size-14 shrink-0 rounded-full" />
         </div>
         <div className="mt-3 grid grid-cols-3 gap-2.5">
           {Array.from({ length: 3 }, (_, i) => (
             <div key={i}>
               <Skeleton className="h-2 w-12" />
-              <Skeleton className="mt-1.5 h-4 w-14" />
+              <Skeleton className="mt-1.5 h-4 w-10" />
             </div>
           ))}
         </div>
