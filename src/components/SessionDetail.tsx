@@ -98,7 +98,7 @@ function SessionDetailScreen({ route }: { route: Route }) {
         <CardTitle>Sesión</CardTitle>
         <EmptyState action={<TextLink href={back.href}>Volver a {back.label}</TextLink>}>
           {id
-            ? 'Esa sesión ya no está en el plan. Puede que la hayas borrado o que el plan se haya vuelto a sembrar desde entonces.'
+            ? 'Esa sesión ya no está en el plan. Puede que la hayas borrado o que el plan se haya reescrito desde entonces.'
             : 'La dirección no dice qué sesión abrir. Vuelve al plan y toca una.'}
         </EmptyState>
       </Card>
@@ -180,7 +180,10 @@ function SessionDetailScreen({ route }: { route: Route }) {
           >
             {done ? 'Marcar como pendiente' : 'Marcar como hecha'}
           </ActionLink>
-        ) : session.type === 'rest' ? (
+        ) : session.type === 'rest' || activity ? (
+          // Nothing to say on a rest day, and nothing left to say once a run has answered
+          // the session: «Se marca sola…» under a card already reading «Lo que hiciste»
+          // was a promise about something that had happened.
           <span />
         ) : (
           <p className="text-caption leading-relaxed text-label-3">
