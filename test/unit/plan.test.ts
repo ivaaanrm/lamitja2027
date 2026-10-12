@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { type BlockConfig, DAY_MS, DEFAULT_BLOCK, WEEK_MS, weekDays } from '@/lib/block'
-import { buildBlock, buildWeek, effortLabel, matchDay, sessionEffort } from '@/lib/plan'
+import { buildBlock, buildWeek, effortLabel, matchDay, sessionEffort, titleNamesType } from '@/lib/plan'
 import type { Activity, PlanSession } from '@/lib/db/schema'
 import { PACES } from '@/lib/paces'
 import { cooldown, jogFor, km, reps, steady, warmup } from '@/lib/workout'
@@ -246,5 +246,20 @@ describe('sessionEffort', () => {
     const effort = sessionEffort(session({ type: 'strength', targetDurationS: 2100 }))
     expect(effort.estimateS).toBeNull()
     expect(effort.band).toBeNull()
+  })
+})
+
+describe('titleNamesType', () => {
+  it('is true when the title opens on the label, as a whole word', () => {
+    expect(titleNamesType('Fuerza de cadera', 'strength')).toBe(true)
+    expect(titleNamesType('Descanso', 'rest')).toBe(true)
+    expect(titleNamesType('rodaje + progresiones', 'easy')).toBe(true)
+    expect(titleNamesType('CARRERA', 'race')).toBe(true)
+  })
+
+  it('is false when the label is elsewhere, partial or absent', () => {
+    expect(titleNamesType('Tirada larga', 'long')).toBe(false)
+    expect(titleNamesType('Rodajes', 'easy')).toBe(false)
+    expect(titleNamesType('Morning Run', 'easy')).toBe(false)
   })
 })

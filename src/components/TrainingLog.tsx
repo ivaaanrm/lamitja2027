@@ -6,7 +6,7 @@ import { percentDelta, summarise, weeklyTotals } from '@/lib/analytics'
 import { cn } from '@/lib/cn'
 import type { Activity } from '@/lib/db/schema'
 import { decimal } from '@/lib/format'
-import { SESSION_META, type SessionType, type WeekPlan } from '@/lib/plan'
+import { SESSION_META, titleNamesType, type SessionType, type WeekPlan } from '@/lib/plan'
 import { ChartLegend } from './charts'
 import { NoBlockCard, useBlock } from './useBlock'
 import { island } from './Island'
@@ -252,7 +252,7 @@ function SummaryCard({
         <Stat
           label="Salidas"
           value={season.totals.runs}
-          hint={`${season.consistency.daysRun} de ${season.consistency.days} días`}
+          hint={`${season.consistency.daysRun} de ${season.consistency.days} ${season.consistency.days === 1 ? 'día' : 'días'}`}
         />
         <Stat
           label="Tiempo"
@@ -661,7 +661,7 @@ function ActivityListCard({ activities, weeks }: { activities: Activity[]; weeks
  *
  * A row, emphatically not a card: at a hundred and fifty activities a card apiece is a
  * hundred and fifty boxes doing one box's work. The rhythm comes from a hairline and a
- * 64px floor instead, which is also comfortably past the 44px a thumb needs.
+ * 56px floor instead, which is also comfortably past the 44px a thumb needs.
  *
  * The right-hand numbers sit in a fixed-width column so they line up down the whole list —
  * the difference between a list you scan and a list you read. Which number leads depends
@@ -688,22 +688,29 @@ function ActivityRow({
   return (
     <a
       href={`/actividad?id=${activity.id}`}
-      className="tappable flex min-h-16 items-center gap-2 border-t border-line py-2.5"
+      className="tappable flex min-h-14 items-center gap-2.5 border-t border-line py-2"
     >
+      {/* The session's tile, as Hoy's week list and the plan's analysis draw it — a 3px
+          rail here was the one place the same fact wore a different mark, and at that
+          width telling violet from coral meant comparing two rows. Hollow for a run no
+          session asked for, as on Hoy: it happened, the plan just did not ask. */}
       <span
         aria-hidden
         className={cn(
-          'h-8 w-[3px] shrink-0 rounded-full',
-          answered ? ACCENT[answered].rail : 'bg-fill-strong',
+          'size-7 shrink-0 rounded-[0.625rem]',
+          answered ? ACCENT[answered].swatch : 'ring-1 ring-inset ring-line',
         )}
       />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-footnote text-label">{activity.name}</span>
-        {/* The rail's colour is repeated as a word here, so the session type is never
-            carried by the hue alone. */}
+        {/* The tile's colour is repeated as a word, so the session type is never carried
+            by the hue alone — unless the name already says it, which on a run renamed
+            «Rodaje» would otherwise read «Rodaje / vie 9 · Rodaje». */}
         <span className="block truncate text-caption text-label-3">
           {dayFmt.format(new Date(activity.startedOn))}
-          {answered ? ` · ${SESSION_META[answered].label}` : ''}
+          {answered && !titleNamesType(activity.name, answered)
+            ? ` · ${SESSION_META[answered].label}`
+            : ''}
         </span>
       </span>
       <span className="w-[4.5rem] shrink-0 text-right">

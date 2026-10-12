@@ -52,6 +52,21 @@ export const SESSION_META: Record<SessionType, SessionMeta> = {
 }
 
 /**
+ * Whether a title already opens on its type's own label, as a whole word — accent- and
+ * case-blind, so «Fuerza de cadera», «fuerza» and «FUERZA» all count for `strength`.
+ *
+ * What it is for is the stutter: a row that prints the type beside a title that already
+ * says it («FUERZA Fuerza de cadera», «Rodaje · Rodaje») spends a third of its width
+ * saying one word twice. Where it answers yes, the label can go and the title carries it.
+ */
+export function titleNamesType(title: string, type: SessionType): boolean {
+  const fold = (text: string) => text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
+  const label = fold(SESSION_META[type].label)
+  const head = fold(title.trim())
+  return head === label || head.startsWith(`${label} `)
+}
+
+/**
  * What a session asks of the legs, resolved once for every screen that says it.
  *
  * The pace is the first thing a runner needs and the easiest one to lose: it lives in
